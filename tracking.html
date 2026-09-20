@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Praxis – interne Buchungsauswertung</title>
+<style>
+:root{--bg:#f5f2ee;--paper:#fff;--ink:#303536;--muted:#73787b;--line:#ded8d2;--accent:#765f56;--soft:#eee8e4;--bad:#a33a3a}
+*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}.wrap{max-width:1180px;margin:30px auto;padding:0 18px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}h1{font-size:28px;margin:0 0 10px}h2{font-size:20px}.muted{color:var(--muted);font-size:13px;line-height:1.5}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.urlbox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f7f5f2;border:1px solid var(--line);border-radius:9px;padding:10px 12px;overflow-wrap:anywhere;flex:1;min-width:260px}button{padding:11px 14px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;font:inherit}.primary{background:var(--accent);color:white;border-color:var(--accent)}.bad{color:var(--bad)}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.card{background:var(--soft);border-radius:12px;padding:14px}.card strong{display:block;font-size:24px;margin-top:5px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid #eee;white-space:nowrap}th{position:sticky;top:0;background:white}.hidden{display:none}@media(max-width:800px){.cards{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body><div class="wrap">
+<section class="panel">
+<h1>Interne Buchungsauswertung</h1>
+<p class="muted">Der geheime Schlüssel steckt ausschließlich im URL-Fragment (#k=…) und wird nicht an den Webserver übertragen. Bitte die vollständige URL nicht öffentlich weitergeben. Gespeichert werden nur Buchungsmetadaten erfolgreicher Online-Buchungen; keine Namen, Geburtsdaten, E-Mail-Adressen, Telefonnummern oder Freitexte.</p>
+<div class="row"><div class="urlbox" id="currentUrl"></div><button id="copyUrl">URL kopieren</button><button class="primary" id="reload">Aktualisieren</button><button id="csv" class="hidden">CSV exportieren</button></div>
+<div id="status" class="muted" style="margin-top:10px">Lädt …</div>
+</section>
+<section class="panel hidden" id="summaryPanel">
+<div class="cards">
+  <div class="card"><span class="muted">Gesamt</span><strong id="nAll">0</strong></div>
+  <div class="card"><span class="muted">Privat / Selbstzahler</span><strong id="nPkv">0</strong></div>
+  <div class="card"><span class="muted">GKV</span><strong id="nGkv">0</strong></div>
+  <div class="card"><span class="muted">Besondere Selbstzahler</span><strong id="nSelf">0</strong></div>
+</div>
+</section>
+<section class="panel hidden" id="tablePanel">
+<h2>Buchungen</h2>
+<div class="table-wrap"><table><thead><tr><th>Termin</th><th>Buchungspfad</th><th>Status</th><th>Terminart</th><th>Ärztin</th><th>Dauer</th><th>erfasst</th></tr></thead><tbody id="rows"></tbody></table></div>
+</section>
+</div>
+<script>
+const $=s=>document.querySelector(s);let current=[];
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const deDate=iso=>String(iso||'').split('-').reverse().join('.');
+const routeName=r=>r==='PKV'?'Privatversicherte / Selbstzahler':r==='GKV'?'Gesetzlich Versicherte':r==='SELF'?'Besondere Selbstzahlerleistungen':r;
+const patientName=p=>p==='existing'?'Bestandspatientin':p==='new'?'Neupatientin':'';
+function accessKey(){
+ const p=new URLSearchParams(location.hash.replace(/^#/,''));
+ const fromUrl=p.get('k')||'';
+ if(fromUrl){
+  try{localStorage.setItem('medidateReportKey',fromUrl)}catch{}
+  return fromUrl;
+ }
+ try{return localStorage.getItem('medidateReportKey')||''}catch{return ''}
+}
+function render(events,retention,storage){
+ current=events||[];
+ $('#nAll').textContent=current.length;$('#nPkv').textContent=current.filter(x=>x.route==='PKV').length;$('#nGkv').textContent=current.filter(x=>x.route==='GKV').length;$('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;
+ $('#rows').innerHTML=current.map(x=>`<tr><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType))}</td><td>${esc(x.serviceName)}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
+ $('#summaryPanel').classList.remove('hidden');$('#tablePanel').classList.remove('hidden');$('#csv').classList.remove('hidden');
+ const storageName=storage==='vercel-blob-private'?'privater Vercel Blob':storage||'Speicher';
+ $('#status').className='muted';$('#status').textContent=`${current.length} Datensätze geladen · Speicherdauer: ${retention} Tage · Speicher: ${storageName}`;
+}
+async function load(){
+ const key=accessKey();$('#status').className='muted';$('#status').textContent='Lädt …';
+ if(!key){$('#status').className='muted bad';$('#status').textContent='Auswertungsschlüssel fehlt. Bitte die vollständige interne Auswertungs-URL öffnen.';return}
+ try{
+  const r=await fetch('/api/tracking?limit=2000',{cache:'no-store',credentials:'same-origin',headers:{'X-MediDate-Tracking-Key':key}});const j=await r.json();
+  if(!r.ok||!j.ok)throw new Error(j.error||`HTTP ${r.status}`);render(j.events,j.retentionDays,j.storage);
+ }catch(e){$('#status').className='muted bad';$('#status').textContent=e.message;$('#summaryPanel').classList.add('hidden');$('#tablePanel').classList.add('hidden');$('#csv').classList.add('hidden')}
+}
+function csv(){
+ const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Terminart','Ärztin','Dauer Minuten','Erfasst'];
+ const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
+ const lines=[head,...current.map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
+ const blob=new Blob(['\ufeff'+lines],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='medidate-buchungsauswertung.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
+}
+$('#currentUrl').textContent=location.href;
+$('#copyUrl').onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$('#copyUrl').textContent='Kopiert';setTimeout(()=>$('#copyUrl').textContent='URL kopieren',1200)}catch{}};
+$('#reload').onclick=load;$('#csv').onclick=csv;load();
+</script></body></html>

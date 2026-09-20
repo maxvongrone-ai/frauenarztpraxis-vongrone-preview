@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /praxis
+Disallow: /admin.html
+Disallow: /tracking.html
+Disallow: /praxis-auswertung
+Disallow: /api/

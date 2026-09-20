@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Praxis – öffentliche Verfügbarkeitsansicht</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f5f2ee;color:#303536;margin:0}
+.wrap{max-width:980px;margin:30px auto;padding:0 18px}.panel{background:white;border:1px solid #ded8d2;border-radius:16px;padding:22px;margin-bottom:16px}
+button{padding:10px 14px;border:1px solid #cfc8c2;border-radius:9px;background:white;cursor:pointer}.muted{color:#73787b;font-size:13px;line-height:1.5}
+.day{padding:12px 0;border-top:1px solid #eee}.day:first-child{border-top:0}.slot{display:inline-block;margin:4px;padding:6px 8px;border-radius:8px;background:#eef7f0;border:1px solid #cfe1d2;font-size:13px}
+.bad{color:#9a3333}
+</style>
+</head>
+<body><div class="wrap">
+<section class="panel">
+<h1>Praxis-Verfügbarkeitsansicht</h1>
+<p class="muted">Diese Ansicht enthält ausschließlich öffentliche freie mediDate-Slots. Sie enthält keine Patientennamen, keine belegten MEDISOFT-Termine und kein Patienten-Postfach.</p>
+<button id="reload">Aktualisieren</button><span id="status" class="muted"></span>
+</section>
+<section class="panel" id="content"></section>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function doctorName(id){return Number(id)===512?'Dr. med. Christina Moxter':Number(id)===513?'Dr. med. Friederike von Grone':`Ärztin ${id}`}
+async function load(){
+ const st=$('#status'),box=$('#content');st.textContent=' Lädt …';box.innerHTML='';
+ try{
+   const r=await fetch('/api/medidate?action=publicBundle',{cache:'no-store'}),j=await r.json();
+   if(!r.ok||!j.ok)throw new Error(j.error||`HTTP ${r.status}`);
+   const rows=[];
+   for(const g of (j.groups||[])){
+     for(const a of (g.availability?.appointmentTimes||[])){
+       const date=String(a.dateTimeStart||'').slice(0,10);
+       for(const time of (a.times||[]))rows.push({date,time,doctorId:a.doctorId,serviceName:g.serviceName,duration:a.duration});
+     }
+   }
+   rows.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+   const byDate=new Map();for(const x of rows){if(!byDate.has(x.date))byDate.set(x.date,[]);byDate.get(x.date).push(x)}
+   box.innerHTML=[...byDate].map(([date,items])=>`<div class="day"><strong>${esc(date.split('-').reverse().join('.'))}</strong><div>${items.map(x=>`<span class="slot">${esc(x.time.replace('.',':'))} · ${esc(x.serviceName)} · ${esc(doctorName(x.doctorId))}</span>`).join('')}</div></div>`).join('')||'<div class="muted">Keine freien Slots.</div>';
+   st.textContent=` ${rows.length} freie Slots`;
+ }catch(e){st.className='muted bad';st.textContent=' '+e.message}
+}
+$('#reload').onclick=load;load();
+</script></body></html>

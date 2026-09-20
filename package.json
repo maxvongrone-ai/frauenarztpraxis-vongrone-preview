@@ -1,0 +1,15 @@
+{
+  "name": "frauenarzt-vongrone-direct-medidate",
+  "version": "60.7.1",
+  "private": true,
+  "description": "mediDate Sonderversion: schnelle Direktbuchung mit privatem Vercel-Blob-Tracking und geheimer Auswertungs-URL ohne Passwort-Eingabe; Geheimnis nicht im Repository",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "node scripts/build-seed.js"
+  },
+  "dependencies": {
+    "@vercel/blob": "2.8.0"
+  }
+}
