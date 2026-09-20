@@ -7,7 +7,7 @@ async function blobApi(){
   return _blobApiPromise;
 }
 
-const ADMIN_TOKEN_SHA256='fcaf02663638ee5756e8f41f2d05c6b8db98e7ca22a701754b88f0a0c6d457e3';
+const ADMIN_TOKEN_SHA256='57c856614af64afa3277710a7012aca0b1b9b151703c4efbea9f69db310ace46';
 const RETENTION_DAYS=180;
 const TRACKING_PREFIX='medidate-booking-tracking/v3/events/';
 const MAINTENANCE_PREFIX='medidate-booking-tracking/v3/maintenance/';
