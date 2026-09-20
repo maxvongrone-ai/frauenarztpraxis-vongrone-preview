@@ -204,7 +204,7 @@ async function buildLiveBundle(){
   };
 }
 
-module.exports=async function handler(req,res){
+const medidateHandler=async function handler(req,res){
   const started=Date.now();
   try{
     if(!sameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
@@ -268,3 +268,6 @@ module.exports=async function handler(req,res){
     return send(res,502,{ok:false,error:e?.message||'Unbekannter Fehler'});
   }
 };
+
+module.exports=medidateHandler;
+module.exports.buildLiveBundle=buildLiveBundle;
