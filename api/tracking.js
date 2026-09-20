@@ -265,13 +265,84 @@ async function writeMaintenanceMarker(pathname,data){
     allowOverwrite:true
   });
 }
+
+function sameTrackedSlot(a,b){
+  return String(a?.appointmentDate||'')===String(b?.appointmentDate||'') &&
+    Number(a?.doctorId||0)===Number(b?.doctorId||0) &&
+    timeMinutes(a?.appointmentTime)===timeMinutes(b?.appointmentTime);
+}
+async function reconcileRebookedEvents(){
+  const records=await readEventRecords(5000);
+  const ordered=records
+    .filter(({event})=>event?.eventType==='booking_completed')
+    .sort((a,b)=>String(a.event.recordedAt||'').localeCompare(String(b.event.recordedAt||'')));
+
+  const lastBySlot=new Map();
+  let linked=0,updated=0;
+
+  for(const record of ordered){
+    let event=record.event;
+    const mins=timeMinutes(event?.appointmentTime);
+    if(!String(event?.appointmentDate||'')||!Number(event?.doctorId||0)||!Number.isFinite(mins))continue;
+    const key=String(event.appointmentDate)+'|'+Number(event.doctorId)+'|'+mins;
+    const previous=lastBySlot.get(key);
+
+    if(previous&&previous.event.eventId!==event.eventId){
+      const previousEvent=previous.event;
+      const previousNeedsUpdate=
+        previousEvent.bookingStatus!=='released' ||
+        previousEvent.releaseEvidence!=='slot_rebooked' ||
+        previousEvent.rebookedByEventId!==event.eventId ||
+        previousEvent.releaseConfirmedByRebookingAt!==event.recordedAt;
+
+      if(previousNeedsUpdate){
+        const updatedPrevious={
+          ...previousEvent,
+          schemaVersion:4,
+          bookingStatus:'released',
+          releaseDetectedAt:previousEvent.releaseDetectedAt||event.recordedAt,
+          releaseEvidence:'slot_rebooked',
+          releaseConfirmedByRebookingAt:event.recordedAt,
+          rebookedByEventId:event.eventId
+        };
+        await overwriteEvent(previous,updatedPrevious);
+        previous.event=updatedPrevious;
+        updated++;
+      }
+
+      const currentNeedsUpdate=
+        event.previousBookingEventId!==previousEvent.eventId ||
+        event.previousBookingRecordedAt!==previousEvent.recordedAt;
+
+      if(currentNeedsUpdate){
+        const updatedCurrent={
+          ...event,
+          schemaVersion:Math.max(4,Number(event.schemaVersion)||0),
+          previousBookingEventId:previousEvent.eventId,
+          previousBookingRecordedAt:previousEvent.recordedAt
+        };
+        await overwriteEvent(record,updatedCurrent);
+        event=updatedCurrent;
+        record.event=updatedCurrent;
+        updated++;
+      }
+      linked++;
+    }
+
+    lastBySlot.set(key,record);
+  }
+
+  return {linked,updated};
+}
+
 async function reconcileTrackedBookings({force=false}={}){
   ensureBlobConfigured();
+  const rebooking=await reconcileRebookedEvents();
   const day=berlinNow().date;
   const markerPath=MAINTENANCE_PREFIX+'reconcile-'+day+'.json';
 
   if(!force&&await maintenanceMarkerExists(markerPath)){
-    return {ok:true,skipped:true,reason:'already-checked-today'};
+    return {ok:true,skipped:true,reason:'already-checked-today',rebooked:rebooking.linked||0};
   }
 
   const records=await readEventRecords(5000);
@@ -314,7 +385,7 @@ async function reconcileTrackedBookings({force=false}={}){
     released
   });
   cleanupIfNeeded().catch(()=>{});
-  return {ok:true,skipped:false,checked,released};
+  return {ok:true,skipped:false,checked,released,rebooked:rebooking.linked||0};
 }
 
 const trackingHandler=async function handler(req,res){
@@ -323,6 +394,10 @@ const trackingHandler=async function handler(req,res){
       if(!sameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
       const event=validatedEvent(await readJsonBody(req));
       await saveEvent(event);
+      // Eine spätere erfolgreiche Buchung desselben tatsächlichen Slots belegt,
+      // dass die unmittelbar vorherige getrackte Buchung dieses Slots nicht mehr
+      // bestand. Datum, Uhrzeit und Ärztin genügen dafür; die Terminart darf sich ändern.
+      await reconcileRebookedEvents().catch(e=>console.error('Rebooking reconciliation failed',{message:e?.message}));
       cleanupIfNeeded().catch(()=>{});
       return send(res,200,{ok:true,storage:'vercel-blob-private'});
     }
@@ -333,7 +408,7 @@ const trackingHandler=async function handler(req,res){
 
       if(action==='reconcile'){
         const result=await reconcileTrackedBookings({force:true});
-        return send(res,200,{ok:true,checked:result.checked||0,released:result.released||0});
+        return send(res,200,{ok:true,checked:result.checked||0,released:result.released||0,rebooked:result.rebooked||0});
       }
 
       const limit=Math.max(1,Math.min(5000,Number(req.query?.limit)||2000));
@@ -351,3 +426,4 @@ const trackingHandler=async function handler(req,res){
 
 module.exports=trackingHandler;
 module.exports.reconcileTrackedBookings=reconcileTrackedBookings;
+module.exports.reconcileRebookedEvents=reconcileRebookedEvents;
