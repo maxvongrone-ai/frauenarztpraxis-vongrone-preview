@@ -388,6 +388,81 @@ async function reconcileTrackedBookings({force=false}={}){
   return {ok:true,skipped:false,checked,released,rebooked:rebooking.linked||0};
 }
 
+
+async function readMaintenanceJson(pathname){
+  const {get}=await blobApi();
+  const r=await get(pathname,{access:'private',useCache:false}).catch(()=>null);
+  if(!r||r.statusCode!==200)return null;
+  try{return JSON.parse(await streamToText(r.stream))}catch{return null}
+}
+function publicChangeView(event){
+  return {
+    eventId:String(event?.eventId||''),
+    appointmentDate:String(event?.appointmentDate||''),
+    appointmentTime:String(event?.appointmentTime||''),
+    serviceName:String(event?.serviceName||'Termin'),
+    doctorName:String(event?.doctorName||'Ärztin'),
+    route:String(event?.route||''),
+    patientType:String(event?.patientType||''),
+    bookingStatus:String(event?.bookingStatus||'booked'),
+    releaseDetectedAt:String(event?.releaseDetectedAt||''),
+    releaseEvidence:String(event?.releaseEvidence||'')
+  };
+}
+async function getPushChanges(){
+  ensureBlobConfigured();
+
+  // Hourly checks should use current mediDate availability, not the once-daily marker.
+  await reconcileTrackedBookings({force:true});
+
+  const statePath=MAINTENANCE_PREFIX+'push-state.json';
+  const state=await readMaintenanceJson(statePath);
+  const checkedAt=new Date().toISOString();
+
+  if(!state?.lastCheckedAt){
+    await writeMaintenanceMarker(statePath,{lastCheckedAt:checkedAt});
+    return {
+      ok:true,
+      initialized:true,
+      notify:false,
+      checkedAt,
+      newBookings:[],
+      newReleases:[]
+    };
+  }
+
+  const sinceMs=Date.parse(String(state.lastCheckedAt||''));
+  const validSince=Number.isFinite(sinceMs)?sinceMs:Date.now();
+  const events=await readEvents(5000);
+
+  const newBookings=events
+    .filter(e=>Date.parse(String(e?.recordedAt||''))>validSince)
+    .map(publicChangeView);
+
+  const newReleases=events
+    .filter(e=>{
+      if(e?.bookingStatus!=='released')return false;
+      const candidates=[
+        Date.parse(String(e?.releaseDetectedAt||'')),
+        Date.parse(String(e?.releaseConfirmedByRebookingAt||''))
+      ].filter(Number.isFinite);
+      return candidates.length&&Math.max(...candidates)>validSince;
+    })
+    .map(publicChangeView);
+
+  await writeMaintenanceMarker(statePath,{lastCheckedAt:checkedAt});
+
+  return {
+    ok:true,
+    initialized:false,
+    notify:newBookings.length>0||newReleases.length>0,
+    checkedAt,
+    previousCheckedAt:state.lastCheckedAt,
+    newBookings,
+    newReleases
+  };
+}
+
 const trackingHandler=async function handler(req,res){
   try{
     if(req.method==='POST'){
@@ -427,3 +502,4 @@ const trackingHandler=async function handler(req,res){
 module.exports=trackingHandler;
 module.exports.reconcileTrackedBookings=reconcileTrackedBookings;
 module.exports.reconcileRebookedEvents=reconcileRebookedEvents;
+module.exports.getPushChanges=getPushChanges;
