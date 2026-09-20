@@ -127,7 +127,7 @@ async function listAll(prefix){
   return out;
 }
 function dateFromPath(pathname){
-  const m=String(pathname||'').match(/\/(?:events|maintenance)\/(?:cleanup-)?(\d{4}-\d{2}-\d{2})/);
+  const m=String(pathname||'').match(/\/(?:events|maintenance)\/(?:cleanup-|reconcile-)?(\d{4}-\d{2}-\d{2})/);
   return m?new Date(`${m[1]}T00:00:00Z`).getTime():NaN;
 }
 function blobDateMs(blob){
@@ -181,7 +181,143 @@ async function readEvents(limit){
   return events.sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
 }
 
-module.exports=async function handler(req,res){
+
+function berlinNow(){
+  const parts=new Intl.DateTimeFormat('en-CA',{
+    timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+  }).formatToParts(new Date());
+  const out={};for(const p of parts)if(p.type!=='literal')out[p.type]=p.value;
+  return {
+    date:out.year+'-'+out.month+'-'+out.day,
+    minutes:Number(out.hour)*60+Number(out.minute)
+  };
+}
+function timeMinutes(value){
+  const m=String(value||'').match(/^(\d{1,2})[.:](\d{2})$/);
+  return m?Number(m[1])*60+Number(m[2]):NaN;
+}
+function isFutureTrackedAppointment(event){
+  const now=berlinNow();
+  const date=String(event?.appointmentDate||'');
+  if(date>now.date)return true;
+  if(date<now.date)return false;
+  const mins=timeMinutes(event?.appointmentTime);
+  return Number.isFinite(mins)&&mins>now.minutes;
+}
+function slotIsAvailableAgain(group,event){
+  const rows=Array.isArray(group?.availability?.appointmentTimes)?group.availability.appointmentTimes:[];
+  const targetDate=String(event?.appointmentDate||'');
+  const doctorId=Number(event?.doctorId||0);
+  const start=timeMinutes(event?.appointmentTime);
+  if(!targetDate||!doctorId||!Number.isFinite(start))return false;
+
+  const blocks=Math.max(1,Math.ceil((Number(event?.duration)||15)/15));
+  for(const row of rows){
+    if(String(row?.dateTimeStart||'').slice(0,10)!==targetDate)continue;
+    if(Number(row?.doctorId||0)!==doctorId)continue;
+    const available=new Set((Array.isArray(row?.times)?row.times:[]).map(timeMinutes).filter(Number.isFinite));
+    let all=true;
+    for(let i=0;i<blocks;i++){
+      if(!available.has(start+i*15)){all=false;break}
+    }
+    if(all)return true;
+  }
+  return false;
+}
+async function readEventRecords(limit=5000){
+  ensureBlobConfigured();
+  const blobs=(await listAll(TRACKING_PREFIX))
+    .sort((a,b)=>blobDateMs(b)-blobDateMs(a))
+    .slice(0,limit);
+  const records=[];
+  for(let i=0;i<blobs.length;i+=40){
+    const batch=await Promise.all(blobs.slice(i,i+40).map(async blob=>({
+      blob,
+      event:await readOne(blob)
+    })));
+    records.push(...batch.filter(x=>x.event));
+  }
+  return records;
+}
+async function overwriteEvent(record,event){
+  const pathname=record?.blob?.pathname;
+  if(!pathname)throw new Error('Tracking-Pfad fehlt.');
+  const {put}=await blobApi();
+  await put(pathname,JSON.stringify(event),{
+    access:'private',
+    contentType:'application/json; charset=utf-8',
+    addRandomSuffix:false,
+    allowOverwrite:true
+  });
+}
+async function maintenanceMarkerExists(pathname){
+  const {get}=await blobApi();
+  const marker=await get(pathname,{access:'private',useCache:false}).catch(()=>null);
+  return marker?.statusCode===200;
+}
+async function writeMaintenanceMarker(pathname,data){
+  const {put}=await blobApi();
+  await put(pathname,JSON.stringify(data),{
+    access:'private',
+    contentType:'application/json; charset=utf-8',
+    addRandomSuffix:false,
+    allowOverwrite:true
+  });
+}
+async function reconcileTrackedBookings({force=false}={}){
+  ensureBlobConfigured();
+  const day=berlinNow().date;
+  const markerPath=MAINTENANCE_PREFIX+'reconcile-'+day+'.json';
+
+  if(!force&&await maintenanceMarkerExists(markerPath)){
+    return {ok:true,skipped:true,reason:'already-checked-today'};
+  }
+
+  const records=await readEventRecords(5000);
+  const candidates=records.filter(({event})=>{
+    if(event?.eventType!=='booking_completed')return false;
+    if(event?.bookingStatus==='released')return false;
+    if(!['1950','1973','1974'].includes(String(event?.serviceId||'')))return false;
+    return isFutureTrackedAppointment(event);
+  });
+
+  let checked=0,released=0;
+  if(candidates.length){
+    const {buildLiveBundle}=require('./medidate');
+    const live=await buildLiveBundle();
+    const groups=new Map((live?.groups||[]).map(g=>[String(g.serviceId),g]));
+
+    for(const record of candidates){
+      const event=record.event;
+      const group=groups.get(String(event.serviceId));
+      if(!group)continue;
+      checked++;
+      if(!slotIsAvailableAgain(group,event))continue;
+
+      const detectedAt=new Date().toISOString();
+      const updated={
+        ...event,
+        schemaVersion:4,
+        bookingStatus:'released',
+        releaseDetectedAt:detectedAt,
+        releaseEvidence:'slot_reappeared_in_medidate'
+      };
+      await overwriteEvent(record,updated);
+      released++;
+    }
+  }
+
+  await writeMaintenanceMarker(markerPath,{
+    checkedAt:new Date().toISOString(),
+    checked,
+    released
+  });
+  cleanupIfNeeded().catch(()=>{});
+  return {ok:true,skipped:false,checked,released};
+}
+
+const trackingHandler=async function handler(req,res){
   try{
     if(req.method==='POST'){
       if(!sameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
@@ -193,6 +329,13 @@ module.exports=async function handler(req,res){
 
     if(req.method==='GET'){
       if(!sameOrigin(req)||!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});
+      const action=String(req.query?.action||'read');
+
+      if(action==='reconcile'){
+        const result=await reconcileTrackedBookings({force:true});
+        return send(res,200,{ok:true,checked:result.checked||0,released:result.released||0});
+      }
+
       const limit=Math.max(1,Math.min(5000,Number(req.query?.limit)||2000));
       await cleanupIfNeeded().catch(()=>{});
       const events=await readEvents(limit);
@@ -205,3 +348,6 @@ module.exports=async function handler(req,res){
     return send(res,status,{ok:false,error:e?.message||'Tracking-Fehler.'});
   }
 };
+
+module.exports=trackingHandler;
+module.exports.reconcileTrackedBookings=reconcileTrackedBookings;
