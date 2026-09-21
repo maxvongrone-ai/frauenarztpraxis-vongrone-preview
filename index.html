@@ -116,7 +116,7 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
 window.__MEDIDATE_SEED__=null;
 </script>
 <script>
-const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,directTransport:null,mediDateSession:null};
+const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,directTransport:null,mediDateSession:null,followupGuards:new Set()};
 // Praxis-Stammdaten werden lokal gehalten: Service- und Arztauswahl brauchen
 // deshalb keine langsame mediDate-Abfrage mehr.
 const PRACTICE_DOCTORS=[
@@ -248,30 +248,39 @@ function add15DotTime(t){
  return `${String(Math.floor(mins/60)).padStart(2,'0')}.${String(mins%60).padStart(2,'0')}`;
 }
 function needs30MinuteBlock(){
- // Alle regulären Buchungen verwenden wieder genau einen 15-Minuten-Termin.
+ // Es wird weiterhin nur EIN mediDate-Termin gebucht. Für PKV-Neupatientinnen
+ // wird der unmittelbar folgende 15-Minuten-Slot lediglich in dieser
+ // Buchungs-App als Reserve ausgeblendet.
  return false;
 }
+function followupGuardKey(x){
+ return `${String(x?.date||'')}|${Number(x?.doctorId||0)}|${String(x?.time||'')}`;
+}
+function isHeldFollowup(x){
+ return state.followupGuards instanceof Set && state.followupGuards.has(followupGuardKey(x));
+}
+function isPrivateNewPatient(){
+ return state.insurance==='PKV'&&state.patientType==='new';
+}
 function onlyBookableStarts(items){
- if(!needs30MinuteBlock())return items;
+ // Ein nach einer PKV-Neupatientinnenbuchung reservierter Folgeslot wird
+ // unabhängig vom später gewählten Buchungspfad nicht mehr angeboten.
+ const visible=items.filter(x=>!isHeldFollowup(x));
+ if(!isPrivateNewPatient())return visible;
 
- // Für einen sichtbaren 30-Minuten-Start müssen BEIDE 15-Minuten-Slots
- // existieren, direkt aufeinander folgen, zum selben Arzt/Service gehören
- // und beide die aktuelle Routinglogik erfüllen.
+ // PKV-Neupatientinnen sehen einen Start nur dann, wenn der unmittelbar
+ // folgende 15-Minuten-Termin derselben Ärztin und derselben Terminart
+ // ebenfalls frei ist. Der zweite Slot wird NICHT bei mediDate mitgebucht.
  const byKey=new Map();
- for(const x of items){
+ for(const x of visible){
    if(Number(x.duration)!==15)continue;
    byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
  }
-
- return items.filter(x=>{
+ return visible.filter(x=>{
    if(Number(x.duration)!==15)return false;
    const nextTime=add15DotTime(x.time);
    if(!nextTime)return false;
-
-   const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
-   if(!next)return false;
-
-   return maySeeSlot(x) && maySeeSlot(next);
+   return Boolean(byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`));
  });
 }
 function minutesOf(t){
@@ -484,6 +493,16 @@ async function apiGet(action,params={},timeoutMs=8000){
  }finally{
    clearTimeout(timer);
  }
+}
+
+async function refreshBookingGuards(){
+ try{
+   const j=await apiGet('bookingGuards',{},4000);
+   state.followupGuards=new Set((j.guards||[]).map(g=>followupGuardKey(g)));
+ }catch{
+   if(!(state.followupGuards instanceof Set))state.followupGuards=new Set();
+ }
+ return state.followupGuards;
 }
 
 // V54 – Seed-first / stale-while-refresh
@@ -1053,6 +1072,9 @@ async function loadSlots(){
  $('#step5').scrollIntoView({behavior:'smooth',block:'start'});
  st.className='status';st.textContent='Verfügbarkeit wird geladen …';
 
+ await refreshBookingGuards();
+ if(state.slotLoadId!==loadId)return;
+
  try{
    if(isIgelMode()){
      const cachedGroups=storedIgelGroups();
@@ -1402,13 +1424,47 @@ async function bookNow(){
    // mediDate selbst entscheidet beim eigentlichen Buchungs-POST atomar, ob der
    // Slot noch frei ist. Das spart einen vollständigen Netzwerk-Roundtrip.
    const s=await getDirectMediDateSession(false);
-   const immediate=bestImmediateBundle();
-   const group=bundleGroup(immediate,Number(state.selectedSlot.serviceId));
-   const rows=Array.isArray(group?.availability?.appointmentTimes)?group.availability.appointmentTimes:[];
+
+   // Unmittelbar vor dem Buchen noch einmal prüfen, ob der Termin inzwischen
+   // durch eine andere PKV-Neupatientinnenbuchung als Folgeslot reserviert wurde.
+   await refreshBookingGuards();
+   if(isHeldFollowup(state.selectedSlot)){
+     throw new Error('Dieser Termin ist inzwischen als Folgetermin für eine Neupatientin reserviert. Bitte wählen Sie einen anderen Termin.');
+   }
+
    const need30=needs30MinuteBlock();
-   const pair=need30?directPair(rows,state.selectedSlot):null;
-   const slot=need30?(pair&&pair.first):directExtractSlot(rows,state.selectedSlot);
-   if(!slot||(need30&&!pair))throw new Error('Dieser Termin ist im angezeigten Terminstand nicht mehr vollständig vorhanden. Bitte wählen Sie einen anderen Termin.');
+   let slot=null,pair=null;
+
+   if(isPrivateNewPatient()){
+     // Für PKV-Neupatientinnen wird die Paarbedingung unmittelbar vor dem
+     // verbindlichen POST nochmals gegen die aktuelle mediDate-Verfügbarkeit
+     // geprüft. Gebucht wird trotzdem ausschließlich der erste 15-Minuten-Slot.
+     const live=await directMediDateRequest('appointments/appointmenttimes',{
+       method:'GET',
+       query:{
+         clientid:Number(s.clientId),
+         locationId:Number(s.locationId),
+         serviceId:Number(state.selectedSlot.serviceId),
+         doctorId:0
+       }
+     });
+     const liveRows=Array.isArray(live?.appointmentTimes)?live.appointmentTimes:[];
+     slot=directExtractSlot(liveRows,state.selectedSlot);
+     const nextTime=slot?add15DotTime(slot.time):null;
+     const next=slot&&nextTime
+       ?directExtractSlot(liveRows,{date:slot.date,time:nextTime,doctorId:slot.doctorId})
+       :null;
+     if(!slot||Number(slot.duration)!==15||!next||Number(next.duration)!==15){
+       throw new Error('Für diesen Neupatientinnen-Termin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
+     }
+   }else{
+     const immediate=bestImmediateBundle();
+     const group=bundleGroup(immediate,Number(state.selectedSlot.serviceId));
+     const rows=Array.isArray(group?.availability?.appointmentTimes)?group.availability.appointmentTimes:[];
+     pair=need30?directPair(rows,state.selectedSlot):null;
+     slot=need30?(pair&&pair.first):directExtractSlot(rows,state.selectedSlot);
+     if(!slot||(need30&&!pair))throw new Error('Dieser Termin ist im angezeigten Terminstand nicht mehr vollständig vorhanden. Bitte wählen Sie einen anderen Termin.');
+   }
 
    const flags=[];
    if(isIgelMode())flags.push('IGeL/Selbstzahler');
@@ -1457,7 +1513,11 @@ async function bookNow(){
 
    const codes=[directAppointmentCode(booked1),directAppointmentCode(booked2)].filter(Boolean);
    const doctorName=PRACTICE_DOCTORS.find(d=>Number(d.id)===Number(slot.doctorId))?.displayName||'';
-   void sendBookingTracking(slot,{duration:need30?30:Number(slot.duration)});
+   await sendBookingTracking(slot,{duration:need30?30:Number(slot.duration)});
+   if(isPrivateNewPatient()){
+     const heldTime=add15DotTime(slot.time);
+     if(heldTime)state.followupGuards.add(followupGuardKey({date:slot.date,time:heldTime,doctorId:slot.doctorId}));
+   }
    const cancelHtml=codes.length
      ?`<div class="private-note"><strong>Online-Stornierung</strong>${codes.map((c,i)=>`<div style="margin-top:8px"><a href="https://portal.medidate.org/Appointment/Cancel/${encodeURIComponent(c)}" target="_blank" rel="noopener noreferrer">${codes.length>1?`Teil ${i+1} von ${codes.length} stornieren`:'Termin bei mediDate stornieren'}</a></div>`).join('')}${codes.length>1?'<div class="subtle">Der 30-Minuten-Termin besteht technisch aus zwei 15-Minuten-Blöcken; bei einer vollständigen Absage bitte beide stornieren.</div>':''}</div>`
      :'<div class="subtle">Für diesen Termin wurde kein Online-Stornierungscode zurückgegeben. Bitte wenden Sie sich bei einer Absage an die Praxis.</div>';
