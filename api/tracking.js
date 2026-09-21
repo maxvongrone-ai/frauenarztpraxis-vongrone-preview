@@ -458,8 +458,8 @@ async function getPushChanges(){
     notify:newBookings.length>0||newReleases.length>0,
     checkedAt,
     previousCheckedAt:state.lastCheckedAt,
-    newBookings,
-    newReleases
+    newBookingsCount:newBookings.length,
+    newReleasesCount:newReleases.length
   };
 }
 
