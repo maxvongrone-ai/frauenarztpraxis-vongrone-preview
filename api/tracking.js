@@ -13,7 +13,8 @@ const TRACKING_PREFIX='medidate-booking-tracking/v3/events/';
 const MAINTENANCE_PREFIX='medidate-booking-tracking/v3/maintenance/';
 const SERVICE_NAMES=Object.freeze({
   '1950':'Vorsorge',
-  '1973':'Nachsorge',
+  '1952':'Verhütung – Kontrolltermin',
+  '1973':'Tumornachsorge',
   '1974':'Brustultraschall',
   'IGEL_HORMON':'Wechseljahressprechstunde',
   'IGEL_SPIRALE':'Spirale Einlage'
