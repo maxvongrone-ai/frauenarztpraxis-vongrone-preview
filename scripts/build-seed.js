@@ -3,6 +3,7 @@ const path=require('path');
 
 const API_BASE='https://medidatestagingapi.azurewebsites.net/api/v1/';
 const PRACTICE_HOME='https://www.frauenarztpraxis-vongrone.de/';
+const DEFAULT_MEDIDATE_BOOKING_URL='https://order.medidate.org/?pid=cf9289f9-342d-4692-a047-7327144797dc&ptok=6976306d715a4c46383038522f586d6f4d61376e754a4e716e4f6a303367384b4251635743556455425962413371374c5a5736544d4f676f65477752486f4d7a764d6f53335271364670536b505661736b6e55617069566837535255456d3763426773393962313635414f4935706e70585256544e6464546b6f47543464786733542b32754b5045315a7335736d516955334578625175694470617a73726c737a375452664f62425157513d';
 const SERVICE_IDS=[1950,1952,1973,1974];
 const NAMES={
   1950:'Vorsorge',
@@ -34,6 +35,11 @@ function decode(s){return String(s||'').replace(/&amp;/g,'&').replace(/&#38;/g,'
 async function bookingUrl(){
   const env=String(process.env.MEDIDATE_PUBLIC_BOOKING_URL||'').trim();
   if(env)return env;
+
+  // Fester öffentlicher mediDate-Link: die Praxiswebsite kann inzwischen auf
+  // diese eigene Buchungsoberfläche verweisen und ist daher keine verlässliche
+  // Quelle mehr für den ursprünglichen mediDate-Link.
+  if(DEFAULT_MEDIDATE_BOOKING_URL)return DEFAULT_MEDIDATE_BOOKING_URL;
 
   const page=await fetchText(PRACTICE_HOME,{},30000);
   const matches=[
