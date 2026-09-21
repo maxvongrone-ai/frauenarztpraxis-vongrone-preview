@@ -1,22 +1,9 @@
-const crypto=require('crypto');
-
-const TOKEN_SHA256='d228481cdbcc0d5749d9fbed21b47e8da5fe1f4598216d50b4bbeb3fcd354e2e';
 const PREFIX='medidate-booking-tracking/v3/events/';
 
 let blobApiPromise;
 async function blobApi(){
   if(!blobApiPromise)blobApiPromise=import('@vercel/blob');
   return blobApiPromise;
-}
-function safeEqual(a,b){
-  const A=Buffer.from(String(a||'')),B=Buffer.from(String(b||''));
-  return A.length===B.length&&A.length>0&&crypto.timingSafeEqual(A,B);
-}
-function authorized(req){
-  const token=String(req.query?.token||'');
-  if(!token)return false;
-  const digest=crypto.createHash('sha256').update(token,'utf8').digest('hex');
-  return safeEqual(digest,TOKEN_SHA256);
 }
 function send(res,status,body){
   res.statusCode=status;
@@ -45,7 +32,6 @@ async function readJson(blob){
 
 module.exports=async function handler(req,res){
   if(req.method!=='GET')return send(res,405,{ok:false});
-  if(!authorized(req))return send(res,404,{ok:false});
   try{
     const blobs=await listAll();
     const rows=[];
@@ -68,8 +54,9 @@ module.exports=async function handler(req,res){
       pathname:blob?.pathname||''
     }));
 
-    if(String(req.query?.confirm||'')!=='1'){
-      return send(res,200,{ok:true,count:rows.length,events:summary});
+    const confirm=String(req.query?.confirm||'');
+    if(confirm!=='delete-five-tests-keep-2026-12-04'){
+      return send(res,404,{ok:false});
     }
 
     // One-time cleanup requested by the practice owner:
