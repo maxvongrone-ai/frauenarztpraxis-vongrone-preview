@@ -24,9 +24,19 @@ function authOk(token){
 }
 
 module.exports=async function handler(req,res){
-  if(req.method!=='GET')return send(res,405,{ok:false});
-  if(!authOk(req.query?.token))return send(res,404,{ok:false});
-  const password=String(req.query?.pw||'');
+  if(req.method==='GET'){
+    res.statusCode=200;
+    res.setHeader('Content-Type','text/html; charset=utf-8');
+    res.setHeader('Cache-Control','no-store');
+    res.setHeader('X-Robots-Tag','noindex, nofollow, noarchive');
+    return res.end(`<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Praxiswebsite übertragen</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:680px;margin:60px auto;padding:0 20px;color:#303536}button{font:inherit;padding:12px 18px;border:0;border-radius:10px;background:#765f56;color:white}pre{white-space:pre-wrap;background:#f6f3f1;padding:14px;border-radius:10px}</style><h1>Praxiswebsite zu United Domains übertragen</h1><p id="s">Bereit.</p><button id="go">Übertragung starten</button><pre id="out"></pre><script>const p=new URLSearchParams(location.hash.slice(1));go.onclick=async()=>{go.disabled=true;s.textContent='Übertragung läuft …';try{const r=await fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:p.get('token')||'',pw:p.get('pw')||''})});const j=await r.json();out.textContent=JSON.stringify(j,null,2);s.textContent=j.ok?'Erfolgreich übertragen.':'Fehler bei der Übertragung.'}catch(e){s.textContent='Fehler.';out.textContent=String(e)}finally{go.disabled=false}}</script></html>`);
+  }
+  if(req.method!=='POST')return send(res,405,{ok:false});
+  let body=req.body;
+  if(typeof body==='string'){try{body=JSON.parse(body)}catch{body={}}}
+  body=body&&typeof body==='object'?body:{};
+  if(!authOk(body.token))return send(res,404,{ok:false});
+  const password=String(body.pw||'');
   if(!password)return send(res,400,{ok:false,error:'password missing'});
 
   const sftp=new SftpClient();
