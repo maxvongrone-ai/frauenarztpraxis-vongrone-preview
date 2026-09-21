@@ -56,19 +56,74 @@ module.exports=async function handler(req,res){
       rows.push(...batch.filter(Boolean));
     }
     rows.sort((a,b)=>String(a.event?.recordedAt||'').localeCompare(String(b.event?.recordedAt||'')));
+
+    const summary=rows.map(({blob,event})=>({
+      eventId:event?.eventId||'',
+      appointmentDate:event?.appointmentDate||'',
+      appointmentTime:event?.appointmentTime||'',
+      doctorName:event?.doctorName||'',
+      serviceName:event?.serviceName||'',
+      bookingStatus:event?.bookingStatus||'booked',
+      recordedAt:event?.recordedAt||'',
+      pathname:blob?.pathname||''
+    }));
+
+    if(String(req.query?.confirm||'')!=='1'){
+      return send(res,200,{ok:true,count:rows.length,events:summary});
+    }
+
+    // One-time cleanup requested by the practice owner:
+    // exactly five released test bookings, followed by one final booking for 04.12.2026.
+    const firstFive=rows.slice(0,5);
+    const keep=rows[5];
+    const safe=
+      rows.length===6 &&
+      firstFive.length===5 &&
+      firstFive.every(x=>x.event?.bookingStatus==='released') &&
+      keep?.event?.appointmentDate==='2026-12-04';
+
+    if(!safe){
+      return send(res,409,{ok:false,error:'Sicherheitsprüfung nicht erfüllt; nichts gelöscht.',count:rows.length,events:summary});
+    }
+
+    const {del,put}=await blobApi();
+    const deleteTargets=firstFive.map(x=>x.blob?.url||x.blob?.pathname).filter(Boolean);
+    if(deleteTargets.length!==5){
+      return send(res,409,{ok:false,error:'Nicht alle fünf Testdatensätze eindeutig adressierbar; nichts gelöscht.'});
+    }
+
+    await del(deleteTargets);
+
+    // Remove test-history links from the one retained real booking.
+    const cleaned={...keep.event};
+    cleaned.schemaVersion=Math.max(4,Number(cleaned.schemaVersion)||0);
+    cleaned.bookingStatus='booked';
+    delete cleaned.releaseDetectedAt;
+    delete cleaned.releaseEvidence;
+    delete cleaned.releaseConfirmedByRebookingAt;
+    delete cleaned.rebookedByEventId;
+    delete cleaned.previousBookingEventId;
+    delete cleaned.previousBookingRecordedAt;
+
+    await put(keep.blob.pathname,JSON.stringify(cleaned),{
+      access:'private',
+      contentType:'application/json; charset=utf-8',
+      addRandomSuffix:false,
+      allowOverwrite:true
+    });
+
     return send(res,200,{
       ok:true,
-      count:rows.length,
-      events:rows.map(({blob,event})=>({
-        eventId:event?.eventId||'',
-        appointmentDate:event?.appointmentDate||'',
-        appointmentTime:event?.appointmentTime||'',
-        doctorName:event?.doctorName||'',
-        serviceName:event?.serviceName||'',
-        bookingStatus:event?.bookingStatus||'booked',
-        recordedAt:event?.recordedAt||'',
-        pathname:blob?.pathname||''
-      }))
+      deleted:5,
+      retained:{
+        eventId:cleaned.eventId,
+        appointmentDate:cleaned.appointmentDate,
+        appointmentTime:cleaned.appointmentTime,
+        doctorName:cleaned.doctorName,
+        serviceName:cleaned.serviceName,
+        bookingStatus:cleaned.bookingStatus,
+        recordedAt:cleaned.recordedAt
+      }
     });
   }catch(e){
     console.error('inspect tracking failed',{message:e?.message});
