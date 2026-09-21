@@ -126,7 +126,7 @@ const PRACTICE_DOCTORS=[
 const DEFAULT_SERVICES=[
   {id:1950,name:'Vorsorge',duration:15,sortOrder:1},
   {id:1952,name:'Verhütung – Kontrolltermin',duration:15,sortOrder:2},
-  {id:1973,name:'Nachsorge',duration:15,sortOrder:3},
+  {id:1973,name:'Tumornachsorge',duration:15,sortOrder:3},
   {id:1974,name:'Brustultraschall',duration:15,sortOrder:4}
 ];
 
@@ -822,9 +822,16 @@ function loadServices(){
    return;
  }
 
- // Sonderversion: In den regulären PKV-/GKV-Pfaden sind unter Schritt 3
- // ausschließlich Vorsorge und Nachsorge auswählbar. Besondere
- // Selbstzahlerleistungen behalten ihren separaten Auswahlpfad.
+ if(state.insurance==='PKV'){
+   // Privatversicherte / Selbstzahler sehen als Neu- und Bestandspatientinnen
+   // alle regulären gewünschten Terminarten.
+   const list=DEFAULT_SERVICES.filter(s=>[1950,1952,1973,1974].includes(Number(s.id)));
+   list.forEach(s=>addServiceButton(s));
+   addPregnancyButton(list);
+   return;
+ }
+
+ // GKV bleibt unverändert auf den bisher freigegebenen regulären Leistungen.
  const list=DEFAULT_SERVICES.filter(s=>[1950,1973].includes(Number(s.id)));
  list.forEach(s=>addServiceButton(s));
 
