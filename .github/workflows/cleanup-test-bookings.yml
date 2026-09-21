@@ -1,0 +1,17 @@
+name: Cleanup test bookings once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-test-bookings.yml'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove exactly five released test bookings
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            "https://medidate-v604-fast-booking-blob-oid.vercel.app/api/inspect-tracking-once?confirm=delete-five-tests-keep-2026-12-04"
