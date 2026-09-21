@@ -85,14 +85,16 @@ function validatedEvent(x){
   const doctorId=Number(x.doctorId||0);
   if(![512,513].includes(doctorId))throw new Error('Ungültige Ärztin.');
   const duration=Math.max(15,Math.min(120,Number(x.duration)||15));
+  const mediDateServiceId=Number(x.mediDateServiceId||0);
   return {
-    schemaVersion:3,
+    schemaVersion:4,
     eventId:crypto.randomUUID(),
     eventType:'booking_completed',
     route,
     patientType,
     serviceId,
     serviceName:SERVICE_NAMES[serviceId]||'Termin',
+    mediDateServiceId:Number.isFinite(mediDateServiceId)&&mediDateServiceId>0?mediDateServiceId:undefined,
     appointmentDate,
     appointmentTime,
     doctorId,
@@ -279,7 +281,9 @@ async function getNewPrivateFollowupGuards(){
 
   for(const event of events){
     if(event?.eventType!=='booking_completed')continue;
-    if(event?.route!=='PKV'||event?.patientType!=='new')continue;
+    const privateNew=event?.route==='PKV'&&event?.patientType==='new';
+    const menopause=String(event?.serviceId||'')==='IGEL_HORMON';
+    if(!privateNew&&!menopause)continue;
     if(event?.bookingStatus==='released')continue;
     if(!isFutureTrackedAppointment(event))continue;
 
@@ -382,7 +386,9 @@ async function reconcileTrackedBookings({force=false}={}){
   const candidates=records.filter(({event})=>{
     if(event?.eventType!=='booking_completed')return false;
     if(event?.bookingStatus==='released')return false;
-    if(!['1950','1973','1974'].includes(String(event?.serviceId||'')))return false;
+    const sid=String(event?.serviceId||'');
+    if(!['1950','1952','1973','1974','IGEL_HORMON'].includes(sid))return false;
+    if(sid==='IGEL_HORMON'&&!Number(event?.mediDateServiceId||0))return false;
     return isFutureTrackedAppointment(event);
   });
 
@@ -394,7 +400,8 @@ async function reconcileTrackedBookings({force=false}={}){
 
     for(const record of candidates){
       const event=record.event;
-      const group=groups.get(String(event.serviceId));
+      const effectiveServiceId=String(event.mediDateServiceId||event.serviceId||'');
+      const group=groups.get(effectiveServiceId);
       if(!group)continue;
       checked++;
       if(!slotIsAvailableAgain(group,event))continue;
