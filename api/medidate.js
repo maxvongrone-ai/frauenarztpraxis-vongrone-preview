@@ -223,6 +223,16 @@ const medidateHandler=async function handler(req,res){
 
     const action=String(req.query?.action||'health');
 
+    if(action==='bookingGuards'){
+      const {getNewPrivateFollowupGuards}=require('./tracking');
+      const guards=await getNewPrivateFollowupGuards();
+      return send(res,200,{ok:true,guards},{
+        cache:'no-store',
+        cdn:'no-store',
+        vercel:'no-store'
+      });
+    }
+
     if(action==='health'){
       const seed=readSeedSession();
       const bundle=readSeedBundle();
