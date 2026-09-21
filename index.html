@@ -145,6 +145,7 @@ function quarterEnd(d=new Date()){const m=Math.ceil((d.getMonth()+1)/3)*3;return
 function daysBetween(a,b){const A=new Date(a.getFullYear(),a.getMonth(),a.getDate()),B=new Date(b.getFullYear(),b.getMonth(),b.getDate());return Math.round((B-A)/86400000)}
 function isIgelMode(mode=state.topicMode){return String(mode||'').startsWith('igel')}
 function isHarmonyMode(mode=state.topicMode){return mode==='igel_harmony'}
+function isMenopauseMode(mode=state.topicMode){return mode==='igel_hormon'}
 function currentRule(){
  const today=new Date();
  if(isIgelMode()||state.topicMode==='pregnancy'||state.topicMode==='acute'||state.insurance==='PKV'||state.insurance==='SELF'||state.insurance==='ACUTE'){
@@ -262,10 +263,34 @@ function isHeldFollowup(x){
 function isPrivateNewPatient(){
  return state.insurance==='PKV'&&state.patientType==='new';
 }
+function requiresFollowupReserve(){
+ // PKV-Neupatientinnen sowie die Wechseljahressprechstunde (Neu UND Bestand)
+ // benötigen in dieser Buchungs-App zusätzlich den direkt folgenden 15-Minuten-Slot.
+ return isPrivateNewPatient()||isMenopauseMode();
+}
 function onlyBookableStarts(items){
- // Ein nach einer PKV-Neupatientinnenbuchung reservierter Folgeslot wird
- // unabhängig vom später gewählten Buchungspfad nicht mehr angeboten.
+ // Ein reservierter Folgeslot wird unabhängig vom später gewählten Buchungspfad
+ // in dieser Buchungs-App nicht mehr angeboten.
  const visible=items.filter(x=>!isHeldFollowup(x));
+
+ if(isMenopauseMode()){
+   // Wechseljahressprechstunde ausschließlich in den besonderen
+   // Privatsprechstunden-Zeiten. Beide aufeinanderfolgenden 15-Minuten-Slots
+   // müssen derselben Ärztin UND derselben realen mediDate-Terminart angehören.
+   const byKey=new Map();
+   for(const x of visible){
+     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))continue;
+     byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
+   }
+   return visible.filter(x=>{
+     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))return false;
+     const nextTime=add15DotTime(x.time);
+     if(!nextTime)return false;
+     const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
+     return Boolean(next&&isPrivateOnlyWindow(next));
+   });
+ }
+
  if(!isPrivateNewPatient())return visible;
 
  // PKV-Neupatientinnen sehen einen Start nur dann, wenn der unmittelbar
@@ -453,6 +478,10 @@ function selectGkvContingent(allSlots){
 function audienceVisibleSlots(allSlots){
  if(state.topicMode==='acute'||state.topicMode==='pregnancy'){
    return allSlots.filter(maySeeSlot);
+ }
+
+ if(isMenopauseMode()){
+   return allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x));
  }
 
  if(state.insurance==='PKV'){
@@ -863,14 +892,23 @@ function addSelfPayServices(){
  label.textContent='Besondere Selbstzahlerleistungen';
  box.appendChild(label);
 
- // Sonderversion: Unter „Besondere Selbstzahlerleistungen“ wird zunächst
- // ausschließlich der Brustultraschall angeboten. Die technische Terminabfrage
- // nutzt dafür die reale mediDate-Service-ID.
  const options=[
+   {
+     service:{id:'IGEL_HORMON',name:'Wechseljahressprechstunde',duration:15,price:'119,41 €'},
+     subtitle:'119,41 €',
+     mode:'igel_hormon'
+   },
    {
      service:{id:1974,name:'Brustultraschall',duration:15,price:'70,00 €'},
      subtitle:'70,00 €',
      mode:'regular'
+   },
+   {
+     service:{id:'IGEL_SPIRALE',name:'Spirale Einlage',duration:15,price:'216,69 €'},
+     subtitle:'216,69 €',
+     note:'Optimaler Zyklustag 2–7',
+     mode:'igel_spirale',
+     phoneOnly:true
    }
  ];
 
@@ -879,7 +917,17 @@ function addSelfPayServices(){
    b.className='choice';
    b.dataset.service=String(o.service.id);
    b.innerHTML=`<strong>${esc(o.service.name)}</strong><small>${esc(o.subtitle)}${o.note?`<br>${esc(o.note)}`:''}</small>`;
-   b.onclick=()=>chooseService(o.service,b,o.mode);
+   if(o.phoneOnly){
+     b.onclick=()=>{
+       state.service=o.service;state.topicMode=o.mode;state.selectedSlot=null;
+       select('[data-service]',b);
+       $('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
+       $('#servicesStatus').className='status';
+       $('#servicesStatus').innerHTML='Bitte melden Sie sich zur Terminvereinbarung telefonisch in der Praxis: <a href="tel:+49406038141"><strong>040 / 603 81 41</strong></a>.';
+     };
+   }else{
+     b.onclick=()=>chooseService(o.service,b,o.mode);
+   }
    box.appendChild(b);
  }
 }
@@ -1279,6 +1327,7 @@ async function sendBookingTracking(slot,{duration=15}={}){
    route:state.insurance,
    patientType:['existing','new'].includes(state.patientType)?state.patientType:'',
    serviceId:String(state.service?.id??slot?.serviceId??''),
+   mediDateServiceId:Number(state.selectedSlot?.serviceId||slot?.serviceId||0),
    appointmentDate:String(slot?.date||''),
    appointmentTime:String(slot?.time||''),
    doctorId:Number(slot?.doctorId||0),
@@ -1442,10 +1491,10 @@ async function bookNow(){
    const need30=needs30MinuteBlock();
    let slot=null,pair=null;
 
-   if(isPrivateNewPatient()){
-     // Für PKV-Neupatientinnen wird die Paarbedingung unmittelbar vor dem
-     // verbindlichen POST nochmals gegen die aktuelle mediDate-Verfügbarkeit
-     // geprüft. Gebucht wird trotzdem ausschließlich der erste 15-Minuten-Slot.
+   if(requiresFollowupReserve()){
+     // Für PKV-Neupatientinnen und die Wechseljahressprechstunde wird die
+     // Paarbedingung unmittelbar vor dem verbindlichen POST nochmals live
+     // gegen mediDate geprüft. Gebucht wird ausschließlich der erste Slot.
      const live=await directMediDateRequest('appointments/appointmenttimes',{
        method:'GET',
        query:{
@@ -1462,7 +1511,12 @@ async function bookNow(){
        ?directExtractSlot(liveRows,{date:slot.date,time:nextTime,doctorId:slot.doctorId})
        :null;
      if(!slot||Number(slot.duration)!==15||!next||Number(next.duration)!==15){
-       throw new Error('Für diesen Neupatientinnen-Termin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
+       throw new Error(isMenopauseMode()
+         ?'Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
+         :'Für diesen Neupatientinnen-Termin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
+     }
+     if(isMenopauseMode()&&(!isPrivateOnlyWindow(slot)||!isPrivateOnlyWindow({...next,date:slot.date,time:nextTime}))){
+       throw new Error('Dieser Termin liegt nicht vollständig in der besonderen Privatsprechstunde. Bitte wählen Sie einen anderen Termin.');
      }
    }else{
      const immediate=bestImmediateBundle();
@@ -1521,7 +1575,7 @@ async function bookNow(){
    const codes=[directAppointmentCode(booked1),directAppointmentCode(booked2)].filter(Boolean);
    const doctorName=PRACTICE_DOCTORS.find(d=>Number(d.id)===Number(slot.doctorId))?.displayName||'';
    await sendBookingTracking(slot,{duration:need30?30:Number(slot.duration)});
-   if(isPrivateNewPatient()){
+   if(requiresFollowupReserve()){
      const heldTime=add15DotTime(slot.time);
      if(heldTime)state.followupGuards.add(followupGuardKey({date:slot.date,time:heldTime,doctorId:slot.doctorId}));
    }
