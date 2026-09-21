@@ -271,6 +271,38 @@ function sameTrackedSlot(a,b){
     Number(a?.doctorId||0)===Number(b?.doctorId||0) &&
     timeMinutes(a?.appointmentTime)===timeMinutes(b?.appointmentTime);
 }
+
+async function getNewPrivateFollowupGuards(){
+  const events=await readEvents(5000);
+  const seen=new Set(),guards=[];
+
+  for(const event of events){
+    if(event?.eventType!=='booking_completed')continue;
+    if(event?.route!=='PKV'||event?.patientType!=='new')continue;
+    if(event?.bookingStatus==='released')continue;
+    if(!isFutureTrackedAppointment(event))continue;
+
+    const nextTime=(()=>{
+      const mins=timeMinutes(event?.appointmentTime);
+      if(!Number.isFinite(mins)||mins+15>=1440)return '';
+      const n=mins+15;
+      return String(Math.floor(n/60)).padStart(2,'0')+'.'+String(n%60).padStart(2,'0');
+    })();
+    if(!nextTime)continue;
+
+    const date=String(event?.appointmentDate||'');
+    const doctorId=Number(event?.doctorId||0);
+    if(!date||!doctorId)continue;
+
+    const key=date+'|'+doctorId+'|'+nextTime;
+    if(seen.has(key))continue;
+    seen.add(key);
+    guards.push({date,time:nextTime,doctorId});
+  }
+
+  return guards;
+}
+
 async function reconcileRebookedEvents(){
   const records=await readEventRecords(5000);
   const ordered=records
@@ -503,3 +535,4 @@ module.exports=trackingHandler;
 module.exports.reconcileTrackedBookings=reconcileTrackedBookings;
 module.exports.reconcileRebookedEvents=reconcileRebookedEvents;
 module.exports.getPushChanges=getPushChanges;
+module.exports.getNewPrivateFollowupGuards=getNewPrivateFollowupGuards;
