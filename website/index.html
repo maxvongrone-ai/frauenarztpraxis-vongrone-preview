@@ -818,6 +818,176 @@ body.frame-editing .edit-help{display:block}
   left: 27.2% !important;
 }
 
+
+
+
+/* =========================
+   V12 – Responsive Feinschliff für Tablet und Smartphone
+   Desktop bleibt unverändert
+   ========================= */
+
+/* Tablet-Hochformat: Header und zweispaltige Informationsbereiche entzerren */
+@media (min-width:701px) and (max-width:900px){
+  .header{
+    height:auto !important;
+    min-height:0 !important;
+    padding:20px 22px 18px !important;
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) auto !important;
+    gap:12px 22px !important;
+  }
+  .header .doctors,
+  .header .booking-top,
+  .header .notice,
+  .header .phone{
+    position:static !important;
+    left:auto !important;
+    right:auto !important;
+    top:auto !important;
+    bottom:auto !important;
+  }
+  .header .doctors{
+    width:auto !important;
+    font-size:14px !important;
+    line-height:1.4 !important;
+    align-self:center;
+  }
+  .header .booking-top{
+    justify-self:end;
+    width:178px !important;
+    min-width:178px !important;
+    height:56px !important;
+    font-size:22px !important;
+  }
+  .header .notice{
+    grid-column:1 / -1;
+    width:auto !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    font-size:14px !important;
+    line-height:1.45 !important;
+  }
+  .header .phone{
+    grid-column:1 / -1;
+    width:auto !important;
+    font-size:15px !important;
+  }
+
+  .hours-grid,
+  .access-grid{
+    grid-template-columns:1fr !important;
+    gap:28px !important;
+  }
+  .route-space{height:320px !important}
+  .privacy-text{
+    font-size:13px !important;
+    line-height:1.52 !important;
+  }
+  .imprint{
+    font-size:13.5px !important;
+    line-height:1.55 !important;
+  }
+}
+
+/* Smartphones: kompakter Hero, besser lesbares Kleingedrucktes und Kartenhöhe */
+@media (max-width:700px){
+  .hero{
+    height:clamp(380px,112vw,440px) !important;
+  }
+  .hours-row{
+    grid-template-columns:minmax(86px,32%) minmax(0,1fr) !important;
+    column-gap:12px !important;
+    align-items:start;
+  }
+  .hours-row > span:last-child{
+    overflow-wrap:anywhere;
+  }
+  .route-space{
+    height:260px !important;
+  }
+  .cancel{
+    font-size:14px !important;
+    line-height:1.5 !important;
+  }
+  .imprint{
+    font-size:13.5px !important;
+    line-height:1.55 !important;
+    overflow-wrap:anywhere;
+  }
+  .privacy-text{
+    font-size:13.5px !important;
+    line-height:1.55 !important;
+    overflow-wrap:anywhere;
+  }
+  .privacy-text h3{
+    line-height:1.35 !important;
+    margin-top:20px !important;
+  }
+  .services li,
+  .person{
+    font-size:15px !important;
+    line-height:1.45 !important;
+  }
+}
+
+/* Kleine Smartphones: Header ohne gequetschte Zweispalten-Anordnung */
+@media (max-width:420px){
+  .header{
+    grid-template-columns:1fr !important;
+    padding:15px 14px 14px !important;
+    gap:10px !important;
+  }
+  .header .doctors,
+  .header .booking-top,
+  .header .notice,
+  .header .phone{
+    grid-column:1 !important;
+    width:100% !important;
+    max-width:none !important;
+  }
+  .header .booking-top{
+    min-width:0 !important;
+    justify-self:stretch !important;
+    height:48px !important;
+    font-size:19px !important;
+  }
+  .hero-copy{
+    top:52px !important;
+    left:16px !important;
+    width:calc(100% - 32px) !important;
+  }
+  .hero-main{
+    font-size:28px !important;
+    line-height:1.06 !important;
+    margin-bottom:24px !important;
+  }
+  .hero-small{
+    font-size:16px !important;
+    line-height:1.4 !important;
+  }
+  .hero-welcome{
+    font-size:23px !important;
+    margin-top:28px !important;
+  }
+  .hero .booking-hero{
+    width:min(205px,calc(100% - 32px)) !important;
+    min-width:0 !important;
+    height:56px !important;
+    font-size:21px !important;
+    bottom:18px !important;
+  }
+  .section>.inner{
+    padding:20px 16px !important;
+  }
+  .hours-row{
+    grid-template-columns:82px minmax(0,1fr) !important;
+    column-gap:10px !important;
+  }
+  .route-space{
+    height:240px !important;
+  }
+}
+
 </style>
 </head>
 <body>
