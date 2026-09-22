@@ -52,7 +52,6 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
       <button class="choice" data-insurance="PKV"><strong>Privatversicherte / Selbstzahler</strong></button>
       <button class="choice" data-insurance="GKV"><strong>Gesetzlich Versicherte</strong></button>
       <button class="choice" data-insurance="SELF"><strong>Besondere Selbstzahlerleistungen</strong><small>Zusätzliche Wunsch- und Selbstzahlerleistungen</small></button>
-      <button class="choice" id="acuteChoice"><strong>Akut – offene Sprechstunde</strong><small>Täglich 12:00–13:00 Uhr</small></button>
     </div>
   </div>
 
@@ -70,9 +69,8 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
     <div id="gkvNewNote" class="quarter-note hidden">
       <strong>Hinweis für GKV-Neupatientinnen:</strong>
       Die nächsten online buchbaren Termine werden entsprechend unserer verfügbaren vertragsärztlichen Kapazitäten angezeigt.
-      Bei akuten Beschwerden nutzen Sie bitte unsere offene Sprechstunde oder wenden Sie sich an den ärztlichen Bereitschaftsdienst unter <strong>116 117</strong>.
+      Bei dringenden Beschwerden wenden Sie sich bitte an den ärztlichen Bereitschaftsdienst unter <strong>116 117</strong>; in lebensbedrohlichen Notfällen an <strong>112</strong>.
       <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
-        <button id="gkvNewAcute" class="linkbtn">Akute Beschwerden / offene Sprechstunde</button>
         <button id="gkvNewSelf" class="linkbtn">Freiwillige Selbstzahlerleistungen</button>
       </div>
       <div class="subtle" style="margin-top:8px">
@@ -820,18 +818,10 @@ function apiPost(){throw new Error('Patientendaten werden in V50 nicht an den We
 
 $$('[data-insurance]').forEach(b=>b.onclick=()=>{
  state.insurance=b.dataset.insurance;state.topicMode='regular';state.service=null;state.doctor=null;state.selectedSlot=null;state.selfPayFromGkv=false;
- select('[data-insurance]',b);$('#acuteChoice').classList.remove('sel');
+ select('[data-insurance]',b);
  $('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
  show('#step2');
 });
-$('#acuteChoice').onclick=()=>{
- $$('[data-insurance]').forEach(x=>x.classList.remove('sel'));$('#acuteChoice').classList.add('sel');
- state.insurance='ACUTE';state.patientType='acute';state.topicMode='acute';
- state.service={id:'ACUTE',name:'Akut – offene Sprechstunde',duration:15};
- state.doctor={id:0,displayName:'Offene Sprechstunde'};state.selectedSlot=null;
- $('#step2').classList.add('hidden');$('#step3').classList.add('hidden');$('#step4').classList.add('hidden');
- showAcuteUnavailable();
-};
 $$('[data-patient]').forEach(b=>b.onclick=()=>{
  state.patientType=b.dataset.patient;select('[data-patient]',b);
  $('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
@@ -948,22 +938,11 @@ function chooseService(s,b,mode){
  loadDoctors();
 }
 
-function switchToAcuteFromGkvNew(){
- $$('[data-insurance]').forEach(x=>x.classList.remove('sel'));
- $('#acuteChoice').classList.add('sel');
- state.insurance='ACUTE';state.patientType='acute';state.topicMode='acute';
- state.service={id:'ACUTE',name:'Akut – offene Sprechstunde',duration:15};
- state.doctor={id:0,displayName:'Offene Sprechstunde'};state.selectedSlot=null;
- $('#step2').classList.add('hidden');$('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');
- showAcuteUnavailable();
-}
 function switchToSelfPayFromGkvNew(){
  state.insurance='PKV';state.selfPayFromGkv=true;
  $$('[data-insurance]').forEach(x=>x.classList.toggle('sel',x.dataset.insurance==='PKV'));
- $('#acuteChoice').classList.remove('sel');
  loadServices();
 }
-$('#gkvNewAcute').onclick=switchToAcuteFromGkvNew;
 $('#gkvNewSelf').onclick=switchToSelfPayFromGkvNew;
 
 function loadDoctors(){
