@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://frauenarztpraxis-vongrone.de/sitemap.xml
