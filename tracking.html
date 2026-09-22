@@ -28,6 +28,22 @@
 </section>
 <section class="panel hidden" id="tablePanel">
 <h2>Buchungen</h2>
+<div class="row" style="margin:0 0 12px">
+  <label for="sortSelect" class="muted">Sortieren nach</label>
+  <select id="sortSelect" style="padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:white;font:inherit">
+    <option value="">Standard (neueste Erfassung zuerst)</option>
+    <option value="appointment">Termin</option>
+    <option value="route">Buchungspfad</option>
+    <option value="patientType">Patientenstatus</option>
+    <option value="bookingStatus">Buchungsstatus</option>
+    <option value="serviceName">Terminart</option>
+    <option value="doctorName">Ärztin</option>
+    <option value="duration">Dauer</option>
+    <option value="recordedAt">Erfasst</option>
+  </select>
+  <button id="sortDirection" type="button">Aufsteigend ↑</button>
+  <span class="muted">Alternativ direkt auf einen Spaltenkopf klicken.</span>
+</div>
 <div class="table-wrap"><table><thead><tr><th data-sort="appointment" tabindex="0" aria-sort="none">Termin <span class="sort-indicator">↕</span></th><th data-sort="route" tabindex="0" aria-sort="none">Buchungspfad <span class="sort-indicator">↕</span></th><th data-sort="patientType" tabindex="0" aria-sort="none">Patientenstatus <span class="sort-indicator">↕</span></th><th data-sort="bookingStatus" tabindex="0" aria-sort="none">Buchungsstatus <span class="sort-indicator">↕</span></th><th data-sort="serviceName" tabindex="0" aria-sort="none">Terminart <span class="sort-indicator">↕</span></th><th data-sort="doctorName" tabindex="0" aria-sort="none">Ärztin <span class="sort-indicator">↕</span></th><th data-sort="duration" tabindex="0" aria-sort="none">Dauer <span class="sort-indicator">↕</span></th><th data-sort="recordedAt" tabindex="0" aria-sort="none">erfasst <span class="sort-indicator">↕</span></th></tr></thead><tbody id="rows"></tbody></table></div>
 </section>
 </div>
@@ -97,10 +113,26 @@ function renderRows(){
  $('#rows').innerHTML=rows.map(x=>{const detail=statusDetail(x);const ref=x.rebookedByEventId?`<br><a class="muted event-link" href="#event-${esc(x.rebookedByEventId)}" data-event-id="${esc(x.rebookedByEventId)}">Folgebuchung anzeigen</a>`:'';return `<tr id="event-${esc(x.eventId||'')}"><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType))}</td><td>${esc(bookingStatus(x))}${detail?`<br><span class="muted">${esc(detail)}</span>`:''}${ref}</td><td>${esc(x.serviceName)}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`}).join('')||'<tr><td colspan="8" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
  updateSortHeaders();
 }
-function applySort(key){
- if(sortState.key===key)sortState.dir=sortState.dir==='asc'?'desc':'asc';
- else sortState={key,dir:'asc'};
+function syncSortControls(){
+ const select=$('#sortSelect'),btn=$('#sortDirection');
+ if(select)select.value=sortState.key||'';
+ if(btn){
+   btn.textContent=sortState.dir==='asc'?'Aufsteigend ↑':'Absteigend ↓';
+   btn.disabled=!sortState.key;
+ }
+}
+function applySort(key,dir){
+ if(!key){
+   sortState={key:null,dir:'asc'};
+ }else if(dir){
+   sortState={key,dir};
+ }else if(sortState.key===key){
+   sortState.dir=sortState.dir==='asc'?'desc':'asc';
+ }else{
+   sortState={key,dir:'asc'};
+ }
  renderRows();
+ syncSortControls();
 }
 function render(events,retention,storage){
  current=events||[];
@@ -142,6 +174,15 @@ document.querySelectorAll('th[data-sort]').forEach(th=>{
  th.onclick=()=>applySort(th.dataset.sort);
  th.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();applySort(th.dataset.sort)}};
 });
+$('#sortSelect').onchange=e=>{
+ const key=e.target.value;
+ applySort(key,key?(sortState.key===key?sortState.dir:'asc'):'asc');
+};
+$('#sortDirection').onclick=()=>{
+ if(!sortState.key)return;
+ applySort(sortState.key,sortState.dir==='asc'?'desc':'asc');
+};
+syncSortControls();
 $('#rows').addEventListener('click',e=>{
  const link=e.target.closest('.event-link');if(!link)return;
  e.preventDefault();
