@@ -153,6 +153,10 @@ function isSpecialOpenWindow(slot){
  const mins=minutesOf(slot?.time);
  return slot?.date===SPECIAL_OPEN_DATE && mins>=12*60 && mins<13*60;
 }
+function isSpecialGkvFallbackWindow(slot){
+ const mins=minutesOf(slot?.time);
+ return slot?.date===SPECIAL_OPEN_DATE && mins>=11*60+30 && mins<12*60;
+}
 function specialOpenAudienceAllowed(){
  if(state.topicMode==='acute'||state.topicMode==='pregnancy')return false;
  if(!['PKV','GKV','SELF'].includes(state.insurance))return false;
@@ -160,8 +164,14 @@ function specialOpenAudienceAllowed(){
  if(state.insurance==='GKV'&&state.patientType==='new')return false;
  return true;
 }
+function specialGkvFallbackAudienceAllowed(){
+ return state.topicMode==='regular' &&
+        state.insurance==='GKV' &&
+        state.patientType==='existing';
+}
 function specialOpenBookingAllowed(slot){
- return isSpecialOpenWindow(slot)&&specialOpenAudienceAllowed();
+ return (isSpecialOpenWindow(slot)&&specialOpenAudienceAllowed()) ||
+        (isSpecialGkvFallbackWindow(slot)&&specialGkvFallbackAudienceAllowed());
 }
 function hasFreeFollowingSlot(slot,items){
  const nextTime=add15DotTime(slot?.time);
@@ -504,10 +514,17 @@ function selectGkvContingent(allSlots){
 }
 
 function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
- // Sonderfreigabe 28.09.2026, 12:00–13:00: nur tatsächlich freie Starts,
+ // Primäre Sonderfreigabe 28.09.2026, 12:00–13:00: nur tatsächlich freie Starts,
  // und nur wenn der unmittelbar folgende 15-Minuten-Slot ebenfalls frei ist.
  const special=specialOpenAudienceAllowed()
    ?allSlots.filter(x=>isSpecialOpenWindow(x)&&hasFreeFollowingSlot(x,technicalSlots))
+   :[];
+
+ // Sobald im primären Sonderfenster für die gewählte Termin-/Arztkonstellation
+ // kein buchbarer Start mehr vorhanden ist, werden für GKV-Bestandspatientinnen
+ // zusätzlich 11:30–12:00 Uhr freigegeben. Auch dort gilt die Folgeslot-Bedingung.
+ const fallback=(special.length===0&&specialGkvFallbackAudienceAllowed())
+   ?allSlots.filter(x=>isSpecialGkvFallbackWindow(x)&&hasFreeFollowingSlot(x,technicalSlots))
    :[];
 
  let normal;
@@ -531,9 +548,10 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
    normal=allSlots.filter(maySeeSlot);
  }
 
- if(!special.length)return normal;
+ const extra=[...special,...fallback];
+ if(!extra.length)return normal;
  const out=normal.slice(),seen=new Set(out.map(x=>`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`));
- for(const x of special){
+ for(const x of extra){
    const k=`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`;
    if(!seen.has(k)){seen.add(k);out.push(x)}
  }
@@ -1030,10 +1048,14 @@ function buildAvailableDays(raw){
    for(const t of (r.times||[])){
      const dt=new Date(day+'T'+t.replace('.',':')+':00');if(dt<now)continue;
      const candidate={date:day,time:t,doctorId:Number(r.doctorId),duration:Number(r.duration),serviceId:item.serviceId,serviceName:item.serviceName};
-     // Auf dem Sondertag werden 12:00–12:45 als mögliche Starts und 13:00 nur
-     // als technischer Folgeslot berücksichtigt, auch wenn der Tag vor der
-     // regulären Freigabegrenze liegt (insbesondere GKV-Bestand).
-     if(day<rule.earliest && !isSpecialOpenWindow(candidate) && !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
+     // Auf dem Sondertag werden zusätzlich 11:30–11:45 (Fallback für
+     // GKV-Bestand), 12:00–12:45 (primäres Sonderfenster) und 13:00 nur als
+     // technischer Folgeslot berücksichtigt, auch wenn der Tag vor der
+     // regulären Freigabegrenze liegt.
+     if(day<rule.earliest &&
+        !isSpecialGkvFallbackWindow(candidate) &&
+        !isSpecialOpenWindow(candidate) &&
+        !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
      candidateSlots.push(candidate);
    }
  }
@@ -1494,6 +1516,9 @@ async function bookNow(){
  if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){
    st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return
  }
+ if(isSpecialGkvFallbackWindow(state.selectedSlot)&&!specialGkvFallbackAudienceAllowed()){
+   st.className='status bad';st.textContent='Dieser Zusatztermin ist ausschließlich für GKV-Bestandspatientinnen freigegeben.';return
+ }
 
  btn.disabled=true;st.className='status';st.textContent='Termin wird jetzt verbindlich bei mediDate gebucht …';
 
@@ -1529,13 +1554,39 @@ async function bookNow(){
        }
      });
      const liveRows=Array.isArray(live?.appointmentTimes)?live.appointmentTimes:[];
+
+     // Das 11:30–12:00-Fallback darf nur greifen, solange das primäre
+     // 12:00–13:00-Fenster in der gewählten Arztkonstellation tatsächlich
+     // vollständig ausgeschöpft ist. Eine zwischenzeitliche Stornierung öffnet
+     // daher zuerst wieder das primäre Fenster.
+     if(isSpecialGkvFallbackWindow(state.selectedSlot)){
+       const technical=[];
+       const chosenDoctor=Number(state.doctor?.id)||0;
+       for(const row of liveRows){
+         if(chosenDoctor!==0&&Number(row.doctorId)!==chosenDoctor)continue;
+         const day=String(row.dateTimeStart||'').slice(0,10);
+         for(const t of (row.times||[])){
+           technical.push({
+             date:day,time:t,doctorId:Number(row.doctorId),duration:Number(row.duration),
+             serviceId:Number(state.selectedSlot.serviceId)
+           });
+         }
+       }
+       const primaryStillBookable=technical.some(x=>
+         isSpecialOpenWindow(x)&&hasFreeFollowingSlot(x,technical)
+       );
+       if(primaryStillBookable){
+         throw new Error('Zwischen 12:00 und 13:00 Uhr ist wieder ein geeigneter Termin frei. Bitte wählen Sie zunächst einen Termin aus diesem Zeitfenster.');
+       }
+     }
+
      slot=directExtractSlot(liveRows,state.selectedSlot);
      const nextTime=slot?add15DotTime(slot.time):null;
      const next=slot&&nextTime
        ?directExtractSlot(liveRows,{date:slot.date,time:nextTime,doctorId:slot.doctorId})
        :null;
      if(!slot||Number(slot.duration)!==15||!next||Number(next.duration)!==15){
-       throw new Error(isSpecialOpenWindow(state.selectedSlot)
+       throw new Error((isSpecialOpenWindow(state.selectedSlot)||isSpecialGkvFallbackWindow(state.selectedSlot))
          ?'Für diesen Sondertermin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
          :isMenopauseMode()
            ?'Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
