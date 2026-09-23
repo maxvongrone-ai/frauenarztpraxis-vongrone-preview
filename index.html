@@ -144,6 +144,36 @@ function daysBetween(a,b){const A=new Date(a.getFullYear(),a.getMonth(),a.getDat
 function isIgelMode(mode=state.topicMode){return String(mode||'').startsWith('igel')}
 function isHarmonyMode(mode=state.topicMode){return mode==='igel_harmony'}
 function isMenopauseMode(mode=state.topicMode){return mode==='igel_hormon'}
+
+// Einmalige Zusatzfreigabe: Montag, 28.09.2026, 12:00–13:00 Uhr.
+// Sie erweitert nur die Sichtbarkeit tatsächlich freier mediDate-Termine;
+// alle übrigen Routing-/Kontingentregeln bleiben unverändert.
+const SPECIAL_OPEN_DATE='2026-09-28';
+function isSpecialOpenWindow(slot){
+ const mins=minutesOf(slot?.time);
+ return slot?.date===SPECIAL_OPEN_DATE && mins>=12*60 && mins<13*60;
+}
+function specialOpenAudienceAllowed(){
+ if(state.topicMode==='acute'||state.topicMode==='pregnancy')return false;
+ if(!['PKV','GKV','SELF'].includes(state.insurance))return false;
+ // GKV-Neupatientinnen erhalten aus dieser Sonderfreigabe keine Termine.
+ if(state.insurance==='GKV'&&state.patientType==='new')return false;
+ return true;
+}
+function specialOpenBookingAllowed(slot){
+ return isSpecialOpenWindow(slot)&&specialOpenAudienceAllowed();
+}
+function hasFreeFollowingSlot(slot,items){
+ const nextTime=add15DotTime(slot?.time);
+ if(!nextTime)return false;
+ return (items||[]).some(x=>
+   x.date===slot.date &&
+   Number(x.doctorId)===Number(slot.doctorId) &&
+   Number(x.serviceId)===Number(slot.serviceId) &&
+   Number(x.duration)===15 &&
+   x.time===nextTime
+ );
+}
 function currentRule(){
  const today=new Date();
  if(isIgelMode()||state.topicMode==='pregnancy'||state.topicMode==='acute'||state.insurance==='PKV'||state.insurance==='SELF'||state.insurance==='ACUTE'){
@@ -473,35 +503,41 @@ function selectGkvContingent(allSlots){
  return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 
-function audienceVisibleSlots(allSlots){
+function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
+ // Sonderfreigabe 28.09.2026, 12:00–13:00: nur tatsächlich freie Starts,
+ // und nur wenn der unmittelbar folgende 15-Minuten-Slot ebenfalls frei ist.
+ const special=specialOpenAudienceAllowed()
+   ?allSlots.filter(x=>isSpecialOpenWindow(x)&&hasFreeFollowingSlot(x,technicalSlots))
+   :[];
+
+ let normal;
  if(state.topicMode==='acute'||state.topicMode==='pregnancy'){
-   return allSlots.filter(maySeeSlot);
- }
-
- if(isMenopauseMode()){
-   return allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x));
- }
-
- if(state.insurance==='PKV'){
+   normal=allSlots.filter(maySeeSlot);
+ }else if(isMenopauseMode()){
+   normal=allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x));
+ }else if(state.insurance==='PKV'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
-   return state.patientType==='new'
+   normal=state.patientType==='new'
      ?keepPopularFractionPerDay(pool,BOOKING_POLICY.privateNewShare,allSlots)
      :pool;
- }
-
- if(state.insurance==='SELF'){
+ }else if(state.insurance==='SELF'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
-   return keepPopularFractionPerDay(pool,BOOKING_POLICY.selfPayShare,allSlots);
- }
-
- if(state.insurance==='GKV'){
+   normal=keepPopularFractionPerDay(pool,BOOKING_POLICY.selfPayShare,allSlots);
+ }else if(state.insurance==='GKV'){
    // Reguläre GKV-Neupatientinnen sehen keine Online-Termine. Akut und
    // Schwangerschaft werden oben bewusst separat behandelt.
-   if(state.patientType==='new')return [];
-   return selectGkvContingent(allSlots);
+   normal=state.patientType==='new'?[]:selectGkvContingent(allSlots);
+ }else{
+   normal=allSlots.filter(maySeeSlot);
  }
 
- return allSlots.filter(maySeeSlot);
+ if(!special.length)return normal;
+ const out=normal.slice(),seen=new Set(out.map(x=>`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`));
+ for(const x of special){
+   const k=`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`;
+   if(!seen.has(k)){seen.add(k);out.push(x)}
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 
 
@@ -990,16 +1026,18 @@ function buildAvailableDays(raw){
  const now=new Date(),candidateSlots=[];
  for(const item of raw){
    const r=item.row,day=(r.dateTimeStart||'').slice(0,10);
-   if(day<rule.earliest)continue;
+   if(day<rule.earliest && day!==SPECIAL_OPEN_DATE)continue;
    for(const t of (r.times||[])){
      const dt=new Date(day+'T'+t.replace('.',':')+':00');if(dt<now)continue;
-     candidateSlots.push({date:day,time:t,doctorId:Number(r.doctorId),duration:Number(r.duration),serviceId:item.serviceId,serviceName:item.serviceName});
+     const candidate={date:day,time:t,doctorId:Number(r.doctorId),duration:Number(r.duration),serviceId:item.serviceId,serviceName:item.serviceName};
+     // Auf dem Sondertag werden 12:00–12:45 als mögliche Starts und 13:00 nur
+     // als technischer Folgeslot berücksichtigt, auch wenn der Tag vor der
+     // regulären Freigabegrenze liegt (insbesondere GKV-Bestand).
+     if(day<rule.earliest && !isSpecialOpenWindow(candidate) && !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
+     candidateSlots.push(candidate);
    }
  }
 
- // Erst vollständig deduplizieren, DANN die Sichtbarkeit je Patientengruppe
- // anwenden. So können Privat-/GKV-Kontingente und Wochenreserven aus demselben
- // anonymen Verfügbarkeitsstand berechnet werden.
  const allBookable=[],slotSeen=new Set();
  for(const x of onlyBookableStarts(candidateSlots)){
    const dedupeKey=`${x.date}|${x.time}`;
@@ -1007,7 +1045,8 @@ function buildAvailableDays(raw){
    slotSeen.add(dedupeKey);allBookable.push(x);
  }
 
- const allVisible=audienceVisibleSlots(allBookable);
+ const allVisible=audienceVisibleSlots(allBookable,candidateSlots)
+   .filter(x=>x.date>=rule.earliest||specialOpenBookingAllowed(x));
  const days=new Map();
  for(const x of allVisible){
    if(!days.has(x.date))days.set(x.date,[]);
@@ -1219,9 +1258,10 @@ function renderMonthCalendar(loading=false){
    const btn=document.createElement('button');btn.type='button';btn.className='cal-day';btn.textContent=String(day);
    const available=(state.availableDays?.get(iso)||[]).length>0;
    const earliest=currentRule()?.earliest||todayISO;
+   const specialDateAvailable=iso===SPECIAL_OPEN_DATE&&available&&specialOpenAudienceAllowed();
    if(iso<todayISO){
      btn.classList.add('past');btn.disabled=true;btn.title='Vergangen';
-   }else if(iso<earliest){
+   }else if(iso<earliest&&!specialDateAvailable){
      btn.classList.add('unavailable');btn.disabled=true;btn.title='Noch nicht buchbar';
    }else if(available){
      btn.classList.add('available');
@@ -1449,7 +1489,11 @@ async function bookNow(){
  }
 
  const rule=currentRule();
- if(state.selectedSlot.date<rule.earliest){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
+ const specialOverride=specialOpenBookingAllowed(state.selectedSlot);
+ if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
+ if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){
+   st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return
+ }
 
  btn.disabled=true;st.className='status';st.textContent='Termin wird jetzt verbindlich bei mediDate gebucht …';
 
@@ -1470,10 +1514,11 @@ async function bookNow(){
    const need30=needs30MinuteBlock();
    let slot=null,pair=null;
 
-   if(requiresFollowupReserve()){
-     // Für PKV-Neupatientinnen und die Wechseljahressprechstunde wird die
-     // Paarbedingung unmittelbar vor dem verbindlichen POST nochmals live
-     // gegen mediDate geprüft. Gebucht wird ausschließlich der erste Slot.
+   if(requiresFollowupReserve()||specialOpenBookingAllowed(state.selectedSlot)){
+     // Für PKV-Neupatientinnen, die Wechseljahressprechstunde und die einmalige
+     // Sonderfreigabe wird die Paarbedingung unmittelbar vor dem verbindlichen
+     // POST nochmals live gegen mediDate geprüft. Gebucht wird ausschließlich
+     // der erste Slot.
      const live=await directMediDateRequest('appointments/appointmenttimes',{
        method:'GET',
        query:{
@@ -1490,9 +1535,11 @@ async function bookNow(){
        ?directExtractSlot(liveRows,{date:slot.date,time:nextTime,doctorId:slot.doctorId})
        :null;
      if(!slot||Number(slot.duration)!==15||!next||Number(next.duration)!==15){
-       throw new Error(isMenopauseMode()
-         ?'Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
-         :'Für diesen Neupatientinnen-Termin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
+       throw new Error(isSpecialOpenWindow(state.selectedSlot)
+         ?'Für diesen Sondertermin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
+         :isMenopauseMode()
+           ?'Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
+           :'Für diesen Neupatientinnen-Termin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
      }
      if(isMenopauseMode()&&(!isPrivateOnlyWindow(slot)||!isPrivateOnlyWindow({...next,date:slot.date,time:nextTime}))){
        throw new Error('Dieser Termin liegt nicht vollständig in der besonderen Privatsprechstunde. Bitte wählen Sie einen anderen Termin.');
