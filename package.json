@@ -4,7 +4,7 @@
   "private": true,
   "description": "mediDate Sonderversion: schnelle Direktbuchung mit privatem Vercel-Blob-Tracking und geheimer Auswertungs-URL ohne Passwort-Eingabe; Geheimnis nicht im Repository",
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "scripts": {
     "build": "node scripts/build-seed.js"
