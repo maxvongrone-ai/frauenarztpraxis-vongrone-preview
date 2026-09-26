@@ -24,7 +24,7 @@ button{padding:10px 14px;border:1px solid #cfc8c2;border-radius:9px;background:w
 <script>
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function doctorName(id){return Number(id)===512?'Dr. med. Christina Moxter':Number(id)===513?'Dr. med. Friederike von Grone':`Ärztin ${id}`}
+function doctorName(id){return String(id)==='moxter'?'Dr. med. Christina Moxter':String(id)==='vongrone'?'Dr. med. Friederike von Grone':`Ärztin ${id}`}
 async function load(){
  const st=$('#status'),box=$('#content');st.textContent=' Lädt …';box.innerHTML='';
  try{
@@ -34,7 +34,7 @@ async function load(){
    for(const g of (j.groups||[])){
      for(const a of (g.availability?.appointmentTimes||[])){
        const date=String(a.dateTimeStart||'').slice(0,10);
-       for(const time of (a.times||[]))rows.push({date,time,doctorId:a.doctorId,serviceName:g.serviceName,duration:a.duration});
+       for(const tv of (a.times||[])){const time=typeof tv==='string'?tv:String(tv?.time||'');if(time)rows.push({date,time,doctorId:a.doctorKey,serviceName:g.serviceName,duration:a.duration});}
      }
    }
    rows.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
