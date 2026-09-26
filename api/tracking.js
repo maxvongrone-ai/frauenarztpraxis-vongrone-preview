@@ -104,7 +104,7 @@ function verifyBookingReceipt(receipt){
   if(!/^[0-9a-f-]{36}$/i.test(String(x.eventId||'')))throw new Error('Ungültiger Tracking-Beleg.');
   const route=String(x.route||'');if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Tracking-Beleg.');
   const patientType=String(x.patientType||'');if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Tracking-Beleg.');
-  const serviceId=String(x.serviceId||'');if(!['vorsorge','followup','breast'].includes(serviceId))throw new Error('Ungültiger Tracking-Beleg.');
+  const serviceId=String(x.serviceId||'');if(!['vorsorge','contraception','followup','breast','pregnancy'].includes(serviceId))throw new Error('Ungültiger Tracking-Beleg.');
   const appointmentDate=String(x.appointmentDate||''),appointmentTime=String(x.appointmentTime||''),doctorId=String(x.doctorId||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)||!/^\d{1,2}\.\d{2}$/.test(appointmentTime)||!['moxter','vongrone'].includes(doctorId))throw new Error('Ungültiger Tracking-Beleg.');
   const duration=Number(x.duration);if(duration!==15)throw new Error('Ungültiger Tracking-Beleg.');
