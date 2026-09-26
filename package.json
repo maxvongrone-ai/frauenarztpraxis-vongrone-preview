@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.9.1",
+  "version": "60.9.2",
   "private": true,
-  "description": "mediDate V60.9.1: browser-direct patient booking with no application-level IP reading, hashing or rate limiting in the Vercel bridge.",
+  "description": "mediDate V60.9.2: browser-direct booking without application-level IP processing; visible acute consultation option removed.",
   "engines": {
     "node": "22.x"
   },
