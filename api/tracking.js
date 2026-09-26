@@ -1,4 +1,5 @@
 const crypto=require('crypto');
+const {readSecret}=require('../lib/medidate-core');
 
 let _blobApiPromise;
 async function blobApi(){
@@ -7,21 +8,41 @@ async function blobApi(){
   return _blobApiPromise;
 }
 
-const ADMIN_TOKEN_SHA256='c125504d58925765cf1a6d9f6149842696d0c0618bc5293f65e842609e24ad02';
+const ADMIN_TOKEN_SHA256=['57c856614af64afa3277710a7012aca0b1b9b151703c4efbea9f69db310ace46','62a3135d23b226e926ead9b3274ac9c69028c20f7c376b9b4ebb334ec00462c7'];
 const RETENTION_DAYS=180;
 const TRACKING_PREFIX='medidate-booking-tracking/v3/events/';
 const MAINTENANCE_PREFIX='medidate-booking-tracking/v3/maintenance/';
+
+// Einmalige, exakt begrenzte Bereinigung eines versehentlich erzeugten
+// Tracking-Datensatzes. Sonstige Tracking-Daten und Buchungsregeln bleiben
+// unverändert.
+const ONE_TIME_PURGE=Object.freeze({
+  appointmentDate:'2026-10-29',
+  appointmentTime:'10.15',
+  route:'PKV',
+  patientType:'existing',
+  serviceId:'1950',
+  doctorId:512,
+  duration:15,
+  recordedAtPrefix:'2026-09-23T09:25:30'
+});
+const ONE_TIME_PURGE_MARKER=`${MAINTENANCE_PREFIX}purge-2026-09-23-112530-pkv-vorsorge-moxter.json`;
 const SERVICE_NAMES=Object.freeze({
+  'vorsorge':'Vorsorge',
+  'contraception':'Verhütung – Kontrolltermin',
+  'followup':'Nachsorge',
+  'breast':'Brustultraschall',
   '1950':'Vorsorge',
-  '1952':'Verhütung – Kontrolltermin',
-  '1973':'Tumornachsorge',
+  '1973':'Nachsorge',
   '1974':'Brustultraschall',
   'IGEL_HORMON':'Wechseljahressprechstunde',
   'IGEL_SPIRALE':'Spirale Einlage'
 });
 const DOCTOR_NAMES=Object.freeze({
-  512:'Dr. med. Christina Moxter',
-  513:'Dr. med. Friederike von Grone'
+  'moxter':'Dr. med. Christina Moxter',
+  'vongrone':'Dr. med. Friederike von Grone',
+  '512':'Dr. med. Christina Moxter',
+  '513':'Dr. med. Friederike von Grone'
 });
 
 function send(res,status,body){
@@ -39,15 +60,15 @@ function sameOrigin(req){
   if(!origin)return true;
   try{return new URL(origin).host===host}catch{return false}
 }
-function safeEqual(a,b){
-  const A=Buffer.from(String(a||'')),B=Buffer.from(String(b||''));
+function safeEqualHex(a,b){
+  const A=Buffer.from(String(a||''),'hex'),B=Buffer.from(String(b||''),'hex');
   return A.length===B.length&&A.length>0&&crypto.timingSafeEqual(A,B);
 }
 function authorized(req){
-  const token=String(req.headers['x-medidate-tracking-key']||'');
-  if(!token)return false;
-  const digest=crypto.createHash('sha256').update(token,'utf8').digest('hex');
-  return safeEqual(digest,ADMIN_TOKEN_SHA256);
+  const supplied=String(req.headers['x-medidate-tracking-key']||'');
+  if(!supplied)return false;
+  const digest=crypto.createHash('sha256').update(supplied,'utf8').digest('hex');
+  return ADMIN_TOKEN_SHA256.some(expected=>safeEqualHex(digest,expected));
 }
 function ensureBlobConfigured(){
   // Bei aktuellen Vercel-Blob-Projektverbindungen authentifiziert @vercel/blob
@@ -70,38 +91,24 @@ async function readJsonBody(req){
   }
   return JSON.parse(raw||'{}');
 }
-function validatedEvent(x){
-  if(!x||x.eventType!=='booking_completed')throw new Error('Ungültiges Ereignis.');
-  const route=String(x.route||'');
-  if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Buchungspfad.');
-  const patientType=String(x.patientType||'');
-  if(patientType&&!['existing','new'].includes(patientType))throw new Error('Ungültiger Patientenstatus.');
-  const serviceId=String(x.serviceId||'').slice(0,32);
-  if(!/^[A-Za-z0-9_-]{1,32}$/.test(serviceId))throw new Error('Ungültige Terminart.');
-  const appointmentDate=String(x.appointmentDate||'');
-  const appointmentTime=String(x.appointmentTime||'');
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate))throw new Error('Ungültiges Termindatum.');
-  if(!/^\d{1,2}\.\d{2}$/.test(appointmentTime))throw new Error('Ungültige Terminzeit.');
-  const doctorId=Number(x.doctorId||0);
-  if(![512,513].includes(doctorId))throw new Error('Ungültige Ärztin.');
-  const duration=Math.max(15,Math.min(120,Number(x.duration)||15));
-  const mediDateServiceId=Number(x.mediDateServiceId||0);
-  return {
-    schemaVersion:4,
-    eventId:crypto.randomUUID(),
-    eventType:'booking_completed',
-    route,
-    patientType,
-    serviceId,
-    serviceName:SERVICE_NAMES[serviceId]||'Termin',
-    mediDateServiceId:Number.isFinite(mediDateServiceId)&&mediDateServiceId>0?mediDateServiceId:undefined,
-    appointmentDate,
-    appointmentTime,
-    doctorId,
-    doctorName:DOCTOR_NAMES[doctorId]||'Ärztin',
-    duration,
-    recordedAt:new Date().toISOString()
-  };
+function verifyBookingReceipt(receipt){
+  const token=String(receipt||'');
+  if(token.length<40||token.length>4096)throw new Error('Ungültiger Tracking-Beleg.');
+  const parts=token.split('.');if(parts.length!==2)throw new Error('Ungültiger Tracking-Beleg.');
+  const [body,sig]=parts;
+  const expected=crypto.createHmac('sha256',readSecret()).update(body).digest('base64url');
+  const A=Buffer.from(sig),B=Buffer.from(expected);if(A.length!==B.length||!crypto.timingSafeEqual(A,B))throw new Error('Ungültiger Tracking-Beleg.');
+  let x;try{x=JSON.parse(Buffer.from(body,'base64url').toString('utf8'))}catch{throw new Error('Ungültiger Tracking-Beleg.')}
+  if(x?.v!==1||x?.eventType!=='booking_completed'||!Number.isFinite(x?.exp)||Date.now()>x.exp)throw new Error('Tracking-Beleg ist ungültig oder abgelaufen.');
+  if(!/^[0-9a-f-]{36}$/i.test(String(x.eventId||'')))throw new Error('Ungültiger Tracking-Beleg.');
+  const route=String(x.route||'');if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Tracking-Beleg.');
+  const patientType=String(x.patientType||'');if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Tracking-Beleg.');
+  const serviceId=String(x.serviceId||'');if(!['vorsorge','followup','breast'].includes(serviceId))throw new Error('Ungültiger Tracking-Beleg.');
+  const appointmentDate=String(x.appointmentDate||''),appointmentTime=String(x.appointmentTime||''),doctorId=String(x.doctorId||'');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)||!/^\d{1,2}\.\d{2}$/.test(appointmentTime)||!['moxter','vongrone'].includes(doctorId))throw new Error('Ungültiger Tracking-Beleg.');
+  const duration=Number(x.duration);if(duration!==15)throw new Error('Ungültiger Tracking-Beleg.');
+  const recordedAt=String(x.recordedAt||'');if(!/^\d{4}-\d{2}-\d{2}T/.test(recordedAt))throw new Error('Ungültiger Tracking-Beleg.');
+  return {schemaVersion:3,eventId:String(x.eventId),eventType:'booking_completed',route,patientType,serviceId,serviceName:SERVICE_NAMES[serviceId]||'Termin',appointmentDate,appointmentTime,doctorId,doctorName:DOCTOR_NAMES[doctorId]||'Ärztin',duration,recordedAt};
 }
 function eventPath(event){
   const day=event.recordedAt.slice(0,10);
@@ -110,13 +117,12 @@ function eventPath(event){
 }
 async function saveEvent(event){
   ensureBlobConfigured();
-  const {put}=await blobApi();
-  await put(eventPath(event),JSON.stringify(event),{
-    access:'private',
-    contentType:'application/json; charset=utf-8',
-    addRandomSuffix:false,
-    allowOverwrite:false
-  });
+  const {get,put}=await blobApi();
+  const path=eventPath(event);
+  const existing=await get(path,{access:'private',useCache:false}).catch(()=>null);
+  if(existing?.statusCode===200)return false;
+  await put(path,JSON.stringify(event),{access:'private',contentType:'application/json; charset=utf-8',addRandomSuffix:false,allowOverwrite:false});
+  return true;
 }
 async function listAll(prefix){
   ensureBlobConfigured();
@@ -130,7 +136,7 @@ async function listAll(prefix){
   return out;
 }
 function dateFromPath(pathname){
-  const m=String(pathname||'').match(/\/(?:events|maintenance)\/(?:cleanup-|reconcile-)?(\d{4}-\d{2}-\d{2})/);
+  const m=String(pathname||'').match(/\/(?:events|maintenance)\/(?:cleanup-)?(\d{4}-\d{2}-\d{2})/);
   return m?new Date(`${m[1]}T00:00:00Z`).getTime():NaN;
 }
 function blobDateMs(blob){
@@ -171,6 +177,36 @@ async function readOne(blob){
     return JSON.parse(await streamToText(r.stream));
   }catch{return null}
 }
+function matchesOneTimePurge(event){
+  return !!event &&
+    String(event.appointmentDate||'')===ONE_TIME_PURGE.appointmentDate &&
+    String(event.appointmentTime||'')===ONE_TIME_PURGE.appointmentTime &&
+    String(event.route||'')===ONE_TIME_PURGE.route &&
+    String(event.patientType||'')===ONE_TIME_PURGE.patientType &&
+    String(event.serviceId||'')===ONE_TIME_PURGE.serviceId &&
+    Number(event.doctorId||0)===ONE_TIME_PURGE.doctorId &&
+    Number(event.duration||0)===ONE_TIME_PURGE.duration &&
+    String(event.recordedAt||'').startsWith(ONE_TIME_PURGE.recordedAtPrefix);
+}
+async function purgeRequestedTrackingEvent(){
+  ensureBlobConfigured();
+  const {get,del,put}=await blobApi();
+  const marker=await get(ONE_TIME_PURGE_MARKER,{access:'private',useCache:false}).catch(()=>null);
+  if(marker?.statusCode===200)return false;
+
+  const blobs=await listAll(TRACKING_PREFIX);
+  for(const blob of blobs){
+    const event=await readOne(blob);
+    if(!matchesOneTimePurge(event))continue;
+    await del(blob.url||blob.pathname);
+    await put(ONE_TIME_PURGE_MARKER,JSON.stringify({deletedAt:new Date().toISOString()}),{
+      access:'private',contentType:'application/json; charset=utf-8',addRandomSuffix:false,allowOverwrite:true
+    });
+    return true;
+  }
+  return false;
+}
+
 async function readEvents(limit){
   ensureBlobConfigured();
   const blobs=(await listAll(TRACKING_PREFIX))
@@ -184,349 +220,22 @@ async function readEvents(limit){
   return events.sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
 }
 
-
-function berlinNow(){
-  const parts=new Intl.DateTimeFormat('en-CA',{
-    timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit',
-    hour:'2-digit',minute:'2-digit',hourCycle:'h23'
-  }).formatToParts(new Date());
-  const out={};for(const p of parts)if(p.type!=='literal')out[p.type]=p.value;
-  return {
-    date:out.year+'-'+out.month+'-'+out.day,
-    minutes:Number(out.hour)*60+Number(out.minute)
-  };
-}
-function timeMinutes(value){
-  const m=String(value||'').match(/^(\d{1,2})[.:](\d{2})$/);
-  return m?Number(m[1])*60+Number(m[2]):NaN;
-}
-function isFutureTrackedAppointment(event){
-  const now=berlinNow();
-  const date=String(event?.appointmentDate||'');
-  if(date>now.date)return true;
-  if(date<now.date)return false;
-  const mins=timeMinutes(event?.appointmentTime);
-  return Number.isFinite(mins)&&mins>now.minutes;
-}
-function slotIsAvailableAgain(group,event){
-  const rows=Array.isArray(group?.availability?.appointmentTimes)?group.availability.appointmentTimes:[];
-  const targetDate=String(event?.appointmentDate||'');
-  const doctorId=Number(event?.doctorId||0);
-  const start=timeMinutes(event?.appointmentTime);
-  if(!targetDate||!doctorId||!Number.isFinite(start))return false;
-
-  const blocks=Math.max(1,Math.ceil((Number(event?.duration)||15)/15));
-  for(const row of rows){
-    if(String(row?.dateTimeStart||'').slice(0,10)!==targetDate)continue;
-    if(Number(row?.doctorId||0)!==doctorId)continue;
-    const available=new Set((Array.isArray(row?.times)?row.times:[]).map(timeMinutes).filter(Number.isFinite));
-    let all=true;
-    for(let i=0;i<blocks;i++){
-      if(!available.has(start+i*15)){all=false;break}
-    }
-    if(all)return true;
-  }
-  return false;
-}
-async function readEventRecords(limit=5000){
-  ensureBlobConfigured();
-  const blobs=(await listAll(TRACKING_PREFIX))
-    .sort((a,b)=>blobDateMs(b)-blobDateMs(a))
-    .slice(0,limit);
-  const records=[];
-  for(let i=0;i<blobs.length;i+=40){
-    const batch=await Promise.all(blobs.slice(i,i+40).map(async blob=>({
-      blob,
-      event:await readOne(blob)
-    })));
-    records.push(...batch.filter(x=>x.event));
-  }
-  return records;
-}
-async function overwriteEvent(record,event){
-  const pathname=record?.blob?.pathname;
-  if(!pathname)throw new Error('Tracking-Pfad fehlt.');
-  const {put}=await blobApi();
-  await put(pathname,JSON.stringify(event),{
-    access:'private',
-    contentType:'application/json; charset=utf-8',
-    addRandomSuffix:false,
-    allowOverwrite:true
-  });
-}
-async function maintenanceMarkerExists(pathname){
-  const {get}=await blobApi();
-  const marker=await get(pathname,{access:'private',useCache:false}).catch(()=>null);
-  return marker?.statusCode===200;
-}
-async function writeMaintenanceMarker(pathname,data){
-  const {put}=await blobApi();
-  await put(pathname,JSON.stringify(data),{
-    access:'private',
-    contentType:'application/json; charset=utf-8',
-    addRandomSuffix:false,
-    allowOverwrite:true
-  });
-}
-
-function sameTrackedSlot(a,b){
-  return String(a?.appointmentDate||'')===String(b?.appointmentDate||'') &&
-    Number(a?.doctorId||0)===Number(b?.doctorId||0) &&
-    timeMinutes(a?.appointmentTime)===timeMinutes(b?.appointmentTime);
-}
-
-async function getNewPrivateFollowupGuards(){
-  const events=await readEvents(5000);
-  const seen=new Set(),guards=[];
-
-  for(const event of events){
-    if(event?.eventType!=='booking_completed')continue;
-    const privateNew=event?.route==='PKV'&&event?.patientType==='new';
-    const menopause=String(event?.serviceId||'')==='IGEL_HORMON';
-    if(!privateNew&&!menopause)continue;
-    if(event?.bookingStatus==='released')continue;
-    if(!isFutureTrackedAppointment(event))continue;
-
-    const nextTime=(()=>{
-      const mins=timeMinutes(event?.appointmentTime);
-      if(!Number.isFinite(mins)||mins+15>=1440)return '';
-      const n=mins+15;
-      return String(Math.floor(n/60)).padStart(2,'0')+'.'+String(n%60).padStart(2,'0');
-    })();
-    if(!nextTime)continue;
-
-    const date=String(event?.appointmentDate||'');
-    const doctorId=Number(event?.doctorId||0);
-    if(!date||!doctorId)continue;
-
-    const key=date+'|'+doctorId+'|'+nextTime;
-    if(seen.has(key))continue;
-    seen.add(key);
-    guards.push({date,time:nextTime,doctorId});
-  }
-
-  return guards;
-}
-
-async function reconcileRebookedEvents(){
-  const records=await readEventRecords(5000);
-  const ordered=records
-    .filter(({event})=>event?.eventType==='booking_completed')
-    .sort((a,b)=>String(a.event.recordedAt||'').localeCompare(String(b.event.recordedAt||'')));
-
-  const lastBySlot=new Map();
-  let linked=0,updated=0;
-
-  for(const record of ordered){
-    let event=record.event;
-    const mins=timeMinutes(event?.appointmentTime);
-    if(!String(event?.appointmentDate||'')||!Number(event?.doctorId||0)||!Number.isFinite(mins))continue;
-    const key=String(event.appointmentDate)+'|'+Number(event.doctorId)+'|'+mins;
-    const previous=lastBySlot.get(key);
-
-    if(previous&&previous.event.eventId!==event.eventId){
-      const previousEvent=previous.event;
-      const previousNeedsUpdate=
-        previousEvent.bookingStatus!=='released' ||
-        previousEvent.releaseEvidence!=='slot_rebooked' ||
-        previousEvent.rebookedByEventId!==event.eventId ||
-        previousEvent.releaseConfirmedByRebookingAt!==event.recordedAt;
-
-      if(previousNeedsUpdate){
-        const updatedPrevious={
-          ...previousEvent,
-          schemaVersion:4,
-          bookingStatus:'released',
-          releaseDetectedAt:previousEvent.releaseDetectedAt||event.recordedAt,
-          releaseEvidence:'slot_rebooked',
-          releaseConfirmedByRebookingAt:event.recordedAt,
-          rebookedByEventId:event.eventId
-        };
-        await overwriteEvent(previous,updatedPrevious);
-        previous.event=updatedPrevious;
-        updated++;
-      }
-
-      const currentNeedsUpdate=
-        event.previousBookingEventId!==previousEvent.eventId ||
-        event.previousBookingRecordedAt!==previousEvent.recordedAt;
-
-      if(currentNeedsUpdate){
-        const updatedCurrent={
-          ...event,
-          schemaVersion:Math.max(4,Number(event.schemaVersion)||0),
-          previousBookingEventId:previousEvent.eventId,
-          previousBookingRecordedAt:previousEvent.recordedAt
-        };
-        await overwriteEvent(record,updatedCurrent);
-        event=updatedCurrent;
-        record.event=updatedCurrent;
-        updated++;
-      }
-      linked++;
-    }
-
-    lastBySlot.set(key,record);
-  }
-
-  return {linked,updated};
-}
-
-async function reconcileTrackedBookings({force=false}={}){
-  ensureBlobConfigured();
-  const rebooking=await reconcileRebookedEvents();
-  const day=berlinNow().date;
-  const markerPath=MAINTENANCE_PREFIX+'reconcile-'+day+'.json';
-
-  if(!force&&await maintenanceMarkerExists(markerPath)){
-    return {ok:true,skipped:true,reason:'already-checked-today',rebooked:rebooking.linked||0};
-  }
-
-  const records=await readEventRecords(5000);
-  const candidates=records.filter(({event})=>{
-    if(event?.eventType!=='booking_completed')return false;
-    if(event?.bookingStatus==='released')return false;
-    const sid=String(event?.serviceId||'');
-    if(!['1950','1952','1973','1974','IGEL_HORMON'].includes(sid))return false;
-    if(sid==='IGEL_HORMON'&&!Number(event?.mediDateServiceId||0))return false;
-    return isFutureTrackedAppointment(event);
-  });
-
-  let checked=0,released=0;
-  if(candidates.length){
-    const {buildLiveBundle}=require('./medidate');
-    const live=await buildLiveBundle();
-    const groups=new Map((live?.groups||[]).map(g=>[String(g.serviceId),g]));
-
-    for(const record of candidates){
-      const event=record.event;
-      const effectiveServiceId=String(event.mediDateServiceId||event.serviceId||'');
-      const group=groups.get(effectiveServiceId);
-      if(!group)continue;
-      checked++;
-      if(!slotIsAvailableAgain(group,event))continue;
-
-      const detectedAt=new Date().toISOString();
-      const updated={
-        ...event,
-        schemaVersion:4,
-        bookingStatus:'released',
-        releaseDetectedAt:detectedAt,
-        releaseEvidence:'slot_reappeared_in_medidate'
-      };
-      await overwriteEvent(record,updated);
-      released++;
-    }
-  }
-
-  await writeMaintenanceMarker(markerPath,{
-    checkedAt:new Date().toISOString(),
-    checked,
-    released
-  });
-  cleanupIfNeeded().catch(()=>{});
-  return {ok:true,skipped:false,checked,released,rebooked:rebooking.linked||0};
-}
-
-
-async function readMaintenanceJson(pathname){
-  const {get}=await blobApi();
-  const r=await get(pathname,{access:'private',useCache:false}).catch(()=>null);
-  if(!r||r.statusCode!==200)return null;
-  try{return JSON.parse(await streamToText(r.stream))}catch{return null}
-}
-function publicChangeView(event){
-  return {
-    eventId:String(event?.eventId||''),
-    appointmentDate:String(event?.appointmentDate||''),
-    appointmentTime:String(event?.appointmentTime||''),
-    serviceName:String(event?.serviceName||'Termin'),
-    doctorName:String(event?.doctorName||'Ärztin'),
-    route:String(event?.route||''),
-    patientType:String(event?.patientType||''),
-    bookingStatus:String(event?.bookingStatus||'booked'),
-    releaseDetectedAt:String(event?.releaseDetectedAt||''),
-    releaseEvidence:String(event?.releaseEvidence||'')
-  };
-}
-async function getPushChanges(){
-  ensureBlobConfigured();
-
-  // Hourly checks should use current mediDate availability, not the once-daily marker.
-  await reconcileTrackedBookings({force:true});
-
-  const statePath=MAINTENANCE_PREFIX+'push-state.json';
-  const state=await readMaintenanceJson(statePath);
-  const checkedAt=new Date().toISOString();
-
-  if(!state?.lastCheckedAt){
-    await writeMaintenanceMarker(statePath,{lastCheckedAt:checkedAt});
-    return {
-      ok:true,
-      initialized:true,
-      notify:false,
-      checkedAt,
-      newBookings:[],
-      newReleases:[]
-    };
-  }
-
-  const sinceMs=Date.parse(String(state.lastCheckedAt||''));
-  const validSince=Number.isFinite(sinceMs)?sinceMs:Date.now();
-  const events=await readEvents(5000);
-
-  const newBookings=events
-    .filter(e=>Date.parse(String(e?.recordedAt||''))>validSince)
-    .map(publicChangeView);
-
-  const newReleases=events
-    .filter(e=>{
-      if(e?.bookingStatus!=='released')return false;
-      const candidates=[
-        Date.parse(String(e?.releaseDetectedAt||'')),
-        Date.parse(String(e?.releaseConfirmedByRebookingAt||''))
-      ].filter(Number.isFinite);
-      return candidates.length&&Math.max(...candidates)>validSince;
-    })
-    .map(publicChangeView);
-
-  await writeMaintenanceMarker(statePath,{lastCheckedAt:checkedAt});
-
-  return {
-    ok:true,
-    initialized:false,
-    notify:newBookings.length>0||newReleases.length>0,
-    checkedAt,
-    previousCheckedAt:state.lastCheckedAt,
-    newBookingsCount:newBookings.length,
-    newReleasesCount:newReleases.length
-  };
-}
-
-const trackingHandler=async function handler(req,res){
+module.exports=async function handler(req,res){
   try{
     if(req.method==='POST'){
       if(!sameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
-      const event=validatedEvent(await readJsonBody(req));
-      await saveEvent(event);
-      // Eine spätere erfolgreiche Buchung desselben tatsächlichen Slots belegt,
-      // dass die unmittelbar vorherige getrackte Buchung dieses Slots nicht mehr
-      // bestand. Datum, Uhrzeit und Ärztin genügen dafür; die Terminart darf sich ändern.
-      await reconcileRebookedEvents().catch(e=>console.error('Rebooking reconciliation failed',{message:e?.message}));
+      const body=await readJsonBody(req);
+      const event=verifyBookingReceipt(body?.receipt);
+      const stored=await saveEvent(event);
+      await purgeRequestedTrackingEvent().catch(()=>{});
       cleanupIfNeeded().catch(()=>{});
-      return send(res,200,{ok:true,storage:'vercel-blob-private'});
+      return send(res,200,{ok:true,storage:'vercel-blob-private',duplicate:!stored});
     }
 
     if(req.method==='GET'){
       if(!sameOrigin(req)||!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});
-      const action=String(req.query?.action||'read');
-
-      if(action==='reconcile'){
-        const result=await reconcileTrackedBookings({force:true});
-        return send(res,200,{ok:true,checked:result.checked||0,released:result.released||0,rebooked:result.rebooked||0});
-      }
-
       const limit=Math.max(1,Math.min(5000,Number(req.query?.limit)||2000));
+      await purgeRequestedTrackingEvent();
       await cleanupIfNeeded().catch(()=>{});
       const events=await readEvents(limit);
       return send(res,200,{ok:true,storage:'vercel-blob-private',retentionDays:RETENTION_DAYS,events});
@@ -538,9 +247,3 @@ const trackingHandler=async function handler(req,res){
     return send(res,status,{ok:false,error:e?.message||'Tracking-Fehler.'});
   }
 };
-
-module.exports=trackingHandler;
-module.exports.reconcileTrackedBookings=reconcileTrackedBookings;
-module.exports.reconcileRebookedEvents=reconcileRebookedEvents;
-module.exports.getPushChanges=getPushChanges;
-module.exports.getNewPrivateFollowupGuards=getNewPrivateFollowupGuards;
