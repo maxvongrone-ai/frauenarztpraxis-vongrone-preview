@@ -4,3 +4,4 @@ Disallow: /admin.html
 Disallow: /tracking.html
 Disallow: /praxis-auswertung
 Disallow: /api/
+Disallow: /praxis-auswertung-juyY7KFzMJIXC4Zyd4T7OdOR4swyhBr1
