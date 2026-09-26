@@ -138,6 +138,7 @@ function quarterEnd(d=new Date()){const m=Math.ceil((d.getMonth()+1)/3)*3;return
 function daysBetween(a,b){const A=new Date(a.getFullYear(),a.getMonth(),a.getDate()),B=new Date(b.getFullYear(),b.getMonth(),b.getDate());return Math.round((B-A)/86400000)}
 function isIgelMode(mode=state.topicMode){return String(mode||'').startsWith('igel')}
 function isHarmonyMode(mode=state.topicMode){return mode==='igel_harmony'}
+function isMenopauseMode(mode=state.topicMode){return mode==='igel_hormon'}
 
 // Einmalige Zusatzfreigabe: Montag, 28.09.2026, 12:00–13:00 Uhr.
 // Sie erweitert nur die Sichtbarkeit tatsächlich freier mediDate-Termine;
@@ -276,6 +277,21 @@ function needs30MinuteBlock(){
  return false;
 }
 function onlyBookableStarts(items){
+ if(isMenopauseMode()){
+   const byKey=new Map();
+   for(const x of items){
+     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))continue;
+     byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
+   }
+   return items.filter(x=>{
+     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))return false;
+     const nextTime=add15DotTime(x.time);
+     if(!nextTime)return false;
+     const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
+     return Boolean(next&&isPrivateOnlyWindow(next));
+   });
+ }
+
  if(!needs30MinuteBlock())return items;
 
  // Für einen sichtbaren 30-Minuten-Start müssen BEIDE 15-Minuten-Slots
@@ -477,6 +493,8 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  let normal;
  if(state.topicMode==='acute'||state.topicMode==='pregnancy'){
    normal=allSlots.filter(maySeeSlot);
+ }else if(isMenopauseMode()){
+   normal=allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x));
  }else if(state.insurance==='PKV'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
    normal=state.patientType==='new'
@@ -675,14 +693,23 @@ function addSelfPayServices(){
  label.textContent='Besondere Selbstzahlerleistungen';
  box.appendChild(label);
 
- // Sonderversion: Unter „Besondere Selbstzahlerleistungen“ wird zunächst
- // ausschließlich der Brustultraschall angeboten. Die technische Terminabfrage
- // nutzt dafür die reale mediDate-Service-ID.
  const options=[
+   {
+     service:{id:'IGEL_HORMON',name:'Wechseljahressprechstunde',duration:15,price:'119,41 €'},
+     subtitle:'119,41 €',
+     mode:'igel_hormon'
+   },
    {
      service:{id:'breast',name:'Brustultraschall',duration:15,price:'70,00 €'},
      subtitle:'70,00 €',
      mode:'regular'
+   },
+   {
+     service:{id:'IGEL_SPIRALE',name:'Spirale Einlage',duration:15,price:'216,69 €'},
+     subtitle:'216,69 €',
+     note:'Optimaler Zyklustag 2–7',
+     mode:'igel_spirale',
+     phoneOnly:true
    }
  ];
 
@@ -691,7 +718,17 @@ function addSelfPayServices(){
    b.className='choice';
    b.dataset.service=String(o.service.id);
    b.innerHTML=`<strong>${esc(o.service.name)}</strong><small>${esc(o.subtitle)}${o.note?`<br>${esc(o.note)}`:''}</small>`;
-   b.onclick=()=>chooseService(o.service,b,o.mode);
+   if(o.phoneOnly){
+     b.onclick=()=>{
+       state.service=o.service;state.topicMode=o.mode;state.selectedSlot=null;
+       select('[data-service]',b);
+       $('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
+       $('#servicesStatus').className='status';
+       $('#servicesStatus').innerHTML='Bitte melden Sie sich zur Terminvereinbarung telefonisch in der Praxis: <a href="tel:+49406038141"><strong>040 / 603 81 41</strong></a>.';
+     };
+   }else{
+     b.onclick=()=>chooseService(o.service,b,o.mode);
+   }
    box.appendChild(b);
  }
 }
@@ -1239,8 +1276,25 @@ async function bookNow(){
    }
    if(!row)throw new Error('Dieser Termin ist inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
 
+   if(isMenopauseMode()){
+     const nextTime=add15DotTime(state.selectedSlot.time);
+     let nextRow=null;
+     for(const r of rows){
+       if(String(r?.dateTimeStart||'').slice(0,10)!==String(state.selectedSlot.date))continue;
+       if(Number(r?.doctorId)!==Number(tech.doctorId))continue;
+       if(Number(r?.duration)!==15)continue;
+       if(Number(r?.listReferenzId||0)!==Number(tech.listReferenzId||0))continue;
+       if(nextTime&&(Array.isArray(r?.times)?r.times:[]).map(String).includes(String(nextTime))){nextRow=r;break}
+     }
+     const nextSlot={date:state.selectedSlot.date,time:nextTime,doctorId:state.selectedSlot.doctorId,duration:15,serviceId:state.selectedSlot.serviceId};
+     if(!nextTime||!nextRow||!isPrivateOnlyWindow(state.selectedSlot)||!isPrivateOnlyWindow(nextSlot)){
+       throw new Error('Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende 15-Minuten-Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
+     }
+   }
+
    const flags=[];
    if(state.insurance==='SELF')flags.push('IGeL/Selbstzahler');
+   if(isMenopauseMode())flags.push('Selbstzahler: Wechseljahressprechstunde');
    if(state.topicMode==='pregnancy')flags.push('Schwangerschaft');
    if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'&&pregnancyOtherPractice)flags.push(`Andere gyn. Schwangerschaftsvorsorge/-betreuung lfd. Quartal: ${pregnancyOtherPractice==='yes'?'JA':'NEIN'}`);
    const now=new Date().toISOString();
@@ -1276,7 +1330,7 @@ async function bookNow(){
      <button type="button" class="primary" id="downloadIcs">Kalendereintrag herunterladen</button>
      ${cancelHtml}
    </div>`;
-   $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:state.selectedSlot.date,time:state.selectedSlot.time,duration:Number(tech.duration||15),doctorName});
+   $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:state.selectedSlot.date,time:state.selectedSlot.time,duration:isMenopauseMode()?30:Number(tech.duration||15),doctorName});
  }catch(e){
    if(e?.name==='AbortError'||e?.code==='BOOKING_STATUS_UNCLEAR'){
      st.className='status bad';

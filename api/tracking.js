@@ -119,14 +119,16 @@ function directEvent(body){
   if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Patientenstatus.');
   if(!['vorsorge','contraception','followup','breast'].includes(String(slot.sk||'')))throw new Error('Ungültige Terminart.');
   if(!['moxter','vongrone'].includes(String(slot.dk||'')))throw new Error('Ungültige Ärztin.');
+  const topicMode=String(body?.topicMode||'regular');
+  const trackedServiceId=topicMode==='pregnancy'?'pregnancy':(topicMode==='igel_hormon'?'IGEL_HORMON':String(slot.sk));
   return {
     schemaVersion:5,
     eventId:crypto.randomUUID(),
     eventType:'booking_completed',
     route,
     patientType,
-    serviceId:String(body?.topicMode)==='pregnancy'?'pregnancy':String(slot.sk),
-    serviceName:String(body?.topicMode)==='pregnancy'?SERVICE_NAMES.pregnancy:(SERVICE_NAMES[String(slot.sk)]||'Termin'),
+    serviceId:trackedServiceId,
+    serviceName:SERVICE_NAMES[trackedServiceId]||SERVICE_NAMES[String(slot.sk)]||'Termin',
     appointmentDate:String(slot.date),
     appointmentTime:String(slot.time),
     doctorId:String(slot.dk),
