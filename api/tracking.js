@@ -30,7 +30,8 @@ const ONE_TIME_PURGE_MARKER=`${MAINTENANCE_PREFIX}purge-2026-09-23-112530-pkv-vo
 const SERVICE_NAMES=Object.freeze({
   'vorsorge':'Vorsorge',
   'contraception':'Verhütung – Kontrolltermin',
-  'followup':'Nachsorge',
+  'pregnancy':'Schwangerschaft',
+  'followup':'Tumornachsorge',
   'breast':'Brustultraschall',
   '1950':'Vorsorge',
   '1973':'Nachsorge',
@@ -103,7 +104,7 @@ function verifyBookingReceipt(receipt){
   if(!/^[0-9a-f-]{36}$/i.test(String(x.eventId||'')))throw new Error('Ungültiger Tracking-Beleg.');
   const route=String(x.route||'');if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Tracking-Beleg.');
   const patientType=String(x.patientType||'');if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Tracking-Beleg.');
-  const serviceId=String(x.serviceId||'');if(!['vorsorge','followup','breast'].includes(serviceId))throw new Error('Ungültiger Tracking-Beleg.');
+  const serviceId=String(x.serviceId||'');if(!['vorsorge','contraception','followup','breast','pregnancy'].includes(serviceId))throw new Error('Ungültiger Tracking-Beleg.');
   const appointmentDate=String(x.appointmentDate||''),appointmentTime=String(x.appointmentTime||''),doctorId=String(x.doctorId||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)||!/^\d{1,2}\.\d{2}$/.test(appointmentTime)||!['moxter','vongrone'].includes(doctorId))throw new Error('Ungültiger Tracking-Beleg.');
   const duration=Number(x.duration);if(duration!==15)throw new Error('Ungültiger Tracking-Beleg.');
@@ -116,7 +117,7 @@ function directEvent(body){
   const patientType=String(body?.patientType||'');
   if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Buchungspfad.');
   if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Patientenstatus.');
-  if(!['vorsorge','followup','breast'].includes(String(slot.sk||'')))throw new Error('Ungültige Terminart.');
+  if(!['vorsorge','contraception','followup','breast'].includes(String(slot.sk||'')))throw new Error('Ungültige Terminart.');
   if(!['moxter','vongrone'].includes(String(slot.dk||'')))throw new Error('Ungültige Ärztin.');
   return {
     schemaVersion:5,
@@ -124,8 +125,8 @@ function directEvent(body){
     eventType:'booking_completed',
     route,
     patientType,
-    serviceId:String(slot.sk),
-    serviceName:SERVICE_NAMES[String(slot.sk)]||'Termin',
+    serviceId:String(body?.topicMode)==='pregnancy'?'pregnancy':String(slot.sk),
+    serviceName:String(body?.topicMode)==='pregnancy'?SERVICE_NAMES.pregnancy:(SERVICE_NAMES[String(slot.sk)]||'Termin'),
     appointmentDate:String(slot.date),
     appointmentTime:String(slot.time),
     doctorId:String(slot.dk),

@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.9.2",
+  "version": "60.9.3",
   "private": true,
-  "description": "mediDate V60.9.2: browser-direct booking without application-level IP processing; visible acute consultation option removed.",
+  "description": "mediDate V60.9.3: restore full PKV service selection while retaining browser-direct booking, metadata-only tracking, and no application-level IP processing.",
   "engines": {
     "node": "22.x"
   },

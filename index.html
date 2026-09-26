@@ -118,8 +118,9 @@ const PRACTICE_DOCTORS=[
 ];
 const DEFAULT_SERVICES=[
   {id:'vorsorge',name:'Vorsorge',duration:15,sortOrder:1},
-  {id:'followup',name:'Nachsorge',duration:15,sortOrder:2},
-  {id:'breast',name:'Brustultraschall',duration:15,sortOrder:3}
+  {id:'contraception',name:'Verhütung – Kontrolltermin',duration:15,sortOrder:2},
+  {id:'followup',name:'Tumornachsorge',duration:15,sortOrder:3},
+  {id:'breast',name:'Brustultraschall',duration:15,sortOrder:4}
 ];
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
@@ -526,12 +527,12 @@ async function apiGet(action,params={},timeoutMs=8000){
 //
 // mediDate wird nur im Hintergrund aktualisiert. Selbst 30–60 Sekunden externe
 // Latenz blockieren dadurch niemals die Kalenderanzeige.
-const PUBLIC_CACHE_PREFIX='fg-medidate-public-v609-direct:';
+const PUBLIC_CACHE_PREFIX='fg-medidate-public-v6093-private-services:';
 const LOCAL_CACHE_MAX_AGE=24*60*60*1000;
 let publicBundleNetworkPromise=null;
 let deploymentBundlePromise=null;
 
-const REQUIRED_SERVICE_KEYS=['vorsorge','followup','breast'];
+const REQUIRED_SERVICE_KEYS=['vorsorge','contraception','followup','breast'];
 function isCompleteBundle(b){
  if(!b||!Array.isArray(b.groups))return false;
  const keys=new Set();
@@ -634,9 +635,15 @@ function loadServices(){
    return;
  }
 
- // Sonderversion: In den regulären PKV-/GKV-Pfaden sind unter Schritt 3
- // ausschließlich Vorsorge und Nachsorge auswählbar. Besondere
- // Selbstzahlerleistungen behalten ihren separaten Auswahlpfad.
+ if(state.insurance==='PKV'){
+   // Privatversicherte sehen wieder die vollständige frühere Regelauswahl.
+   const list=DEFAULT_SERVICES.filter(s=>['vorsorge','contraception','followup','breast'].includes(String(s.id)));
+   list.forEach(s=>addServiceButton(s));
+   addPregnancyButton(list);
+   return;
+ }
+
+ // GKV bleibt auf den regulär freigegebenen Terminarten.
  const list=DEFAULT_SERVICES.filter(s=>['vorsorge','followup'].includes(String(s.id)));
  list.forEach(s=>addServiceButton(s));
 
@@ -1069,7 +1076,8 @@ async function sendBookingTracking(slot){
        direct:true,
        slotToken:String(slot.slotToken),
        route:String(state.insurance||''),
-       patientType:String(state.patientType||'')
+       patientType:String(state.patientType||''),
+       topicMode:String(state.topicMode||'regular')
      })
    });
  }catch{}
