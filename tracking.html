@@ -7,14 +7,14 @@
 <title>Praxis – interne Buchungsauswertung</title>
 <style>
 :root{--bg:#f5f2ee;--paper:#fff;--ink:#303536;--muted:#73787b;--line:#ded8d2;--accent:#765f56;--soft:#eee8e4;--bad:#a33a3a}
-*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}.wrap{max-width:1180px;margin:30px auto;padding:0 18px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}h1{font-size:28px;margin:0 0 10px}h2{font-size:20px}.muted{color:var(--muted);font-size:13px;line-height:1.5}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.urlbox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f7f5f2;border:1px solid var(--line);border-radius:9px;padding:10px 12px;overflow-wrap:anywhere;flex:1;min-width:260px}button{padding:11px 14px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;font:inherit}.primary{background:var(--accent);color:white;border-color:var(--accent)}.bad{color:var(--bad)}.cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.card{background:var(--soft);border-radius:12px;padding:14px}.card strong{display:block;font-size:24px;margin-top:5px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid #eee;white-space:nowrap}th{position:sticky;top:0;background:white}th[data-sort]{cursor:pointer;user-select:none}th[data-sort]:focus{outline:2px solid var(--accent);outline-offset:-2px}.sort-indicator{display:inline-block;min-width:1.1em;margin-left:3px;color:var(--muted);font-size:10px}.hidden{display:none}@media(max-width:800px){.cards{grid-template-columns:1fr 1fr}}
+*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}.wrap{max-width:1180px;margin:30px auto;padding:0 18px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}h1{font-size:28px;margin:0 0 10px}h2{font-size:20px}.muted{color:var(--muted);font-size:13px;line-height:1.5}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.urlbox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f7f5f2;border:1px solid var(--line);border-radius:9px;padding:10px 12px;overflow-wrap:anywhere;flex:1;min-width:260px}button{padding:11px 14px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;font:inherit}.primary{background:var(--accent);color:white;border-color:var(--accent)}.bad{color:var(--bad)}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.card{background:var(--soft);border-radius:12px;padding:14px}.card strong{display:block;font-size:24px;margin-top:5px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid #eee;white-space:nowrap}th{position:sticky;top:0;background:white}.hidden{display:none}@media(max-width:800px){.cards{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body><div class="wrap">
 <section class="panel">
 <h1>Interne Buchungsauswertung</h1>
-<p class="muted">Der geheime Schlüssel steckt ausschließlich im URL-Fragment (#k=…) und wird nicht an den Webserver übertragen. Bitte die vollständige URL nicht öffentlich weitergeben. Gespeichert werden nur Buchungsmetadaten erfolgreicher Online-Buchungen; keine Namen, Geburtsdaten, E-Mail-Adressen, Telefonnummern oder Freitexte.</p>
-<div class="row"><div class="urlbox" id="currentUrl"></div><button id="copyUrl">URL kopieren</button><button class="primary" id="reload">Aktualisieren</button><button id="reconcile">Stornierungen prüfen</button><button id="csv" class="hidden">CSV exportieren</button></div>
+<p class="muted">Diese geheime URL ist zugleich der Zugangsschlüssel. Bitte nicht öffentlich weitergeben. Gespeichert werden nur Buchungsmetadaten erfolgreicher Online-Buchungen; keine Namen, Geburtsdaten, E-Mail-Adressen, Telefonnummern oder Freitexte.</p>
+<div class="row"><div class="urlbox" id="currentUrl"></div><button id="copyUrl">URL kopieren</button><button class="primary" id="reload">Aktualisieren</button><button id="csv" class="hidden">CSV exportieren</button></div>
 <div id="status" class="muted" style="margin-top:10px">Lädt …</div>
 </section>
 <section class="panel hidden" id="summaryPanel">
@@ -23,171 +23,52 @@
   <div class="card"><span class="muted">Privat / Selbstzahler</span><strong id="nPkv">0</strong></div>
   <div class="card"><span class="muted">GKV</span><strong id="nGkv">0</strong></div>
   <div class="card"><span class="muted">Besondere Selbstzahler</span><strong id="nSelf">0</strong></div>
-  <div class="card"><span class="muted">Wieder freigegeben</span><strong id="nReleased">0</strong></div>
 </div>
 </section>
 <section class="panel hidden" id="tablePanel">
 <h2>Buchungen</h2>
-<div class="row" style="margin:0 0 12px">
-  <label for="sortSelect" class="muted">Sortieren nach</label>
-  <select id="sortSelect" style="padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:white;font:inherit">
-    <option value="">Standard (neueste Erfassung zuerst)</option>
-    <option value="appointment">Termin</option>
-    <option value="route">Buchungspfad</option>
-    <option value="patientType">Patientenstatus</option>
-    <option value="bookingStatus">Buchungsstatus</option>
-    <option value="serviceName">Terminart</option>
-    <option value="doctorName">Ärztin</option>
-    <option value="duration">Dauer</option>
-    <option value="recordedAt">Erfasst</option>
-  </select>
-  <button id="sortDirection" type="button">Aufsteigend ↑</button>
-  <span class="muted">Alternativ direkt auf einen Spaltenkopf klicken.</span>
-</div>
-<div class="table-wrap"><table><thead><tr><th data-sort="appointment" tabindex="0" aria-sort="none">Termin <span class="sort-indicator">↕</span></th><th data-sort="route" tabindex="0" aria-sort="none">Buchungspfad <span class="sort-indicator">↕</span></th><th data-sort="patientType" tabindex="0" aria-sort="none">Patientenstatus <span class="sort-indicator">↕</span></th><th data-sort="bookingStatus" tabindex="0" aria-sort="none">Buchungsstatus <span class="sort-indicator">↕</span></th><th data-sort="serviceName" tabindex="0" aria-sort="none">Terminart <span class="sort-indicator">↕</span></th><th data-sort="doctorName" tabindex="0" aria-sort="none">Ärztin <span class="sort-indicator">↕</span></th><th data-sort="duration" tabindex="0" aria-sort="none">Dauer <span class="sort-indicator">↕</span></th><th data-sort="recordedAt" tabindex="0" aria-sort="none">erfasst <span class="sort-indicator">↕</span></th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Termin</th><th>Buchungspfad</th><th>Status</th><th>Terminart</th><th>Ärztin</th><th>Dauer</th><th>erfasst</th></tr></thead><tbody id="rows"></tbody></table></div>
 </section>
 </div>
 <script>
-const $=s=>document.querySelector(s);let current=[];let sortState={key:null,dir:'asc'};
+const $=s=>document.querySelector(s);let current=[];
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deDate=iso=>String(iso||'').split('-').reverse().join('.');
 const routeName=r=>r==='PKV'?'Privatversicherte / Selbstzahler':r==='GKV'?'Gesetzlich Versicherte':r==='SELF'?'Besondere Selbstzahlerleistungen':r;
 const patientName=p=>p==='existing'?'Bestandspatientin':p==='new'?'Neupatientin':'';
-function bookingStatus(x){
- if(x?.bookingStatus==='released')return 'Wieder freigegeben';
- const time=String(x?.appointmentTime||'').replace('.',':');
- const d=new Date(String(x?.appointmentDate||'')+'T'+time+':00');
- return Number.isFinite(d.getTime())&&d<Date.now()?'Termin vorbei':'Gebucht';
-}
-function statusDetail(x){
- if(x?.rebookedByEventId){
-   const when=x.releaseConfirmedByRebookingAt?new Date(x.releaseConfirmedByRebookingAt).toLocaleString('de-DE'):'';
-   return 'Durch spätere Wiederbuchung bestätigt'+(when?' · '+when:'');
- }
- if(x?.releaseEvidence==='slot_reappeared_in_medidate'){
-   const when=x.releaseDetectedAt?new Date(x.releaseDetectedAt).toLocaleString('de-DE'):'';
-   return 'Im mediDate-Kalender wieder frei'+(when?' · '+when:'');
- }
- if(x?.previousBookingEventId)return 'Folgebuchung nach vorheriger Freigabe';
- return '';
-}
 function accessKey(){
- const p=new URLSearchParams(location.hash.replace(/^#/,''));
- const fromUrl=p.get('k')||'';
- if(fromUrl){
-  try{localStorage.setItem('medidateReportKey',fromUrl)}catch{}
-  return fromUrl;
- }
- try{return localStorage.getItem('medidateReportKey')||''}catch{return ''}
-}
-function sortValue(x,key){
- if(key==='appointment')return String(x.appointmentDate||'')+'T'+String(x.appointmentTime||'').replace('.',':').padStart(5,'0');
- if(key==='route')return routeName(x.route);
- if(key==='patientType')return patientName(x.patientType);
- if(key==='bookingStatus')return bookingStatus(x);
- if(key==='duration')return Number(x.duration)||0;
- if(key==='recordedAt')return Date.parse(String(x.recordedAt||''))||0;
- return String(x?.[key]||'');
-}
-function sortedCurrent(){
- if(!sortState.key)return current.slice();
- const dir=sortState.dir==='asc'?1:-1,key=sortState.key;
- return current.map((x,i)=>({x,i})).sort((a,b)=>{
-   const A=sortValue(a.x,key),B=sortValue(b.x,key);
-   let cmp;
-   if(typeof A==='number'&&typeof B==='number')cmp=A-B;
-   else cmp=String(A).localeCompare(String(B),'de',{numeric:true,sensitivity:'base'});
-   return cmp?cmp*dir:a.i-b.i;
- }).map(o=>o.x);
-}
-function updateSortHeaders(){
- document.querySelectorAll('th[data-sort]').forEach(th=>{
-   const active=th.dataset.sort===sortState.key;
-   th.setAttribute('aria-sort',active?(sortState.dir==='asc'?'ascending':'descending'):'none');
-   const indicator=th.querySelector('.sort-indicator');
-   if(indicator)indicator.textContent=active?(sortState.dir==='asc'?'▲':'▼'):'↕';
- });
-}
-function renderRows(){
- const rows=sortedCurrent();
- $('#rows').innerHTML=rows.map(x=>{const detail=statusDetail(x);const ref=x.rebookedByEventId?`<br><a class="muted event-link" href="#event-${esc(x.rebookedByEventId)}" data-event-id="${esc(x.rebookedByEventId)}">Folgebuchung anzeigen</a>`:'';return `<tr id="event-${esc(x.eventId||'')}"><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType))}</td><td>${esc(bookingStatus(x))}${detail?`<br><span class="muted">${esc(detail)}</span>`:''}${ref}</td><td>${esc(x.serviceName)}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`}).join('')||'<tr><td colspan="8" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
- updateSortHeaders();
-}
-function syncSortControls(){
- const select=$('#sortSelect'),btn=$('#sortDirection');
- if(select)select.value=sortState.key||'';
- if(btn){
-   btn.textContent=sortState.dir==='asc'?'Aufsteigend ↑':'Absteigend ↓';
-   btn.disabled=!sortState.key;
- }
-}
-function applySort(key,dir){
- if(!key){
-   sortState={key:null,dir:'asc'};
- }else if(dir){
-   sortState={key,dir};
- }else if(sortState.key===key){
-   sortState.dir=sortState.dir==='asc'?'desc':'asc';
- }else{
-   sortState={key,dir:'asc'};
- }
- renderRows();
- syncSortControls();
+ const raw=String(location.hash||'').replace(/^#/,'');
+ const params=new URLSearchParams(raw);
+ const fragmentKey=String(params.get('k')||'');
+ if(fragmentKey)return fragmentKey;
+ const prefix='/praxis-auswertung-';
+ const path=String(location.pathname||'');
+ if(path.startsWith(prefix))return path.slice(prefix.length);
+ return '';
 }
 function render(events,retention,storage){
  current=events||[];
- $('#nAll').textContent=current.length;$('#nPkv').textContent=current.filter(x=>x.route==='PKV').length;$('#nGkv').textContent=current.filter(x=>x.route==='GKV').length;$('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;$('#nReleased').textContent=current.filter(x=>x.bookingStatus==='released').length;
- renderRows();
+ $('#nAll').textContent=current.length;$('#nPkv').textContent=current.filter(x=>x.route==='PKV').length;$('#nGkv').textContent=current.filter(x=>x.route==='GKV').length;$('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;
+ $('#rows').innerHTML=current.map(x=>`<tr><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType))}</td><td>${esc(x.serviceName)}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
  $('#summaryPanel').classList.remove('hidden');$('#tablePanel').classList.remove('hidden');$('#csv').classList.remove('hidden');
  const storageName=storage==='vercel-blob-private'?'privater Vercel Blob':storage||'Speicher';
  $('#status').className='muted';$('#status').textContent=`${current.length} Datensätze geladen · Speicherdauer: ${retention} Tage · Speicher: ${storageName}`;
 }
 async function load(){
  const key=accessKey();$('#status').className='muted';$('#status').textContent='Lädt …';
- if(!key){$('#status').className='muted bad';$('#status').textContent='Auswertungsschlüssel fehlt. Bitte die vollständige interne Auswertungs-URL öffnen.';return}
+ if(!key){$('#status').className='muted bad';$('#status').textContent='Ungültige Auswertungs-URL.';return}
  try{
   const r=await fetch('/api/tracking?limit=2000',{cache:'no-store',credentials:'same-origin',headers:{'X-MediDate-Tracking-Key':key}});const j=await r.json();
   if(!r.ok||!j.ok)throw new Error(j.error||`HTTP ${r.status}`);render(j.events,j.retentionDays,j.storage);
  }catch(e){$('#status').className='muted bad';$('#status').textContent=e.message;$('#summaryPanel').classList.add('hidden');$('#tablePanel').classList.add('hidden');$('#csv').classList.add('hidden')}
 }
-
-async function reconcile(){
- const key=accessKey(),btn=$('#reconcile');
- if(!key){$('#status').className='muted bad';$('#status').textContent='Auswertungsschlüssel fehlt.';return}
- btn.disabled=true;$('#status').className='muted';$('#status').textContent='Aktuelle mediDate-Termine werden mit den getrackten Buchungen abgeglichen …';
- try{
-  const r=await fetch('/api/tracking?action=reconcile',{cache:'no-store',credentials:'same-origin',headers:{'X-MediDate-Tracking-Key':key}});
-  const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
-  await load();
- }catch(e){$('#status').className='muted bad';$('#status').textContent=e.message}
- finally{btn.disabled=false}
-}
 function csv(){
- const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Buchungsstatus','Nachweis','Terminart','Ärztin','Dauer Minuten','Erfasst','Vorherige Buchung','Folgebuchung'];
+ const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Terminart','Ärztin','Dauer Minuten','Erfasst'];
  const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
- const lines=[head,...sortedCurrent().map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),bookingStatus(x),statusDetail(x),x.serviceName,x.doctorName,x.duration,x.recordedAt,x.previousBookingEventId||'',x.rebookedByEventId||''])].map(r=>r.map(q).join(';')).join('\r\n');
+ const lines=[head,...current.map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
  const blob=new Blob(['\ufeff'+lines],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='medidate-buchungsauswertung.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
 }
 $('#currentUrl').textContent=location.href;
 $('#copyUrl').onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$('#copyUrl').textContent='Kopiert';setTimeout(()=>$('#copyUrl').textContent='URL kopieren',1200)}catch{}};
-document.querySelectorAll('th[data-sort]').forEach(th=>{
- th.onclick=()=>applySort(th.dataset.sort);
- th.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();applySort(th.dataset.sort)}};
-});
-$('#sortSelect').onchange=e=>{
- const key=e.target.value;
- applySort(key,key?(sortState.key===key?sortState.dir:'asc'):'asc');
-};
-$('#sortDirection').onclick=()=>{
- if(!sortState.key)return;
- applySort(sortState.key,sortState.dir==='asc'?'desc':'asc');
-};
-syncSortControls();
-$('#rows').addEventListener('click',e=>{
- const link=e.target.closest('.event-link');if(!link)return;
- e.preventDefault();
- const row=document.getElementById('event-'+link.dataset.eventId);
- if(row)row.scrollIntoView({behavior:'smooth',block:'center'});
-});
-$('#reload').onclick=load;$('#reconcile').onclick=reconcile;$('#csv').onclick=csv;load();
+$('#reload').onclick=load;$('#csv').onclick=csv;load();
 </script></body></html>
