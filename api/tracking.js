@@ -1,5 +1,5 @@
 const crypto=require('crypto');
-const {readSecret}=require('../lib/medidate-core');
+const {readSecret,openSlot}=require('../lib/medidate-core');
 
 let _blobApiPromise;
 async function blobApi(){
@@ -109,6 +109,30 @@ function verifyBookingReceipt(receipt){
   const duration=Number(x.duration);if(duration!==15)throw new Error('Ungültiger Tracking-Beleg.');
   const recordedAt=String(x.recordedAt||'');if(!/^\d{4}-\d{2}-\d{2}T/.test(recordedAt))throw new Error('Ungültiger Tracking-Beleg.');
   return {schemaVersion:3,eventId:String(x.eventId),eventType:'booking_completed',route,patientType,serviceId,serviceName:SERVICE_NAMES[serviceId]||'Termin',appointmentDate,appointmentTime,doctorId,doctorName:DOCTOR_NAMES[doctorId]||'Ärztin',duration,recordedAt};
+}
+function directEvent(body){
+  const slot=openSlot(String(body?.slotToken||''));
+  const route=String(body?.route||'');
+  const patientType=String(body?.patientType||'');
+  if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Buchungspfad.');
+  if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Patientenstatus.');
+  if(!['vorsorge','followup','breast'].includes(String(slot.sk||'')))throw new Error('Ungültige Terminart.');
+  if(!['moxter','vongrone'].includes(String(slot.dk||'')))throw new Error('Ungültige Ärztin.');
+  return {
+    schemaVersion:5,
+    eventId:crypto.randomUUID(),
+    eventType:'booking_completed',
+    route,
+    patientType,
+    serviceId:String(slot.sk),
+    serviceName:SERVICE_NAMES[String(slot.sk)]||'Termin',
+    appointmentDate:String(slot.date),
+    appointmentTime:String(slot.time),
+    doctorId:String(slot.dk),
+    doctorName:DOCTOR_NAMES[String(slot.dk)]||'Ärztin',
+    duration:Number(slot.dur)||15,
+    recordedAt:new Date().toISOString()
+  };
 }
 function eventPath(event){
   const day=event.recordedAt.slice(0,10);
@@ -225,7 +249,7 @@ module.exports=async function handler(req,res){
     if(req.method==='POST'){
       if(!sameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
       const body=await readJsonBody(req);
-      const event=verifyBookingReceipt(body?.receipt);
+      const event=body?.direct===true?directEvent(body):verifyBookingReceipt(body?.receipt);
       const stored=await saveEvent(event);
       await purgeRequestedTrackingEvent().catch(()=>{});
       cleanupIfNeeded().catch(()=>{});
