@@ -4,11 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Online-Terminbuchung – Frauenarztpraxis Dr. med. Friederike von Grone</title>
-<link rel="preconnect" href="https://medidatestagingapi.azurewebsites.net" crossorigin>
-<link rel="dns-prefetch" href="//medidatestagingapi.azurewebsites.net">
-<link rel="preconnect" href="https://order.medidate.org" crossorigin>
-<link rel="dns-prefetch" href="//order.medidate.org">
-
 <style>
 :root{--bg:#f5f2ee;--paper:#fff;--ink:#303536;--muted:#73787b;--line:#ded8d2;--accent:#765f56;--soft:#eee8e4;--bad:#a33a3a;--ok:#2d7046;--warn:#8c6727}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
@@ -52,6 +47,7 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
       <button class="choice" data-insurance="PKV"><strong>Privatversicherte / Selbstzahler</strong></button>
       <button class="choice" data-insurance="GKV"><strong>Gesetzlich Versicherte</strong></button>
       <button class="choice" data-insurance="SELF"><strong>Besondere Selbstzahlerleistungen</strong><small>Zusätzliche Wunsch- und Selbstzahlerleistungen</small></button>
+      <button class="choice" id="acuteChoice"><strong>Akut – offene Sprechstunde</strong><small>Täglich 12:00–13:00 Uhr</small></button>
     </div>
   </div>
 
@@ -69,8 +65,9 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
     <div id="gkvNewNote" class="quarter-note hidden">
       <strong>Hinweis für GKV-Neupatientinnen:</strong>
       Die nächsten online buchbaren Termine werden entsprechend unserer verfügbaren vertragsärztlichen Kapazitäten angezeigt.
-      Bei dringenden Beschwerden wenden Sie sich bitte an den ärztlichen Bereitschaftsdienst unter <strong>116 117</strong>; in lebensbedrohlichen Notfällen an <strong>112</strong>.
+      Bei akuten Beschwerden nutzen Sie bitte unsere offene Sprechstunde oder wenden Sie sich an den ärztlichen Bereitschaftsdienst unter <strong>116 117</strong>.
       <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+        <button id="gkvNewAcute" class="linkbtn">Akute Beschwerden / offene Sprechstunde</button>
         <button id="gkvNewSelf" class="linkbtn">Freiwillige Selbstzahlerleistungen</button>
       </div>
       <div class="subtle" style="margin-top:8px">
@@ -114,18 +111,17 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
 window.__MEDIDATE_SEED__=null;
 </script>
 <script>
-const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,directTransport:null,mediDateSession:null,followupGuards:new Set()};
-// Praxis-Stammdaten werden lokal gehalten: Service- und Arztauswahl brauchen
-// deshalb keine langsame mediDate-Abfrage mehr.
+const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0};
+// Im Browser werden nur lokale, nicht-mediDate-interne Bezeichner verwendet.
+// Die echten mediDate-IDs bleiben ausschließlich serverseitig.
 const PRACTICE_DOCTORS=[
-  {id:512,displayName:'Dr. med. Christina Moxter',sortOrder:1},
-  {id:513,displayName:'Dr. med. Friederike von Grone',sortOrder:2}
+  {id:'moxter',displayName:'Dr. med. Christina Moxter',sortOrder:1,gkvBucket:2},
+  {id:'vongrone',displayName:'Dr. med. Friederike von Grone',sortOrder:2,gkvBucket:3}
 ];
 const DEFAULT_SERVICES=[
-  {id:1950,name:'Vorsorge',duration:15,sortOrder:1},
-  {id:1952,name:'Verhütung – Kontrolltermin',duration:15,sortOrder:2},
-  {id:1973,name:'Tumornachsorge',duration:15,sortOrder:3},
-  {id:1974,name:'Brustultraschall',duration:15,sortOrder:4}
+  {id:'vorsorge',name:'Vorsorge',duration:15,sortOrder:1},
+  {id:'followup',name:'Nachsorge',duration:15,sortOrder:2},
+  {id:'breast',name:'Brustultraschall',duration:15,sortOrder:3}
 ];
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
@@ -134,7 +130,7 @@ function select(sel,b){$$(sel).forEach(x=>x.classList.remove('sel'));b.classList
 function esc(v=''){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function deDate(iso){return iso?iso.split('-').reverse().join('.'):''}
 function doctorDisplayName(id){
- const d=PRACTICE_DOCTORS.find(x=>Number(x.id)===Number(id));
+ const d=PRACTICE_DOCTORS.find(x=>String(x.id)===String(id));
  return d?.displayName||'Ärztin';
 }
 function addDays(date,days){const d=new Date(date.getFullYear(),date.getMonth(),date.getDate());d.setDate(d.getDate()+days);return d}
@@ -143,7 +139,6 @@ function quarterEnd(d=new Date()){const m=Math.ceil((d.getMonth()+1)/3)*3;return
 function daysBetween(a,b){const A=new Date(a.getFullYear(),a.getMonth(),a.getDate()),B=new Date(b.getFullYear(),b.getMonth(),b.getDate());return Math.round((B-A)/86400000)}
 function isIgelMode(mode=state.topicMode){return String(mode||'').startsWith('igel')}
 function isHarmonyMode(mode=state.topicMode){return mode==='igel_harmony'}
-function isMenopauseMode(mode=state.topicMode){return mode==='igel_hormon'}
 
 // Einmalige Zusatzfreigabe: Montag, 28.09.2026, 12:00–13:00 Uhr.
 // Sie erweitert nur die Sichtbarkeit tatsächlich freier mediDate-Termine;
@@ -153,10 +148,6 @@ function isSpecialOpenWindow(slot){
  const mins=minutesOf(slot?.time);
  return slot?.date===SPECIAL_OPEN_DATE && mins>=12*60 && mins<13*60;
 }
-function isSpecialGkvFallbackWindow(slot){
- const mins=minutesOf(slot?.time);
- return slot?.date===SPECIAL_OPEN_DATE && mins>=11*60+30 && mins<12*60;
-}
 function specialOpenAudienceAllowed(){
  if(state.topicMode==='acute'||state.topicMode==='pregnancy')return false;
  if(!['PKV','GKV','SELF'].includes(state.insurance))return false;
@@ -164,22 +155,16 @@ function specialOpenAudienceAllowed(){
  if(state.insurance==='GKV'&&state.patientType==='new')return false;
  return true;
 }
-function specialGkvFallbackAudienceAllowed(){
- return state.topicMode==='regular' &&
-        state.insurance==='GKV' &&
-        state.patientType==='existing';
-}
 function specialOpenBookingAllowed(slot){
- return (isSpecialOpenWindow(slot)&&specialOpenAudienceAllowed()) ||
-        (isSpecialGkvFallbackWindow(slot)&&specialGkvFallbackAudienceAllowed());
+ return isSpecialOpenWindow(slot)&&specialOpenAudienceAllowed();
 }
 function hasFreeFollowingSlot(slot,items){
  const nextTime=add15DotTime(slot?.time);
  if(!nextTime)return false;
  return (items||[]).some(x=>
    x.date===slot.date &&
-   Number(x.doctorId)===Number(slot.doctorId) &&
-   Number(x.serviceId)===Number(slot.serviceId) &&
+   String(x.doctorId)===String(slot.doctorId) &&
+   String(x.serviceId)===String(slot.serviceId) &&
    Number(x.duration)===15 &&
    x.time===nextTime
  );
@@ -261,7 +246,8 @@ function gkvStableBucket(slot){
  const d=new Date(slot.date+'T12:00:00');
  const day=Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
  const quarter=Math.floor(minutesOf(slot.time)/15);
- const doctor=Math.abs(Number(slot.doctorId)||0)%5;
+ const doctor=PRACTICE_DOCTORS.find(d=>String(d.id)===String(slot.doctorId))?.gkvBucket;
+ if(!Number.isInteger(doctor))return 4;
  return ((day+quarter+doctor)%BOOKING_POLICY.gkvBaseDenominator+BOOKING_POLICY.gkvBaseDenominator)%BOOKING_POLICY.gkvBaseDenominator;
 }
 function isBaseGkvSlot(slot){
@@ -287,63 +273,30 @@ function add15DotTime(t){
  return `${String(Math.floor(mins/60)).padStart(2,'0')}.${String(mins%60).padStart(2,'0')}`;
 }
 function needs30MinuteBlock(){
- // Es wird weiterhin nur EIN mediDate-Termin gebucht. Für PKV-Neupatientinnen
- // wird der unmittelbar folgende 15-Minuten-Slot lediglich in dieser
- // Buchungs-App als Reserve ausgeblendet.
+ // Alle regulären Buchungen verwenden wieder genau einen 15-Minuten-Termin.
  return false;
 }
-function followupGuardKey(x){
- return `${String(x?.date||'')}|${Number(x?.doctorId||0)}|${String(x?.time||'')}`;
-}
-function isHeldFollowup(x){
- return state.followupGuards instanceof Set && state.followupGuards.has(followupGuardKey(x));
-}
-function isPrivateNewPatient(){
- return state.insurance==='PKV'&&state.patientType==='new';
-}
-function requiresFollowupReserve(){
- // PKV-Neupatientinnen sowie die Wechseljahressprechstunde (Neu UND Bestand)
- // benötigen in dieser Buchungs-App zusätzlich den direkt folgenden 15-Minuten-Slot.
- return isPrivateNewPatient()||isMenopauseMode();
-}
 function onlyBookableStarts(items){
- // Ein reservierter Folgeslot wird unabhängig vom später gewählten Buchungspfad
- // in dieser Buchungs-App nicht mehr angeboten.
- const visible=items.filter(x=>!isHeldFollowup(x));
+ if(!needs30MinuteBlock())return items;
 
- if(isMenopauseMode()){
-   // Wechseljahressprechstunde ausschließlich in den besonderen
-   // Privatsprechstunden-Zeiten. Beide aufeinanderfolgenden 15-Minuten-Slots
-   // müssen derselben Ärztin UND derselben realen mediDate-Terminart angehören.
-   const byKey=new Map();
-   for(const x of visible){
-     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))continue;
-     byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
-   }
-   return visible.filter(x=>{
-     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))return false;
-     const nextTime=add15DotTime(x.time);
-     if(!nextTime)return false;
-     const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
-     return Boolean(next&&isPrivateOnlyWindow(next));
-   });
- }
-
- if(!isPrivateNewPatient())return visible;
-
- // PKV-Neupatientinnen sehen einen Start nur dann, wenn der unmittelbar
- // folgende 15-Minuten-Termin derselben Ärztin und derselben Terminart
- // ebenfalls frei ist. Der zweite Slot wird NICHT bei mediDate mitgebucht.
+ // Für einen sichtbaren 30-Minuten-Start müssen BEIDE 15-Minuten-Slots
+ // existieren, direkt aufeinander folgen, zum selben Arzt/Service gehören
+ // und beide die aktuelle Routinglogik erfüllen.
  const byKey=new Map();
- for(const x of visible){
+ for(const x of items){
    if(Number(x.duration)!==15)continue;
    byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
  }
- return visible.filter(x=>{
+
+ return items.filter(x=>{
    if(Number(x.duration)!==15)return false;
    const nextTime=add15DotTime(x.time);
    if(!nextTime)return false;
-   return Boolean(byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`));
+
+   const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
+   if(!next)return false;
+
+   return maySeeSlot(x) && maySeeSlot(next);
  });
 }
 function minutesOf(t){
@@ -514,24 +467,17 @@ function selectGkvContingent(allSlots){
 }
 
 function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
- // Primäre Sonderfreigabe 28.09.2026, 12:00–13:00: nur tatsächlich freie Starts,
+ // Sonderfreigabe 28.09.2026, 12:00–13:00: nur tatsächlich freie Starts,
  // und nur wenn der unmittelbar folgende 15-Minuten-Slot ebenfalls frei ist.
+ // Der Folgeslot wird nicht zusätzlich gebucht; er ist lediglich Voraussetzung
+ // dafür, dass der Starttermin angezeigt werden darf.
  const special=specialOpenAudienceAllowed()
    ?allSlots.filter(x=>isSpecialOpenWindow(x)&&hasFreeFollowingSlot(x,technicalSlots))
-   :[];
-
- // Sobald im primären Sonderfenster für die gewählte Termin-/Arztkonstellation
- // kein buchbarer Start mehr vorhanden ist, werden für GKV-Bestandspatientinnen
- // zusätzlich 11:30–12:00 Uhr freigegeben. Auch dort gilt die Folgeslot-Bedingung.
- const fallback=(special.length===0&&specialGkvFallbackAudienceAllowed())
-   ?allSlots.filter(x=>isSpecialGkvFallbackWindow(x)&&hasFreeFollowingSlot(x,technicalSlots))
    :[];
 
  let normal;
  if(state.topicMode==='acute'||state.topicMode==='pregnancy'){
    normal=allSlots.filter(maySeeSlot);
- }else if(isMenopauseMode()){
-   normal=allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x));
  }else if(state.insurance==='PKV'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
    normal=state.patientType==='new'
@@ -542,16 +488,15 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
    normal=keepPopularFractionPerDay(pool,BOOKING_POLICY.selfPayShare,allSlots);
  }else if(state.insurance==='GKV'){
    // Reguläre GKV-Neupatientinnen sehen keine Online-Termine. Akut und
-   // Schwangerschaft werden oben bewusst separat behandelt.
+   // Schwangerschaft werden bewusst separat behandelt.
    normal=state.patientType==='new'?[]:selectGkvContingent(allSlots);
  }else{
    normal=allSlots.filter(maySeeSlot);
  }
 
- const extra=[...special,...fallback];
- if(!extra.length)return normal;
+ if(!special.length)return normal;
  const out=normal.slice(),seen=new Set(out.map(x=>`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`));
- for(const x of extra){
+ for(const x of special){
    const k=`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`;
    if(!seen.has(k)){seen.add(k);out.push(x)}
  }
@@ -576,16 +521,6 @@ async function apiGet(action,params={},timeoutMs=8000){
  }
 }
 
-async function refreshBookingGuards(){
- try{
-   const j=await apiGet('bookingGuards',{},4000);
-   state.followupGuards=new Set((j.guards||[]).map(g=>followupGuardKey(g)));
- }catch{
-   if(!(state.followupGuards instanceof Set))state.followupGuards=new Set();
- }
- return state.followupGuards;
-}
-
 // V54 – Seed-first / stale-while-refresh
 //
 // Sichtbarer Nutzerpfad:
@@ -593,289 +528,103 @@ async function refreshBookingGuards(){
 //
 // mediDate wird nur im Hintergrund aktualisiert. Selbst 30–60 Sekunden externe
 // Latenz blockieren dadurch niemals die Kalenderanzeige.
-const PUBLIC_CACHE_PREFIX='fg-medidate-public-v548:';
+const PUBLIC_CACHE_PREFIX='fg-medidate-public-v608-secure:';
 const LOCAL_CACHE_MAX_AGE=24*60*60*1000;
-const SESSION_CACHE_MAX_AGE=30*60*1000;
-
 let publicBundleNetworkPromise=null;
 let deploymentBundlePromise=null;
-let directSessionPromise=null;
-let directTransportPromise=null;
-let directTransportCheckedAt=0;
 
-const REQUIRED_SERVICE_IDS=[1950,1952,1973,1974];
+const REQUIRED_SERVICE_KEYS=['vorsorge','followup','breast'];
 function isCompleteBundle(b){
  if(!b||!Array.isArray(b.groups))return false;
- const ids=new Set();
+ const keys=new Set();
  for(const g of b.groups){
-   const id=Number(g?.serviceId);
-   if(!REQUIRED_SERVICE_IDS.includes(id))continue;
+   const key=String(g?.serviceKey||'');
+   if(!REQUIRED_SERVICE_KEYS.includes(key))continue;
    if(!Array.isArray(g?.availability?.appointmentTimes))return false;
-   ids.add(id);
+   keys.add(key);
  }
- return REQUIRED_SERVICE_IDS.every(id=>ids.has(id));
+ return REQUIRED_SERVICE_KEYS.every(key=>keys.has(key));
 }
-const BUILD_SEED=isCompleteBundle(window.__MEDIDATE_SEED__)
-  ?window.__MEDIDATE_SEED__:null;
+const BUILD_SEED=isCompleteBundle(window.__MEDIDATE_SEED__)?window.__MEDIDATE_SEED__:null;
 if(new URLSearchParams(location.search).get('debug')==='1'){
- console.info('mediDate availability diagnostics',{
+ console.info('mediDate secure availability diagnostics',{
    buildSeedComplete:Boolean(BUILD_SEED),
-   buildGroups:BUILD_SEED?.groups?.map(g=>Number(g.serviceId))||[],
+   buildGroups:BUILD_SEED?.groups?.map(g=>String(g.serviceKey))||[],
    generatedAt:BUILD_SEED?.generatedAt||null
  });
 }
-
 function cacheStorageRead(key,maxAge){
- try{
-   const raw=localStorage.getItem(PUBLIC_CACHE_PREFIX+key);
-   if(!raw)return null;
-   const x=JSON.parse(raw);
-   if(!x||!x.at||Date.now()-x.at>maxAge)return null;
-   return x.value;
- }catch{return null}
+ try{const raw=localStorage.getItem(PUBLIC_CACHE_PREFIX+key);if(!raw)return null;const x=JSON.parse(raw);if(!x||!x.at||Date.now()-x.at>maxAge)return null;return x.value}catch{return null}
 }
-function cacheStorageWrite(key,value){
- try{localStorage.setItem(PUBLIC_CACHE_PREFIX+key,JSON.stringify({at:Date.now(),value}))}catch{}
-}
-function sessionStorageRead(){
- try{
-   const raw=sessionStorage.getItem(PUBLIC_CACHE_PREFIX+'session');
-   if(!raw)return null;
-   const x=JSON.parse(raw);
-   if(!x||!x.at||Date.now()-x.at>SESSION_CACHE_MAX_AGE)return null;
-   return x.value;
- }catch{return null}
-}
-function sessionStorageWrite(value){
- try{sessionStorage.setItem(PUBLIC_CACHE_PREFIX+'session',JSON.stringify({at:Date.now(),value}))}catch{}
-}
-function generatedTime(x){
- const t=new Date(x?.generatedAt||0).getTime();
- return Number.isFinite(t)?t:0;
-}
+function cacheStorageWrite(key,value){try{localStorage.setItem(PUBLIC_CACHE_PREFIX+key,JSON.stringify({at:Date.now(),value}))}catch{}}
+function generatedTime(x){const t=new Date(x?.generatedAt||0).getTime();return Number.isFinite(t)?t:0}
 function bestImmediateBundle(){
  const rawLocal=cacheStorageRead('publicBundle',LOCAL_CACHE_MAX_AGE);
  const local=isCompleteBundle(rawLocal)?rawLocal:null;
-
- // Only complete snapshots may participate. A partial live refresh must never
- // hide a complete deployment seed.
- if(local && BUILD_SEED){
-   return generatedTime(local)>=generatedTime(BUILD_SEED)?local:BUILD_SEED;
- }
- if(BUILD_SEED)return BUILD_SEED;
- if(local)return local;
- return null;
+ if(local&&BUILD_SEED)return generatedTime(local)>=generatedTime(BUILD_SEED)?local:BUILD_SEED;
+ return BUILD_SEED||local||null;
 }
-function bundleGroup(bundle,serviceId){
- return (bundle?.groups||[]).find(g=>Number(g.serviceId)===Number(serviceId))||null;
+function bundleGroup(bundle,serviceKey){return (bundle?.groups||[]).find(g=>String(g.serviceKey)===String(serviceKey))||null}
+function storedRegularAvailability(serviceKey){
+ const b=bestImmediateBundle();if(!isCompleteBundle(b))return null;
+ const g=bundleGroup(b,serviceKey);
+ return Array.isArray(g?.availability?.appointmentTimes)?{ok:true,availability:g.availability,source:'instant-seed'}:null;
 }
-function storedRegularAvailability(serviceId){
- const b=bestImmediateBundle();
- if(!isCompleteBundle(b))return null;
- const g=bundleGroup(b,serviceId);
- return Array.isArray(g?.availability?.appointmentTimes)
-   ?{ok:true,availability:g.availability,source:'instant-seed'}
-   :null;
-}
-function storedIgelGroups(){
- const b=bestImmediateBundle();
- return isCompleteBundle(b)?b.groups:null;
-}
-function acceptSession(s){
- if(!s?.token||!s?.clientId||!s?.locationId||!s?.apiBase)return false;
- if(!Number.isFinite(s.issuedAt)||Date.now()-s.issuedAt>=20*60*1000)return false;
- state.mediDateSession=s;
- sessionStorageWrite(s);
- return true;
-}
-
+function storedIgelGroups(){const b=bestImmediateBundle();return isCompleteBundle(b)?b.groups:null}
 function networkPublicBundle(){
- // LIVE-mediDate ist ausschließlich Hintergrundarbeit und wird NIE vom Kalender awaited.
  if(publicBundleNetworkPromise)return publicBundleNetworkPromise;
- const p=apiGet('liveBundle',{},65000)
-   .then(j=>{
-     if(!isCompleteBundle(j))throw new Error('Unvollständige Live-Verfügbarkeit – vorhandener Stand bleibt erhalten.');
-     cacheStorageWrite('publicBundle',j);
-     if(j.session)acceptSession(j.session);
-     return j;
-   })
-   .catch(()=>null)
-   .finally(()=>{publicBundleNetworkPromise=null});
- publicBundleNetworkPromise=p;
- return p;
+ const p=apiGet('liveBundle',{},65000).then(j=>{
+   if(!isCompleteBundle(j))throw new Error('Unvollständige Live-Verfügbarkeit – vorhandener Stand bleibt erhalten.');
+   cacheStorageWrite('publicBundle',j);return j;
+ }).catch(()=>null).finally(()=>{publicBundleNetworkPromise=null});
+ publicBundleNetworkPromise=p;return p;
 }
 function deploymentPublicBundle(){
- // Zweiter schneller Pfad: deployment-lokaler Seed aus derselben Vercel-Version.
- // Kein Kontakt zu mediDate, kein 30-Sekunden-Risiko.
  if(deploymentBundlePromise)return deploymentBundlePromise;
- const p=apiGet('publicBundle',{},2200)
-   .then(j=>{
-     if(!isCompleteBundle(j))throw new Error('Deployment-Snapshot ist unvollständig.');
-     cacheStorageWrite('publicBundle',j);
-     if(j.session)acceptSession(j.session);
-     return j;
-   })
-   .finally(()=>{deploymentBundlePromise=null});
- deploymentBundlePromise=p;
- return p;
+ const p=apiGet('publicBundle',{},65000).then(j=>{
+   if(!isCompleteBundle(j))throw new Error('Deployment-Snapshot ist unvollständig.');
+   cacheStorageWrite('publicBundle',j);return j;
+ }).finally(()=>{deploymentBundlePromise=null});
+ deploymentBundlePromise=p;return p;
 }
 async function publicBundle(){
  const immediate=bestImmediateBundle();
- if(immediate?.groups?.length){
-   // Anzeige sofort; Live-Aktualisierung nur im Hintergrund.
-   setTimeout(()=>networkPublicBundle(),0);
-   return immediate;
- }
-
- // Falls der Inline-Seed aus irgendeinem Grund fehlt, maximal ca. 2,2 s
- // auf den deployment-lokalen Snapshot warten – niemals auf mediDate.
- try{
-   const deployment=await deploymentPublicBundle();
-   if(deployment?.groups?.length){
-     setTimeout(()=>networkPublicBundle(),0);
-     return deployment;
-   }
- }catch{}
-
- throw new Error('Der lokale Termin-Snapshot ist in dieser Bereitstellung nicht verfügbar.');
+ if(immediate?.groups?.length){setTimeout(()=>networkPublicBundle(),0);return immediate}
+ try{const deployment=await deploymentPublicBundle();if(deployment?.groups?.length){setTimeout(()=>networkPublicBundle(),0);return deployment}}catch{}
+ const live=await networkPublicBundle();
+ if(live?.groups?.length)return live;
+ throw new Error('Die Terminverfügbarkeit konnte derzeit nicht geladen werden. Bitte versuchen Sie es erneut.');
 }
-function networkAvailability(serviceId){
- return publicBundle().then(b=>{
-   const g=bundleGroup(b,serviceId);
-   if(!g?.availability)throw new Error('Für diese Leistung liegen derzeit keine Verfügbarkeitsdaten vor.');
-   return {ok:true,availability:g.availability,source:'instant-seed'};
- });
-}
-async function regularAvailability(serviceId){return networkAvailability(serviceId)}
-function networkIgelAvailability(){
- return publicBundle().then(b=>({ok:true,groups:b.groups||[],source:'instant-seed'}));
-}
-async function igelAvailabilityAll(){
- const b=await publicBundle();
- return {ok:true,groups:b.groups||[],source:'instant-seed'};
-}
+function networkAvailability(serviceKey){return publicBundle().then(b=>{const g=bundleGroup(b,serviceKey);if(!g?.availability)throw new Error('Für diese Leistung liegen derzeit keine Verfügbarkeitsdaten vor.');return {ok:true,availability:g.availability,source:'instant-seed'}})}
+async function regularAvailability(serviceKey){return networkAvailability(serviceKey)}
+function networkIgelAvailability(){return publicBundle().then(b=>({ok:true,groups:b.groups||[],source:'instant-seed'}))}
+async function igelAvailabilityAll(){const b=await publicBundle();return {ok:true,groups:b.groups||[],source:'instant-seed'}}
 function prefetchAvailability(){networkPublicBundle()}
 function serviceAvailabilityKey(){return 'instant-seed'}
-function startSelectedAvailability(){
- if(state.availabilityPromise)return state.availabilityPromise;
- state.availabilityKey='instant-seed';
- state.availabilityPromise=publicBundle();
- return state.availabilityPromise;
-}
-
-async function getDirectMediDateSession(force=false){
- if(!force && state.mediDateSession && Date.now()-state.mediDateSession.issuedAt<20*60*1000)return state.mediDateSession;
- if(!force){
-   const cached=sessionStorageRead();
-   if(cached&&acceptSession(cached))return cached;
-   if(directSessionPromise)return directSessionPromise;
- }
- const p=apiGet(force?'liveSession':'publicSession',{},55000).then(j=>{
-   if(!acceptSession(j))throw new Error('mediDate-Sitzung nicht verfügbar.');
-   return state.mediDateSession;
- }).finally(()=>{if(directSessionPromise===p)directSessionPromise=null});
- directSessionPromise=p;
- return p;
-}
-
-async function directMediDateRequest(path,{method='GET',query=null,body=null}={},retry=true){
- let s=await getDirectMediDateSession(false);
- const u=new URL(String(path||'').replace(/^\//,''),s.apiBase);
- if(query)Object.entries(query).forEach(([k,v])=>u.searchParams.set(k,String(v)));
-
- const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),60000);
- let r;
- let text;
- try{
-   r=await fetch(u,{
-     method,
-     mode:'cors',
-     credentials:'omit',
-     cache:'no-store',
-     signal:controller.signal,
-     headers:{
-       'Accept':'application/json',
-       'Content-Type':'application/json',
-       'Authorization':`Bearer ${s.token}`
-     },
-     body:body?JSON.stringify(body):undefined
-   });
-   text=await r.text();
- }catch(e){
-   const isWrite=String(method).toUpperCase()!=='GET';
-   const err=new Error(isWrite
-     ?'mediDate hat den Buchungsversuch nicht eindeutig bestätigt. Der Termin könnte trotzdem gespeichert worden sein.'
-     :e?.name==='AbortError'
-       ?'Die Verfügbarkeitsprüfung bei mediDate hat nach 60 Sekunden noch nicht geantwortet. Es wurde noch keine Buchung versendet.'
-       :'Die direkte Browser-Verbindung zu mediDate ist nicht verfügbar.');
-   err.code=isWrite?'BOOKING_STATUS_UNCLEAR':(e?.name==='AbortError'?'DIRECT_TIMEOUT':'DIRECT_CORS_UNAVAILABLE');
-   throw err;
- }finally{clearTimeout(timer)}
-
- if((r.status===401||r.status===403)&&retry){
-   state.mediDateSession=null;
-   try{sessionStorage.removeItem(PUBLIC_CACHE_PREFIX+'session')}catch{}
-   try{
-     await getDirectMediDateSession(true);
-   }catch{
-     const err=new Error('Die mediDate-Sitzung konnte nicht schnell genug erneuert werden.');
-     err.code='DIRECT_SESSION_STALE';throw err;
-   }
-   return directMediDateRequest(path,{method,query,body},false);
- }
-
- let data=null;if(text){try{data=JSON.parse(text)}catch{data=text}}
- if(!r.ok){
-   const isWrite=String(method).toUpperCase()!=='GET';
-   const isUnclearWrite=isWrite&&r.status>=500;
-   const err=new Error(isUnclearWrite
-     ?`mediDate hat den Buchungsversuch mit HTTP ${r.status} nicht eindeutig bestätigt. Der Termin könnte trotzdem gespeichert worden sein.`
-     :`mediDate antwortet mit HTTP ${r.status}.`);
-   if(isUnclearWrite)err.code='BOOKING_STATUS_UNCLEAR';
-   err.status=r.status;err.data=data;throw err;
- }
- return data;
-}
-
-async function warmDirectTransport(){
- if(state.directTransport==='direct'&&Date.now()-directTransportCheckedAt<SESSION_CACHE_MAX_AGE)return true;
- if(directTransportPromise)return directTransportPromise;
- const p=(async()=>{
-   try{
-     const s=await getDirectMediDateSession(false);
-     await directMediDateRequest('appointments/appointmenttimes',{
-       query:{clientid:s.clientId,locationId:s.locationId,serviceId:1950,doctorId:0}
-     });
-     state.directTransport='direct';directTransportCheckedAt=Date.now();return true;
-   }catch{
-     // Nur Vorwärmung fehlgeschlagen. Oberfläche und Eingaben bleiben vollständig lokal.
-     state.directTransport=null;directTransportCheckedAt=Date.now();return false;
-   }
- })().finally(()=>{if(directTransportPromise===p)directTransportPromise=null});
- directTransportPromise=p;
- return p;
-}
+function startSelectedAvailability(){if(state.availabilityPromise)return state.availabilityPromise;state.availabilityKey='instant-seed';state.availabilityPromise=publicBundle();return state.availabilityPromise}
 
 if(BUILD_SEED?.groups?.length){
  const local=cacheStorageRead('publicBundle',LOCAL_CACHE_MAX_AGE);
  if(!local||generatedTime(BUILD_SEED)>generatedTime(local))cacheStorageWrite('publicBundle',BUILD_SEED);
 }
-
-// Erst deployment-lokalen Snapshot absichern; LIVE-mediDate bewusst später.
 setTimeout(()=>deploymentPublicBundle().catch(()=>{}),0);
 setTimeout(()=>networkPublicBundle(),1500);
-setTimeout(()=>getDirectMediDateSession(false).then(()=>warmDirectTransport()).catch(()=>{}),600);
-
-function apiPost(){throw new Error('Patientendaten werden in V50 nicht an den Website-Server gesendet.');}
 
 
 $$('[data-insurance]').forEach(b=>b.onclick=()=>{
  state.insurance=b.dataset.insurance;state.topicMode='regular';state.service=null;state.doctor=null;state.selectedSlot=null;state.selfPayFromGkv=false;
- select('[data-insurance]',b);
+ select('[data-insurance]',b);$('#acuteChoice').classList.remove('sel');
  $('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
  show('#step2');
 });
+$('#acuteChoice').onclick=()=>{
+ $$('[data-insurance]').forEach(x=>x.classList.remove('sel'));$('#acuteChoice').classList.add('sel');
+ state.insurance='ACUTE';state.patientType='acute';state.topicMode='acute';
+ state.service={id:'ACUTE',name:'Akut – offene Sprechstunde',duration:15};
+ state.doctor={id:0,displayName:'Offene Sprechstunde'};state.selectedSlot=null;
+ $('#step2').classList.add('hidden');$('#step3').classList.add('hidden');$('#step4').classList.add('hidden');
+ showAcuteUnavailable();
+};
 $$('[data-patient]').forEach(b=>b.onclick=()=>{
  state.patientType=b.dataset.patient;select('[data-patient]',b);
  $('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
@@ -895,17 +644,10 @@ function loadServices(){
    return;
  }
 
- if(state.insurance==='PKV'){
-   // Privatversicherte / Selbstzahler sehen als Neu- und Bestandspatientinnen
-   // alle regulären gewünschten Terminarten.
-   const list=DEFAULT_SERVICES.filter(s=>[1950,1952,1973,1974].includes(Number(s.id)));
-   list.forEach(s=>addServiceButton(s));
-   addPregnancyButton(list);
-   return;
- }
-
- // GKV bleibt unverändert auf den bisher freigegebenen regulären Leistungen.
- const list=DEFAULT_SERVICES.filter(s=>[1950,1973].includes(Number(s.id)));
+ // Sonderversion: In den regulären PKV-/GKV-Pfaden sind unter Schritt 3
+ // ausschließlich Vorsorge und Nachsorge auswählbar. Besondere
+ // Selbstzahlerleistungen behalten ihren separaten Auswahlpfad.
+ const list=DEFAULT_SERVICES.filter(s=>['vorsorge','followup'].includes(String(s.id)));
  list.forEach(s=>addServiceButton(s));
 
  // Keine Hintergrundabfrage hier: der Slot-Request der gewählten Leistung
@@ -936,23 +678,14 @@ function addSelfPayServices(){
  label.textContent='Besondere Selbstzahlerleistungen';
  box.appendChild(label);
 
+ // Sonderversion: Unter „Besondere Selbstzahlerleistungen“ wird zunächst
+ // ausschließlich der Brustultraschall angeboten. Die technische Terminabfrage
+ // nutzt dafür die reale mediDate-Service-ID.
  const options=[
    {
-     service:{id:'IGEL_HORMON',name:'Wechseljahressprechstunde',duration:15,price:'119,41 €'},
-     subtitle:'119,41 €',
-     mode:'igel_hormon'
-   },
-   {
-     service:{id:1974,name:'Brustultraschall',duration:15,price:'70,00 €'},
+     service:{id:'breast',name:'Brustultraschall',duration:15,price:'70,00 €'},
      subtitle:'70,00 €',
      mode:'regular'
-   },
-   {
-     service:{id:'IGEL_SPIRALE',name:'Spirale Einlage',duration:15,price:'216,69 €'},
-     subtitle:'216,69 €',
-     note:'Optimaler Zyklustag 2–7',
-     mode:'igel_spirale',
-     phoneOnly:true
    }
  ];
 
@@ -961,17 +694,7 @@ function addSelfPayServices(){
    b.className='choice';
    b.dataset.service=String(o.service.id);
    b.innerHTML=`<strong>${esc(o.service.name)}</strong><small>${esc(o.subtitle)}${o.note?`<br>${esc(o.note)}`:''}</small>`;
-   if(o.phoneOnly){
-     b.onclick=()=>{
-       state.service=o.service;state.topicMode=o.mode;state.selectedSlot=null;
-       select('[data-service]',b);
-       $('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
-       $('#servicesStatus').className='status';
-       $('#servicesStatus').innerHTML='Bitte melden Sie sich zur Terminvereinbarung telefonisch in der Praxis: <a href="tel:+49406038141"><strong>040 / 603 81 41</strong></a>.';
-     };
-   }else{
-     b.onclick=()=>chooseService(o.service,b,o.mode);
-   }
+   b.onclick=()=>chooseService(o.service,b,o.mode);
    box.appendChild(b);
  }
 }
@@ -992,11 +715,22 @@ function chooseService(s,b,mode){
  loadDoctors();
 }
 
+function switchToAcuteFromGkvNew(){
+ $$('[data-insurance]').forEach(x=>x.classList.remove('sel'));
+ $('#acuteChoice').classList.add('sel');
+ state.insurance='ACUTE';state.patientType='acute';state.topicMode='acute';
+ state.service={id:'ACUTE',name:'Akut – offene Sprechstunde',duration:15};
+ state.doctor={id:0,displayName:'Offene Sprechstunde'};state.selectedSlot=null;
+ $('#step2').classList.add('hidden');$('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');
+ showAcuteUnavailable();
+}
 function switchToSelfPayFromGkvNew(){
  state.insurance='PKV';state.selfPayFromGkv=true;
  $$('[data-insurance]').forEach(x=>x.classList.toggle('sel',x.dataset.insurance==='PKV'));
+ $('#acuteChoice').classList.remove('sel');
  loadServices();
 }
+$('#gkvNewAcute').onclick=switchToAcuteFromGkvNew;
 $('#gkvNewSelf').onclick=switchToSelfPayFromGkvNew;
 
 function loadDoctors(){
@@ -1011,7 +745,10 @@ function loadDoctors(){
  any.onclick=()=>{state.doctor={id:0,displayName:'Nächster verfügbarer Termin'};select('[data-doctor]',any);loadSlots()};
  box.appendChild(any);
 
- PRACTICE_DOCTORS.forEach(d=>{
+ const immediate=bestImmediateBundle();
+ const group=bundleGroup(immediate,String(state.service?.id||''));
+ const allowedDoctorKeys=new Set(Array.isArray(group?.doctorKeys)?group.doctorKeys.map(String):PRACTICE_DOCTORS.map(d=>String(d.id)));
+ PRACTICE_DOCTORS.filter(d=>allowedDoctorKeys.has(String(d.id))).forEach(d=>{
    const b=document.createElement('button');b.className='choice';b.dataset.doctor=String(d.id);
    b.innerHTML=`<strong>${esc(d.displayName)}</strong><small>Nur freie Termine bei dieser Ärztin</small>`;
    b.onclick=()=>{state.doctor=d;select('[data-doctor]',b);loadSlots()};
@@ -1021,8 +758,8 @@ function loadDoctors(){
 function rawFromRegularAvailability(j){
  const raw=[];
  for(const r of (j?.availability?.appointmentTimes||[])){
-   if(Number(state.doctor.id)!==0 && Number(r.doctorId)!==Number(state.doctor.id))continue;
-   raw.push({row:r,serviceId:Number(state.service.id),serviceName:state.service.name});
+   if(String(state.doctor.id)!=='0' && String(r.doctorKey)!==String(state.doctor.id))continue;
+   raw.push({row:r,serviceId:String(state.service.id),serviceName:state.service.name});
  }
  return raw;
 }
@@ -1032,8 +769,8 @@ function rawFromIgelGroups(groups){
  for(const g of (groups||[])){
    const rows=g.availability?.appointmentTimes||[];
    for(const r of rows){
-     if(Number(state.doctor.id)!==0 && Number(r.doctorId)!==Number(state.doctor.id))continue;
-     raw.push({row:r,serviceId:g.serviceId,serviceName:g.serviceName});
+     if(String(state.doctor.id)!=='0' && String(r.doctorKey)!==String(state.doctor.id))continue;
+     raw.push({row:r,serviceId:g.serviceKey,serviceName:g.serviceName});
    }
  }
  return raw;
@@ -1045,21 +782,22 @@ function buildAvailableDays(raw){
  for(const item of raw){
    const r=item.row,day=(r.dateTimeStart||'').slice(0,10);
    if(day<rule.earliest && day!==SPECIAL_OPEN_DATE)continue;
-   for(const t of (r.times||[])){
+   for(const tv of (r.times||[])){
+     const t=typeof tv==='string'?tv:String(tv?.time||'');
+     const slotToken=typeof tv==='object'?String(tv?.slotToken||''):'';
+     if(!t||!slotToken)continue;
      const dt=new Date(day+'T'+t.replace('.',':')+':00');if(dt<now)continue;
-     const candidate={date:day,time:t,doctorId:Number(r.doctorId),duration:Number(r.duration),serviceId:item.serviceId,serviceName:item.serviceName};
-     // Auf dem Sondertag werden zusätzlich 11:30–11:45 (Fallback für
-     // GKV-Bestand), 12:00–12:45 (primäres Sonderfenster) und 13:00 nur als
-     // technischer Folgeslot berücksichtigt, auch wenn der Tag vor der
-     // regulären Freigabegrenze liegt.
-     if(day<rule.earliest &&
-        !isSpecialGkvFallbackWindow(candidate) &&
-        !isSpecialOpenWindow(candidate) &&
-        !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
+     const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,slotToken};
+     // Liegt der Sondertag vor der regulären Freigabegrenze (insb. GKV-Bestand),
+     // werden Starts 12:00–12:45 sowie 13:00 nur als technischer Folgeslot berücksichtigt.
+     if(day<rule.earliest && !isSpecialOpenWindow(candidate) && !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
      candidateSlots.push(candidate);
    }
  }
 
+ // Erst vollständig deduplizieren, DANN die Sichtbarkeit je Patientengruppe
+ // anwenden. So können Privat-/GKV-Kontingente und Wochenreserven aus demselben
+ // anonymen Verfügbarkeitsstand berechnet werden.
  const allBookable=[],slotSeen=new Set();
  for(const x of onlyBookableStarts(candidateSlots)){
    const dedupeKey=`${x.date}|${x.time}`;
@@ -1160,15 +898,12 @@ async function loadSlots(){
  const todayForCalendar=new Date();
  state.calendarMonth=new Date(todayForCalendar.getFullYear(),todayForCalendar.getMonth(),1);
 
- $('#summary').textContent=Number(state.doctor?.id)===0
+ $('#summary').textContent=String(state.doctor?.id)==='0'
    ?`${state.service.name} · Nächster verfügbarer Termin · Ärztin steht bei der Uhrzeit`
    :`${state.service.name} · ${state.doctor.displayName||state.doctor.fullName}`;
  renderMonthCalendar(true);
  $('#step5').scrollIntoView({behavior:'smooth',block:'start'});
  st.className='status';st.textContent='Verfügbarkeit wird geladen …';
-
- await refreshBookingGuards();
- if(state.slotLoadId!==loadId)return;
 
  try{
    if(isIgelMode()){
@@ -1203,7 +938,7 @@ async function loadSlots(){
      return;
    }
 
-   const serviceId=Number(state.service.id);
+   const serviceId=String(state.service.id);
    const cached=storedRegularAvailability(serviceId);
 
    if(cached?.availability){
@@ -1263,433 +998,3 @@ function renderMonthCalendar(loading=false){
  const head=document.createElement('div');head.className='calendar-head';
  const prev=document.createElement('button');prev.className='cal-nav';prev.type='button';prev.setAttribute('aria-label','Vorheriger Monat');prev.textContent='‹';
  prev.disabled=shown<=currentStart;prev.onclick=()=>{state.calendarMonth=shiftMonth(shown,-1);renderMonthCalendar(loading)};
- const title=document.createElement('div');title.className='calendar-title';title.textContent=new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(shown);
- const next=document.createElement('button');next.className='cal-nav';next.type='button';next.setAttribute('aria-label','Nächster Monat');next.textContent='›';
- next.disabled=shown>=last;next.onclick=()=>{state.calendarMonth=shiftMonth(shown,1);renderMonthCalendar(loading)};
- head.append(prev,title,next);wrap.appendChild(head);
-
- const weekdays=document.createElement('div');weekdays.className='calendar-weekdays';
- ['Mo','Di','Mi','Do','Fr','Sa','So'].forEach(x=>{const d=document.createElement('div');d.textContent=x;weekdays.appendChild(d)});wrap.appendChild(weekdays);
- const grid=document.createElement('div');grid.className='calendar-grid';
- const first=new Date(shown.getFullYear(),shown.getMonth(),1),daysInMonth=new Date(shown.getFullYear(),shown.getMonth()+1,0).getDate();
- const offset=(first.getDay()+6)%7;
- for(let i=0;i<offset;i++){const b=document.createElement('button');b.className='cal-day blank';b.disabled=true;grid.appendChild(b)}
- const todayISO=localISO(new Date());
- for(let day=1;day<=daysInMonth;day++){
-   const iso=`${shown.getFullYear()}-${String(shown.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-   const btn=document.createElement('button');btn.type='button';btn.className='cal-day';btn.textContent=String(day);
-   const available=(state.availableDays?.get(iso)||[]).length>0;
-   const earliest=currentRule()?.earliest||todayISO;
-   const specialDateAvailable=iso===SPECIAL_OPEN_DATE&&available&&specialOpenAudienceAllowed();
-   if(iso<todayISO){
-     btn.classList.add('past');btn.disabled=true;btn.title='Vergangen';
-   }else if(iso<earliest&&!specialDateAvailable){
-     btn.classList.add('unavailable');btn.disabled=true;btn.title='Noch nicht buchbar';
-   }else if(available){
-     btn.classList.add('available');
-     if(state.selectedDay===iso)btn.classList.add('selected');
-     const n=state.availableDays.get(iso).length;btn.title=`${n} freie${n===1?'r Termin':' Termine'}`;
-     btn.onclick=()=>selectAvailableDay(iso);
-   }else if(loading){
-     btn.classList.add('pending');btn.disabled=true;btn.title='Verfügbarkeit wird aktualisiert';
-   }else{
-     btn.classList.add('unavailable');btn.disabled=true;btn.title='Kein freier Termin';
-   }
-   grid.appendChild(btn);
- }
- wrap.appendChild(grid);
- const legend=document.createElement('div');legend.className='calendar-legend';
- legend.innerHTML=loading
-   ?'<span class="dot green"></span> frei <span class="dot red"></span> nicht buchbar · weitere Tage werden gerade aktualisiert'
-   :'<span class="dot green"></span> freie Termine <span class="dot red"></span> belegt, vergangen oder noch nicht buchbar';
- wrap.appendChild(legend);
- host.appendChild(wrap);
-}
-
-function selectAvailableDay(day){
- state.selectedDay=day;state.selectedSlot=null;$('#bookingBox').innerHTML='';
- renderMonthCalendar();renderTimesForDay(day);
-}
-
-function renderTimesForDay(day){
- show('#step6');
- const box=$('#slots'),st=$('#slotsStatus');box.innerHTML='';
- const d=new Date(day+'T12:00:00');
- $('#chosenDay').textContent=new Intl.DateTimeFormat('de-DE',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(d);
- const list=(state.availableDays?.get(day)||[]).slice().sort((a,b)=>a.time.localeCompare(b.time));
- st.className='status '+(list.length?'ok':'');st.textContent=list.length?'Wählen Sie eine Uhrzeit.':'An diesem Tag ist inzwischen kein Termin mehr verfügbar.';
- const times=document.createElement('div');times.className='times';const seen=new Set();
- for(const x of list){
-   if(seen.has(x.time))continue;seen.add(x.time);
-   const t=document.createElement('button');t.className='time';
-   const doctorText=Number(state.doctor?.id)===0?doctorDisplayName(x.doctorId):'';
-   t.innerHTML=`<strong>${x.time.replace('.',':')} Uhr</strong>${doctorText?`<small>${esc(doctorText)}</small>`:''}`;
-   t.onclick=()=>openBooking(x);times.appendChild(t);
- }
- box.appendChild(times);
- // Kalender und Uhrzeiten stehen nebeneinander; kein automatisches Scrollen.
-}
-
-function berlinNow(){
- const p=new Intl.DateTimeFormat('en-CA',{
-   timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit',
-   hour:'2-digit',minute:'2-digit',hourCycle:'h23'
- }).formatToParts(new Date());
- const o={};for(const x of p)if(x.type!=='literal')o[x.type]=x.value;
- return {date:`${o.year}-${o.month}-${o.day}`,hour:Number(o.hour),minute:Number(o.minute)};
-}
-function addDaysISOClient(iso,days){
- const [y,m,d]=iso.split('-').map(Number);
- const x=new Date(Date.UTC(y,m-1,d));x.setUTCDate(x.getUTCDate()+days);
- return x.toISOString().slice(0,10);
-}
-function showAcuteUnavailable(){
- $('#step6Nr').textContent='2';
- $('#dateTimePicker').classList.add('acute-mode');
- $('#step5').classList.add('hidden');show('#step6');$('#bookingBox').innerHTML='';
- const st=$('#slotsStatus'),box=$('#slots');box.innerHTML='';
- $('#chosenDay').textContent='Akut – offene Sprechstunde';
- st.className='status';
- st.innerHTML='Für die offene Sprechstunde sind keine Termine buchbar. Wenden Sie sich in dringenden Fällen an den ärztlichen Bereitschaftsdienst unter <strong>116 117</strong>.';
-}
-async function loadAcuteSlots(){
- // Rückwärtskompatibler Funktionsname; in dieser Sonderversion werden online
- // keine Akuttermine angeboten.
- showAcuteUnavailable();
-}
-
-async function sendBookingTracking(slot,{duration=15}={}){
- // Keine Identitäts- oder Formulardaten übertragen. Das interne Tracking enthält
- // nur den gewählten Buchungspfad und die Terminmetadaten einer ERFOLGREICHEN
- // Buchung. Ein Ausfall des Trackings darf die mediDate-Buchung nie beeinflussen.
- if(!['PKV','GKV','SELF'].includes(state.insurance))return;
- const payload={
-   eventType:'booking_completed',
-   route:state.insurance,
-   patientType:['existing','new'].includes(state.patientType)?state.patientType:'',
-   serviceId:String(state.service?.id??slot?.serviceId??''),
-   mediDateServiceId:Number(state.selectedSlot?.serviceId||slot?.serviceId||0),
-   appointmentDate:String(slot?.date||''),
-   appointmentTime:String(slot?.time||''),
-   doctorId:Number(slot?.doctorId||0),
-   duration:Number(duration||15)
- };
- try{
-   await fetch('/api/tracking',{
-     method:'POST',cache:'no-store',credentials:'same-origin',keepalive:true,
-     headers:{'Content-Type':'application/json'},
-     body:JSON.stringify(payload)
-   });
- }catch{}
-}
-
-function openBooking(slot){
- state.selectedSlot=slot;
- // Sitzung parallel vorwärmen, während die Patientin das Formular ausfüllt.
- // Das blockiert die Oberfläche nicht.
- getDirectMediDateSession(false).catch(()=>{});
-
- // V57: Formular sofort aus dem lokalen Deployment-Snapshot öffnen.
- // Die Live-Verbindung zu mediDate wird nicht mehr vor dem Formular abgewartet;
- // die konkrete Verfügbarkeit wird erst beim verbindlichen Buchen erneut geprüft.
- // Die globale Vorwärmung der Direktverbindung läuft unabhängig im Hintergrund.
- $('#bookingBox').innerHTML=`<div class="booking-card">
- <h2>Termin ${deDate(slot.date)} · ${slot.time.replace('.',':')} Uhr buchen</h2>
- <div class="summary" style="margin-bottom:14px"><strong>Ärztin: ${esc(doctorDisplayName(slot.doctorId))}</strong>${state.insurance==='SELF'?`<br><span>Leistung: ${esc(state.service?.name||'Selbstzahlerleistung')}${state.service?.price?` · <strong>${esc(state.service.price)}</strong>`:''}</span>`:''}</div>
- ${needs30MinuteBlock()?'<div class="subtle"><strong>Für Neupatientinnen werden 30 Minuten reserviert.</strong></div>':''}
- <div class="formgrid">
-   <div class="field"><label>Vorname *</label><input id="bookFirst" autocomplete="given-name"></div>
-   <div class="field"><label>Nachname *</label><input id="bookLast" autocomplete="family-name"></div>
-   <div class="field"><label>Geburtsdatum *</label><input id="bookBirth" type="date" autocomplete="bday"></div>
-   <div class="field"><label>E-Mail-Adresse *</label><input id="bookEmail" type="email" autocomplete="email" inputmode="email" required></div>
- </div>
- <div class="subtle" style="margin-top:6px">Die E-Mail-Adresse wird direkt an mediDate/MediSoftware übermittelt, damit die dort vorgesehene Terminbestätigung versendet werden kann.</div>
- ${pregnancyOtherPracticeQuestionHtml('bookPregOtherPractice')}
- ${state.insurance==='PKV'?`<label class="confirm"><input id="goaeAck" type="checkbox"><span>Ich bin damit einverstanden, dass privatärztliche Leistungen nach GOÄ in der Regel bis zum <strong>2,3-fachen Gebührensatz</strong> und bei entsprechender Begründung bis zum <strong>3,5-fachen Gebührensatz</strong> abgerechnet werden können.</span></label>`:''}
- ${(state.insurance==='SELF')?`<label class="confirm"><input id="privateRequestAck" type="checkbox"><span>Ich wähle diese privatärztliche/Selbstzahlerleistung ausdrücklich auf eigenen Wunsch und eigene Kosten. Mir ist bekannt, dass gesetzlich Versicherte je nach medizinischer Situation einen Leistungsanspruch der gesetzlichen Krankenversicherung haben können. Die Wahl der Selbstzahlerleistung ist freiwillig und keine Voraussetzung für eine GKV-Behandlung.</span></label>
- <div class="private-note"><strong>Kostenhinweis zur Selbstzahlerleistung</strong><div class="subtle">Vor Durchführung der Leistung wird in der Praxis eine schriftliche Vereinbarung über die von Ihnen selbst zu tragenden Kosten geschlossen. Eine Erstattung durch gesetzliche oder private Krankenversicherungen kann nicht zugesichert werden.</div></div>
-`:''}
- <label class="confirm"><input id="feeAck" type="checkbox"><span>Ich bin damit einverstanden, dass bei einem für mich verbindlich und ausschließlich reservierten Termin, den ich nicht wahrnehme oder weniger als 24 Stunden vorher absage, eine Ausfallpauschale von <strong>60 €</strong> berechnet werden kann, sofern der Termin nicht anderweitig vergeben werden konnte. Mir bleibt der Nachweis vorbehalten, dass kein oder ein wesentlich geringerer Schaden entstanden ist. Dies gilt nicht, wenn mir die rechtzeitige Absage aufgrund eines unvorhersehbaren, von mir nicht zu vertretenden Umstands nicht möglich oder nicht zumutbar war. Die Ausfallpauschale wird nicht von der gesetzlichen oder privaten Krankenversicherung übernommen.</span></label>
- <div class="private-note">
-   <strong>Datenschutz bei der Terminbuchung</strong>
-   <div class="subtle">Vorname, Nachname, Geburtsdatum und E-Mail-Adresse werden direkt aus Ihrem Browser an mediDate/MediSoftware übertragen und nicht an den Website-Server übermittelt. <a href="/privacy-booking.html" target="_blank" rel="noopener">Datenschutzhinweise</a>.</div>
- </div>
- <label class="confirm"><input id="bookConsent" type="checkbox"><span>Ich bestätige, dass meine Angaben richtig sind und möchte diesen Termin verbindlich buchen.</span></label>
- <button id="bookBtn" class="primary">Termin verbindlich buchen</button><div id="bookStatus" class="status"></div>
- </div>`;
- $('#bookBtn').onclick=bookNow;
- $('#bookingBox').scrollIntoView({behavior:'smooth',block:'nearest'});
-}
-
-function directExtractSlot(rows,requested){
- const date=String(requested.date||''),time=String(requested.time||''),doctorId=Number(requested.doctorId);
- for(const row of (rows||[])){
-   const rd=String(row.dateTimeStart||'').slice(0,10);
-   if(rd!==date||Number(row.doctorId)!==doctorId)continue;
-   if((row.times||[]).includes(time)){
-     return {
-       date,time,doctorId:Number(row.doctorId),duration:Number(row.duration),
-       calendarWeek:Number(row.calendarWeek||row.calenderWeek||0),
-       listReferenzId:Number(row.listReferenzId||0)
-     };
-   }
- }
- return null;
-}
-function directPair(rows,requested){
- const first=directExtractSlot(rows,requested);
- if(!first||first.duration!==15)return null;
- const secondTime=add15DotTime(first.time);
- if(!secondTime)return null;
- const second=directExtractSlot(rows,{date:first.date,time:secondTime,doctorId:first.doctorId});
- return second&&second.duration===15?{first,second}:null;
-}
-function directAppointmentCode(data){
- const seen=new Set();
- const valid=s=>typeof s==='string'&&/^[A-Za-z0-9_-]{6,120}$/.test(s.trim());
- function fromUrl(s){const m=typeof s==='string'?s.match(/\/Appointment\/Cancel\/([A-Za-z0-9_-]{6,120})(?:[/?#]|$)/i):null;return m?m[1]:null}
- function walk(v,depth=0){
-   if(v==null||depth>6)return null;
-   if(typeof v==='string')return fromUrl(v);
-   if(typeof v!=='object'||seen.has(v))return null;
-   seen.add(v);
-   for(const k of ['appointmentCode','AppointmentCode','cancelCode','cancellationCode','stornoCode'])if(valid(v[k]))return v[k].trim();
-   for(const val of Object.values(v)){const u=fromUrl(val);if(u)return u}
-   for(const val of Object.values(v)){const x=walk(val,depth+1);if(x)return x}
-   return null;
- }
- return walk(data);
-}
-function makeIcsBlob({date,time,duration=15,doctorName=''}) {
- const [y,m,d]=date.split('-').map(Number);
- const [hh,mm]=time.split('.').map(Number);
- const start=new Date(y,m-1,d,hh,mm,0);
- const end=new Date(start.getTime()+duration*60000);
- const pad=n=>String(n).padStart(2,'0');
- const local=x=>`${x.getFullYear()}${pad(x.getMonth()+1)}${pad(x.getDate())}T${pad(x.getHours())}${pad(x.getMinutes())}00`;
- const text=[
-   'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Frauenarztpraxis von Grone//Termin//DE','BEGIN:VEVENT',
-   `UID:${Date.now()}-${Math.random().toString(36).slice(2)}@frauenarztpraxis-vongrone.de`,
-   `DTSTART:${local(start)}`,`DTEND:${local(end)}`,
-   'SUMMARY:Termin Frauenarztpraxis Dr. med. Friederike von Grone',
-   'LOCATION:Im Alten Dorfe 23\\, 22359 Hamburg',
-   doctorName?`DESCRIPTION:Ärztin: ${doctorName}`:'DESCRIPTION:Termin in der Frauenarztpraxis',
-   'END:VEVENT','END:VCALENDAR'
- ].join('\r\n');
- return new Blob([text],{type:'text/calendar;charset=utf-8'});
-}
-function downloadCalendarEntry(info){
- const blob=makeIcsBlob(info),url=URL.createObjectURL(blob);
- const a=document.createElement('a');a.href=url;a.download=`Termin-${info.date}-${info.time.replace('.','-')}.ics`;
- document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
-
-async function bookNow(){
- const st=$('#bookStatus'),btn=$('#bookBtn');
- if(btn.disabled)return;
- let pregnancyOtherPractice='';
- if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'){
-   pregnancyOtherPractice=pregnancyOtherPracticeValue('bookPregOtherPractice');
-   if(!pregnancyOtherPractice){st.className='status bad';st.textContent='Bitte mit Ja oder Nein angeben, ob im laufenden Kalenderquartal bereits Schwangerschaftsvorsorge bzw. Betreuung in einer anderen gynäkologischen Praxis erfolgt ist oder vor diesem Termin noch geplant ist.';return}
- }
- if(state.insurance==='PKV'&&!$('#goaeAck')?.checked){st.className='status bad';st.textContent='Bitte die Hinweise zur privatärztlichen Abrechnung bestätigen.';return}
- if(state.insurance==='SELF'&&!$('#privateRequestAck')?.checked){st.className='status bad';st.textContent='Bitte bestätigen Sie die freiwillige Selbstzahler-/Privatbehandlung auf eigenen Wunsch und eigene Kosten.';return}
- if(!$('#feeAck')?.checked){st.className='status bad';st.textContent='Bitte die Vereinbarung zur Ausfallpauschale bestätigen.';return}
- if(!$('#bookConsent')?.checked){st.className='status bad';st.textContent='Bitte die verbindliche Buchung bestätigen.';return}
-
- const patient={
-   firstName:$('#bookFirst').value.trim(),
-   lastName:$('#bookLast').value.trim(),
-   birthDate:$('#bookBirth').value,
-   email:$('#bookEmail').value.trim()
- };
- if(!patient.firstName||!patient.lastName||!patient.birthDate||!patient.email){
-   st.className='status bad';st.textContent='Bitte Vorname, Nachname, Geburtsdatum und E-Mail-Adresse vollständig angeben.';return
- }
- if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patient.email)){
-   st.className='status bad';st.textContent='Bitte eine gültige E-Mail-Adresse eingeben.';return
- }
-
- const rule=currentRule();
- const specialOverride=specialOpenBookingAllowed(state.selectedSlot);
- if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
- if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){
-   st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return
- }
- if(isSpecialGkvFallbackWindow(state.selectedSlot)&&!specialGkvFallbackAudienceAllowed()){
-   st.className='status bad';st.textContent='Dieser Zusatztermin ist ausschließlich für GKV-Bestandspatientinnen freigegeben.';return
- }
-
- btn.disabled=true;st.className='status';st.textContent='Termin wird jetzt verbindlich bei mediDate gebucht …';
-
- try{
-   // Keine zusätzliche Live-Verfügbarkeitsabfrage vor dem POST mehr: Der sichtbare
-   // Termin stammt bereits aus dem deployment-/browserlokalen mediDate-Snapshot.
-   // mediDate selbst entscheidet beim eigentlichen Buchungs-POST atomar, ob der
-   // Slot noch frei ist. Das spart einen vollständigen Netzwerk-Roundtrip.
-   const s=await getDirectMediDateSession(false);
-
-   // Unmittelbar vor dem Buchen noch einmal prüfen, ob der Termin inzwischen
-   // durch eine andere PKV-Neupatientinnenbuchung als Folgeslot reserviert wurde.
-   await refreshBookingGuards();
-   if(isHeldFollowup(state.selectedSlot)){
-     throw new Error('Dieser Termin ist inzwischen als Folgetermin für eine Neupatientin reserviert. Bitte wählen Sie einen anderen Termin.');
-   }
-
-   const need30=needs30MinuteBlock();
-   let slot=null,pair=null;
-
-   if(requiresFollowupReserve()||specialOpenBookingAllowed(state.selectedSlot)){
-     // Für PKV-Neupatientinnen, die Wechseljahressprechstunde und die einmalige
-     // Sonderfreigabe wird die Paarbedingung unmittelbar vor dem verbindlichen
-     // POST nochmals live gegen mediDate geprüft. Gebucht wird ausschließlich
-     // der erste Slot.
-     const live=await directMediDateRequest('appointments/appointmenttimes',{
-       method:'GET',
-       query:{
-         clientid:Number(s.clientId),
-         locationId:Number(s.locationId),
-         serviceId:Number(state.selectedSlot.serviceId),
-         doctorId:0
-       }
-     });
-     const liveRows=Array.isArray(live?.appointmentTimes)?live.appointmentTimes:[];
-
-     // Das 11:30–12:00-Fallback darf nur greifen, solange das primäre
-     // 12:00–13:00-Fenster in der gewählten Arztkonstellation tatsächlich
-     // vollständig ausgeschöpft ist. Eine zwischenzeitliche Stornierung öffnet
-     // daher zuerst wieder das primäre Fenster.
-     if(isSpecialGkvFallbackWindow(state.selectedSlot)){
-       const technical=[];
-       const chosenDoctor=Number(state.doctor?.id)||0;
-       for(const row of liveRows){
-         if(chosenDoctor!==0&&Number(row.doctorId)!==chosenDoctor)continue;
-         const day=String(row.dateTimeStart||'').slice(0,10);
-         for(const t of (row.times||[])){
-           technical.push({
-             date:day,time:t,doctorId:Number(row.doctorId),duration:Number(row.duration),
-             serviceId:Number(state.selectedSlot.serviceId)
-           });
-         }
-       }
-       const primaryStillBookable=technical.some(x=>
-         isSpecialOpenWindow(x)&&hasFreeFollowingSlot(x,technical)
-       );
-       if(primaryStillBookable){
-         throw new Error('Zwischen 12:00 und 13:00 Uhr ist wieder ein geeigneter Termin frei. Bitte wählen Sie zunächst einen Termin aus diesem Zeitfenster.');
-       }
-     }
-
-     slot=directExtractSlot(liveRows,state.selectedSlot);
-     const nextTime=slot?add15DotTime(slot.time):null;
-     const next=slot&&nextTime
-       ?directExtractSlot(liveRows,{date:slot.date,time:nextTime,doctorId:slot.doctorId})
-       :null;
-     if(!slot||Number(slot.duration)!==15||!next||Number(next.duration)!==15){
-       throw new Error((isSpecialOpenWindow(state.selectedSlot)||isSpecialGkvFallbackWindow(state.selectedSlot))
-         ?'Für diesen Sondertermin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
-         :isMenopauseMode()
-           ?'Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
-           :'Für diesen Neupatientinnen-Termin ist der direkt anschließende Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
-     }
-     if(isMenopauseMode()&&(!isPrivateOnlyWindow(slot)||!isPrivateOnlyWindow({...next,date:slot.date,time:nextTime}))){
-       throw new Error('Dieser Termin liegt nicht vollständig in der besonderen Privatsprechstunde. Bitte wählen Sie einen anderen Termin.');
-     }
-   }else{
-     const immediate=bestImmediateBundle();
-     const group=bundleGroup(immediate,Number(state.selectedSlot.serviceId));
-     const rows=Array.isArray(group?.availability?.appointmentTimes)?group.availability.appointmentTimes:[];
-     pair=need30?directPair(rows,state.selectedSlot):null;
-     slot=need30?(pair&&pair.first):directExtractSlot(rows,state.selectedSlot);
-     if(!slot||(need30&&!pair))throw new Error('Dieser Termin ist im angezeigten Terminstand nicht mehr vollständig vorhanden. Bitte wählen Sie einen anderen Termin.');
-   }
-
-   const flags=[];
-   if(isIgelMode())flags.push('IGeL/Selbstzahler');
-   if(state.topicMode==='igel_spirale')flags.push('Selbstzahler: Spirale Einlage');
-   if(state.topicMode==='igel_hormon')flags.push('Selbstzahler: Wechseljahressprechstunde');
-   if(state.topicMode==='igel_harmony')flags.push('Selbstzahler: Harmony-Test®');
-   if(state.topicMode==='acute')flags.push('Akut/offene Sprechstunde');
-   if(state.topicMode==='pregnancy')flags.push('Schwangerschaft');
-   if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'){
-     flags.push(`Andere gyn. Schwangerschaftsvorsorge/-betreuung lfd. Quartal: ${pregnancyOtherPractice==='yes'?'JA':'NEIN'}`);
-   }
-   if(need30)flags.push('Neupatientin 30 Min.');
-   const baseComment=flags.length?`[${flags.join(' | ')}]`:'';
-   function payloadFor(x,extra=''){
-     const now=new Date().toISOString();
-     return {
-       id:0,appointmentCode:'',mediSoftId:0,clientId:Number(s.clientId),locationId:Number(s.locationId),
-       doctorId:Number(x.doctorId),serviceId:Number(state.selectedSlot.serviceId),
-       listReferenzId:Number(x.listReferenzId||0),timeSlotId:0,type:'Online',state:1,
-       dueDate:`${x.date}T${x.time.replace('.',':')}:00`,
-       duration:Number(x.duration),dayOfYear:0,calenderWeek:Number(x.calendarWeek||0),
-       birthDate:patient.birthDate,firstName:patient.firstName,lastName:patient.lastName,
-       ticketid:'',sex:'Frau',mobilePhone:'',eMailAddress:patient.email,
-       comment:[baseComment,extra].filter(Boolean).join(' '),
-       createdOn:now,changedOn:now
-     };
-   }
-
-   const booked1=await directMediDateRequest('appointments',{method:'POST',body:payloadFor(slot,need30?'[Block 1/2]':'')});
-   let booked2=null;
-   if(need30){
-     try{
-       st.textContent='Erster Terminblock bestätigt. Zweiter Terminblock wird gebucht …';
-       booked2=await directMediDateRequest('appointments',{method:'POST',body:payloadFor(pair.second,'[Block 2/2]')});
-     }catch(e){
-       if(e?.code==='BOOKING_STATUS_UNCLEAR'){
-         const uncertain=new Error('Der erste 15-Minuten-Block wurde gebucht. Beim zweiten Block hat mediDate den Buchungsstatus nicht eindeutig bestätigt. Bitte nicht erneut buchen und die Praxis unter 040 / 603 81 41 kontaktieren.');
-         uncertain.code='BOOKING_STATUS_UNCLEAR';
-         throw uncertain;
-       }
-       const partial=new Error('Der erste 15-Minuten-Block wurde gebucht, der zweite konnte nicht bestätigt werden. Bitte kontaktieren Sie die Praxis unter 040 / 603 81 41.');
-       partial.code='BOOKING_STATUS_UNCLEAR';
-       throw partial;
-     }
-   }
-
-   const codes=[directAppointmentCode(booked1),directAppointmentCode(booked2)].filter(Boolean);
-   const doctorName=PRACTICE_DOCTORS.find(d=>Number(d.id)===Number(slot.doctorId))?.displayName||'';
-   await sendBookingTracking(slot,{duration:need30?30:Number(slot.duration)});
-   if(requiresFollowupReserve()){
-     const heldTime=add15DotTime(slot.time);
-     if(heldTime)state.followupGuards.add(followupGuardKey({date:slot.date,time:heldTime,doctorId:slot.doctorId}));
-   }
-   const cancelHtml=codes.length
-     ?`<div class="private-note"><strong>Online-Stornierung</strong>${codes.map((c,i)=>`<div style="margin-top:8px"><a href="https://portal.medidate.org/Appointment/Cancel/${encodeURIComponent(c)}" target="_blank" rel="noopener noreferrer">${codes.length>1?`Teil ${i+1} von ${codes.length} stornieren`:'Termin bei mediDate stornieren'}</a></div>`).join('')}${codes.length>1?'<div class="subtle">Der 30-Minuten-Termin besteht technisch aus zwei 15-Minuten-Blöcken; bei einer vollständigen Absage bitte beide stornieren.</div>':''}</div>`
-     :'<div class="subtle">Für diesen Termin wurde kein Online-Stornierungscode zurückgegeben. Bitte wenden Sie sich bei einer Absage an die Praxis.</div>';
-
-   $('#bookingBox').innerHTML=`<div class="success">
-     <strong>Ihr Termin wurde erfolgreich direkt bei mediDate gebucht.</strong><br>
-     ${deDate(slot.date)} · ${slot.time.replace('.',':')} Uhr
-     ${doctorName?`<br>${esc(doctorName)}`:''}
-     <p>Die Buchungsdaten einschließlich Ihrer E-Mail-Adresse wurden direkt an mediDate/MediSoftware übertragen. Eine dort konfigurierte Terminbestätigung kann dadurch an Ihre E-Mail-Adresse versendet werden.</p>
-     <p>Ihre im Formular eingegebenen Identitätsdaten wurden nicht auf diesem Website-Server gespeichert.</p>
-     <button type="button" class="primary" id="downloadIcs">Kalendereintrag herunterladen</button>
-     ${cancelHtml}
-   </div>`;
-   $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:slot.date,time:slot.time,duration:need30?30:Number(slot.duration),doctorName});
- }catch(e){
-   if(e?.code==='BOOKING_STATUS_UNCLEAR'){
-     st.className='status bad';
-     st.innerHTML=`${esc(e?.message||'Der Buchungsstatus bei mediDate ist unklar.')} <strong>Bitte klicken Sie nicht erneut auf „Termin verbindlich buchen“.</strong> Prüfen Sie eine mögliche Bestätigung oder kontaktieren Sie die Praxis unter 040 / 603 81 41.`;
-     btn.disabled=true;
-     return;
-   }
-   if(['DIRECT_CORS_UNAVAILABLE','DIRECT_TIMEOUT','DIRECT_SESSION_STALE'].includes(e?.code)){
-     state.directTransport=null;
-     st.className='status bad';
-     st.innerHTML=`${esc(e?.message||'Die direkte Verbindung zu mediDate konnte nicht hergestellt werden.')} <strong>Ihre Eingaben bleiben in diesem Browser erhalten.</strong> Bitte klicken Sie erneut auf „Termin verbindlich buchen“.`;
-     btn.disabled=false;
-     // Nur patientenfreie Sitzungs-/Verbindungsdaten werden im Hintergrund erneuert.
-     getDirectMediDateSession(true).then(()=>warmDirectTransport()).catch(()=>{});
-     return;
-   }
-   st.className='status bad';st.textContent=e.message||'Die Buchung konnte nicht abgeschlossen werden.';btn.disabled=false;
- }
-}
-
-</script>
-</body>
-</html>
