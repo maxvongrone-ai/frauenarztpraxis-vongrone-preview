@@ -1,10 +1,9 @@
-/* Public, read-only mediDate availability bridge.
- * No bearer token, client/location ids or mediDate write capability are exposed.
+/* mediDate availability/session bridge for browser-direct booking.
+ * Patient identity data is never accepted or processed by this endpoint.
  */
 const fs=require('fs');
 const path=require('path');
-const crypto=require('crypto');
-const {buildPublicBundle,readSecret,bootstrap,API_BASE}=require('../lib/medidate-core');
+const {buildPublicBundle,bootstrap,API_BASE}=require('../lib/medidate-core');
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 let liveBundlePromise=null;
 async function getLiveBundle(){
@@ -13,15 +12,11 @@ async function getLiveBundle(){
   return liveBundlePromise;
 }
 
-const REFRESH_WINDOW_MS=10*60*1000;
-const REFRESH_MAX_PER_IP=12;
-const refreshAttempts=global.__MEDIDATE_REFRESH_RATE__||(global.__MEDIDATE_REFRESH_RATE__=new Map());
-function refreshClientKey(req){const ip=String(req.headers['x-forwarded-for']||req.headers['x-real-ip']||'unknown').split(',')[0].trim();return crypto.createHmac('sha256',readSecret()).update(ip).digest('hex').slice(0,32)}
-function refreshAllowed(req){
-  const site=String(req.headers['sec-fetch-site']||'');if(site&&site!=='same-origin')return false;
-  const now=Date.now(),key=refreshClientKey(req),old=refreshAttempts.get(key),rec=!old||now-old.start>REFRESH_WINDOW_MS?{start:now,count:0}:old;rec.count++;refreshAttempts.set(key,rec);
-  if(refreshAttempts.size>1000)for(const [k,v] of refreshAttempts)if(now-v.start>REFRESH_WINDOW_MS)refreshAttempts.delete(k);
-  return rec.count<=REFRESH_MAX_PER_IP;
+function requestAllowed(req){
+  // Deliberately do not read, hash, store or rate-limit by client IP.
+  // Keep only the browser's same-origin signal as an application-level guard.
+  const site=String(req.headers['sec-fetch-site']||'');
+  return !site||site==='same-origin';
 }
 
 function send(res,status,body,{cache='no-store',cdn=null,vercel=null}={}){
@@ -47,12 +42,12 @@ module.exports=async function handler(req,res){
       return send(res,200,{ok:true,buildBundleReady:Boolean(bundle),generatedAt:bundle?.generatedAt||null,groups:Array.isArray(bundle?.groups)?bundle.groups.length:0,securityMode:'browser-direct-medidate-no-pii-proxy',elapsedMs:Date.now()-started});
     }
     if(action==='publicSession'||action==='liveSession'){
-      if(!refreshAllowed(req))return send(res,429,{ok:false,error:'Zu viele Sitzungsanfragen.'},{cache:'no-store'});
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const s=await bootstrap(action==='liveSession');
       return send(res,200,{ok:true,token:s.token,clientId:s.clientId,locationId:s.locationId,apiBase:API_BASE,issuedAt:s.issuedAt||Date.now()},{cache:'no-store'});
     }
     if(action==='diagnostics'){
-      if(!refreshAllowed(req))return send(res,429,{ok:false,error:'Zu viele Diagnoseanfragen.'},{cache:'no-store'});
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       try{
         const bundle=await getLiveBundle();
         return send(res,200,{ok:true,runtimeBootstrap:true,services:(bundle.groups||[]).map(g=>({key:g.serviceKey,blocks:Array.isArray(g?.availability?.appointmentTimes)?g.availability.appointmentTimes.length:0})),generatedAt:bundle.generatedAt||null,elapsedMs:Date.now()-started},{cache:'no-store'});
@@ -63,13 +58,13 @@ module.exports=async function handler(req,res){
     if(action==='publicBundle'){
       let bundle=readSeedBundle();
       if(!bundle){
-        if(!refreshAllowed(req))return send(res,429,{ok:false,error:'Zu viele Aktualisierungsanfragen. Bitte später erneut versuchen.'},{cache:'no-store'});
+        if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
         bundle=await getLiveBundle();
       }
       return send(res,200,{ok:true,...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=60',cdn:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400',vercel:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400'});
     }
     if(action==='liveBundle'){
-      if(!refreshAllowed(req))return send(res,429,{ok:false,error:'Zu viele Aktualisierungsanfragen. Bitte später erneut versuchen.'},{cache:'no-store'});
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const bundle=await getLiveBundle();
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=30, stale-while-revalidate=120',cdn:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400',vercel:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400'});
     }
