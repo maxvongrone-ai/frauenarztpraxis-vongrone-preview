@@ -15,27 +15,29 @@ h1{font-size:28px}h2{margin-top:26px;font-size:20px}.note{background:#f4efeb;bor
 <p><strong>Verantwortliche:</strong> Frauenarztpraxis Dr. med. Friederike von Grone, Im Alten Dorfe 23, 22359 Hamburg, E-Mail: kontakt@frauenarztpraxis-vongrone.de, Telefon: 040 / 603 81 41.</p>
 
 <h2>Technische Architektur</h2>
-<p>Die Website trennt die öffentliche Terminanzeige von der eigentlichen Patientenbuchung. Vorname, Nachname, Geburtsdatum und E-Mail-Adresse werden beim verbindlichen Buchen direkt aus Ihrem Browser an mediDate/MediSoftware übertragen und nicht an den Website-Server übermittelt.</p>
-<p>Nach einer erfolgreich abgeschlossenen Buchung kann für die interne Kapazitäts- und Angebotsauswertung ein gesonderter Buchungsdatensatz gespeichert werden. Dieser enthält ausschließlich den gewählten Buchungspfad (Privatversicherte/Selbstzahler, gesetzlich Versicherte oder besondere Selbstzahlerleistung), Neu-/Bestandspatientin, Terminart, Termin-Datum und -Uhrzeit, Ärztin, Termindauer und den technischen Speicherzeitpunkt. Name, Geburtsdatum, E-Mail-Adresse, Telefonnummer und Freitext werden in diesem Auswertungsdatensatz nicht gespeichert.</p>
+<p>Die öffentliche Terminanzeige enthält ausschließlich freie Terminzeiten und lokale Bezeichnungen für Terminarten und Ärztinnen. Interne mediDate-Kennungen und der für die Kommunikation mit mediDate verwendete Zugriffsschlüssel werden dem Browser nicht zur Verfügung gestellt.</p>
+<p>Beim verbindlichen Buchen werden Vorname, Nachname, Geburtsdatum und E-Mail-Adresse verschlüsselt an eine serverseitige Buchungsfunktion der Praxis übertragen. Diese prüft den ausgewählten Termin anhand eines verschlüsselten, nicht veränderbaren Termin-Schlüssels nochmals gegen die aktuelle mediDate-Verfügbarkeit und übermittelt die Daten anschließend an mediDate/MediSoftware. Die Identitätsdaten werden durch die Website-Anwendung nicht in einer eigenen Datenbank oder einem Website-Speicher abgelegt.</p>
+<p>Die Buchungsfunktion ist auf die Vercel-Region Frankfurt (<code>fra1</code>) konfiguriert. Der Website-Host verarbeitet technisch notwendige Verbindungsdaten. Die Buchungsfunktion protokolliert keine Formularinhalte; zur Missbrauchsbegrenzung kann die anfragende IP-Adresse nur flüchtig und gehasht im Arbeitsspeicher für ein zeitlich begrenztes Rate-Limit verarbeitet werden.</p>
 
-<p>Wenn Ihr Browser die technische Direktverbindung unterstützt, werden die von Ihnen im Buchungsformular eingegebenen personenbezogenen Daten einschließlich Ihrer E-Mail-Adresse beim verbindlichen Buchen <strong>direkt aus Ihrem Browser an mediDate/MediSoftware</strong> übertragen. Kann diese Direktverbindung nicht hergestellt werden, werden Sie zur originalen mediDate-Buchungsseite weitergeleitet und geben Ihre Daten dort ein.</p>
+<h2>Sicherheitsprüfung des gewählten Termins</h2>
+<p>Der Browser kann für die Buchung keine mediDate-interne Client-, Standort-, Service-, Arzt- oder Terminlisten-ID vorgeben. Der ausgewählte Termin wird durch einen serverseitig erzeugten verschlüsselten Termin-Schlüssel gebunden. Unmittelbar vor der Buchung werden Terminart, Ärztin, Terminliste, Datum, Uhrzeit und freie Verfügbarkeit erneut serverseitig geprüft. Manipulierte oder abgelaufene Termin-Schlüssel werden abgelehnt.</p>
 
 <h2>Öffentliche Website</h2>
-<p>Beim Aufruf der Website verarbeitet der jeweilige Website-Host technisch notwendige Verbindungsdaten wie insbesondere IP-Adresse, Zeitpunkt, Browser-/Geräteinformationen und aufgerufene Seiten. Die Buchungsanwendung ist so gestaltet, dass die Verfügbarkeitsabfrage für alle Besucher als neutraler Gesamt-Datenstand erfolgt und nicht anhand des Server-Requests erkennen lässt, welche konkrete Leistung oder Ärztin Sie anschließend im Browser auswählen.</p>
+<p>Beim Aufruf der Website verarbeitet der jeweilige Website-Host technisch notwendige Verbindungsdaten wie insbesondere IP-Adresse, Zeitpunkt, Browser-/Geräteinformationen und aufgerufene Seiten. Die öffentliche Verfügbarkeitsansicht enthält keine Patientennamen und keine belegten MEDISOFT-Termine.</p>
 
 <h2>Patienten- und Gesundheitsdaten bei der Buchung</h2>
-<p>Die eigentliche Terminbuchung erfolgt technisch über mediDate/MediSoftware. Rechtsgrundlagen für die Terminorganisation und die medizinisch erforderliche Verarbeitung sind – soweit einschlägig – insbesondere Art. 6 Abs. 1 lit. b DSGVO sowie Art. 9 Abs. 2 lit. h DSGVO in Verbindung mit § 22 Abs. 1 Nr. 1 lit. b BDSG.</p>
+<p>Die eigentliche Terminbuchung erfolgt technisch über die serverseitige Buchungsfunktion und mediDate/MediSoftware. Rechtsgrundlagen für die Terminorganisation und die medizinisch erforderliche Verarbeitung sind – soweit einschlägig – insbesondere Art. 6 Abs. 1 lit. b DSGVO sowie Art. 9 Abs. 2 lit. h DSGVO in Verbindung mit § 22 Abs. 1 Nr. 1 lit. b BDSG.</p>
 <p>Die Terminbuchung ist <strong>keine Einwilligung in eine medizinische Maßnahme</strong>. Medizinische Aufklärung und Einwilligung erfolgen – soweit erforderlich – gesondert vor der Behandlung.</p>
 
 <h2>Datenminimierung</h2>
-<p>Die Buchungsmaske erhebt nur Vorname, Nachname, Geburtsdatum und E-Mail-Adresse sowie – soweit für die Terminsteuerung erforderlich – die jeweilige Buchungs-/Versicherungsinformation. Ein Freitextfeld und eine Telefonnummer werden nicht erhoben. Die Browser-Anwendung speichert Patientendaten nicht in LocalStorage oder einer serverseitigen Datenbank.</p>
-
-<h2>Kein Website-Patientenpostfach</h2>
-<p>Diese Version führt bewusst kein eigenes cloudbasiertes Patientenpostfach. Wenn kurzfristig kein geeigneter Schwangerschaftstermin verfügbar ist, erfolgt die Kontaktaufnahme mit der Praxis telefonisch. Dadurch werden für diesen Zweck keine Gesundheitsdaten auf dem Website-Server gespeichert.</p>
+<p>Die Buchungsmaske erhebt nur Vorname, Nachname, Geburtsdatum und E-Mail-Adresse sowie – soweit für die Terminsteuerung erforderlich – die jeweilige Buchungs-/Versicherungsinformation. Ein Freitextfeld und eine Telefonnummer werden nicht erhoben. Patientendaten werden nicht in LocalStorage gespeichert.</p>
 
 <h2>Interne Buchungsstatistik</h2>
-<p>Die interne Buchungsstatistik wird getrennt von den über mediDate/MediSoftware übertragenen Identitätsdaten geführt und ist nicht Bestandteil der öffentlichen Website. Die Anwendung begrenzt den Statistik-Speicher standardmäßig auf 180 Tage. Da eine konkrete Kombination aus Terminzeit, Ärztin und Terminart im Praxisbetrieb mittelbar einer Person zugeordnet werden kann, ist dieser Datensatz nicht als vollständig anonym anzusehen.</p>
-<p>Die interne Buchungsstatistik wird in dieser Vercel-Version in einem privaten Vercel-Blob-Store gespeichert. Vor dem Produktivbetrieb müssen Rechtsgrundlage, Auftragsverarbeitung, Speicherregion und Speicherdauer mit der allgemeinen Datenschutzerklärung und dem tatsächlichen Vercel-Hosting-Setup abgestimmt werden.</p>
+<p>Nach einer erfolgreich abgeschlossenen Buchung kann für die interne Kapazitäts- und Angebotsauswertung ein gesonderter Buchungsdatensatz gespeichert werden. Dieser enthält ausschließlich Buchungspfad, Neu-/Bestandspatientin, Terminart, Termin-Datum und -Uhrzeit, Ärztin, Termindauer und den technischen Speicherzeitpunkt. Name, Geburtsdatum, E-Mail-Adresse, Telefonnummer und Freitext werden in diesem Auswertungsdatensatz nicht gespeichert.</p>
+<p>Die Anwendung begrenzt den Statistik-Speicher standardmäßig auf 180 Tage. Da eine konkrete Kombination aus Terminzeit, Ärztin und Terminart im Praxisbetrieb mittelbar einer Person zugeordnet werden kann, ist dieser Datensatz nicht als vollständig anonym anzusehen. Die Statistik wird in einem privaten Vercel-Blob-Store gespeichert.</p>
+
+<h2>Kein Website-Patientenpostfach</h2>
+<p>Diese Version führt kein eigenes cloudbasiertes Patientenpostfach. Wenn kurzfristig kein geeigneter Schwangerschaftstermin verfügbar ist, erfolgt die Kontaktaufnahme mit der Praxis telefonisch.</p>
 
 <h2>Speicherung und Dokumentation</h2>
 <p>Für die über mediDate/MediSoftware angelegte Terminbuchung und eine daraus entstehende Behandlungsdokumentation gelten die hierfür maßgeblichen datenschutz-, berufs- und patientenrechtlichen Vorgaben. Das Website-Frontend selbst führt keine Patientenakte.</p>
@@ -43,5 +45,5 @@ h1{font-size:28px}h2{margin-top:26px;font-size:20px}.note{background:#f4efeb;bor
 <h2>Ihre Rechte</h2>
 <p>Sie haben im Rahmen der gesetzlichen Voraussetzungen insbesondere Rechte auf Auskunft, Berichtigung, Löschung bzw. Einschränkung der Verarbeitung und Beschwerde bei einer Datenschutzaufsichtsbehörde. Soweit Daten Bestandteil der Behandlungsakte sind, gelten zusätzlich die Patientenrechte, insbesondere § 630g BGB.</p>
 
-<div class="note"><strong>Hinweis:</strong> Diese Hinweise müssen mit der allgemeinen Datenschutzerklärung der Praxis sowie den tatsächlich mit MediSoftware und dem Website-Host bestehenden Verträgen und technischen Einstellungen übereinstimmen.</div>
+<div class="note"><strong>Hinweis:</strong> Diese Hinweise müssen mit der allgemeinen Datenschutzerklärung der Praxis sowie den tatsächlich mit MediSoftware und dem Website-Host bestehenden Verträgen, Auftragsverarbeitungsvereinbarungen und technischen Einstellungen übereinstimmen.</div>
 </main></body></html>
