@@ -1,16 +1,16 @@
 {
-  "name": "frauenarzt-vongrone-direct-medidate",
-  "version": "60.7.1",
+  "name": "frauenarzt-vongrone-secure-medidate-gateway",
+  "version": "60.8.3",
   "private": true,
-  "description": "mediDate Sonderversion: schnelle Direktbuchung mit privatem Vercel-Blob-Tracking und geheimer Auswertungs-URL ohne Passwort-Eingabe; Geheimnis nicht im Repository",
+  "description": "mediDate V60.8.3: sicherer serverseitiger Runtime-Bootstrap ohne Build-Netzwerkabhängigkeit",
   "engines": {
-    "node": "24.x"
+    "node": "22.x"
   },
   "scripts": {
-    "build": "node scripts/build-seed.js"
+    "build": "node scripts/build-seed.js",
+    "test:security": "node tests/security-function-test.js"
   },
   "dependencies": {
-    "@vercel/blob": "2.8.0",
-    "ssh2-sftp-client": "11.0.0"
+    "@vercel/blob": "2.8.0"
   }
 }
