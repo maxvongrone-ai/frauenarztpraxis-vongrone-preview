@@ -72,7 +72,7 @@ module.exports=async function handler(req,res){
     if(!rateAllowed(req))return send(res,429,{ok:false,error:'Zu viele Buchungsversuche. Bitte versuchen Sie es später erneut.'},{'Retry-After':'600'});
 
     const body=await readJsonBody(req);
-    if(String(body.website||'').trim())return send(res,400,{ok:false,error:'Buchung konnte nicht geprüft werden.'});
+    if(String(body.website||'').trim())return send(res,400,{ok:false,error:'Buchung konnte nicht geprüft werden.'}); // honeypot
     const startedForm=Number(body.formStartedAt||0);
     if(!Number.isFinite(startedForm)||Date.now()-startedForm<1200||Date.now()-startedForm>2*60*60*1000)return send(res,400,{ok:false,error:'Buchungsformular ist nicht mehr gültig. Bitte Termin neu auswählen.'});
     const slotToken=String(body.slotToken||'');
