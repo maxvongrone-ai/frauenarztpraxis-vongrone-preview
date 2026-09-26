@@ -15,18 +15,18 @@ h1{font-size:28px}h2{margin-top:26px;font-size:20px}.note{background:#f4efeb;bor
 <p><strong>Verantwortliche:</strong> Frauenarztpraxis Dr. med. Friederike von Grone, Im Alten Dorfe 23, 22359 Hamburg, E-Mail: kontakt@frauenarztpraxis-vongrone.de, Telefon: 040 / 603 81 41.</p>
 
 <h2>Technische Architektur</h2>
-<p>Die öffentliche Terminanzeige enthält ausschließlich freie Terminzeiten und lokale Bezeichnungen für Terminarten und Ärztinnen. Interne mediDate-Kennungen und der für die Kommunikation mit mediDate verwendete Zugriffsschlüssel werden dem Browser nicht zur Verfügung gestellt.</p>
-<p>Beim verbindlichen Buchen werden Vorname, Nachname, Geburtsdatum und E-Mail-Adresse verschlüsselt an eine serverseitige Buchungsfunktion der Praxis übertragen. Diese prüft den ausgewählten Termin anhand eines verschlüsselten, nicht veränderbaren Termin-Schlüssels nochmals gegen die aktuelle mediDate-Verfügbarkeit und übermittelt die Daten anschließend an mediDate/MediSoftware. Die Identitätsdaten werden durch die Website-Anwendung nicht in einer eigenen Datenbank oder einem Website-Speicher abgelegt.</p>
-<p>Die Buchungsfunktion ist auf die Vercel-Region Frankfurt (<code>fra1</code>) konfiguriert. Der Website-Host verarbeitet technisch notwendige Verbindungsdaten. Die Buchungsfunktion protokolliert keine Formularinhalte; zur Missbrauchsbegrenzung kann die anfragende IP-Adresse nur flüchtig und gehasht im Arbeitsspeicher für ein zeitlich begrenztes Rate-Limit verarbeitet werden.</p>
+<p>Die öffentliche Terminanzeige wird über die Website bereitgestellt. Für die Kommunikation mit mediDate erhält der Browser ausschließlich die technisch notwendigen öffentlichen Sitzungs- und Termininformationen.</p>
+<p>Vorname, Nachname, Geburtsdatum und E-Mail-Adresse bleiben bis zum verbindlichen Absenden im Browser der Patientin. Beim Absenden werden diese Angaben <strong>direkt vom Browser an mediDate/MediSoftware übertragen</strong>. Sie werden nicht an eine Vercel-Serverfunktion der Praxis übermittelt und dort nicht gespeichert.</p>
+<p>Der Website-Host verarbeitet beim normalen Seitenaufruf technisch notwendige Verbindungsdaten wie insbesondere IP-Adresse, Zeitpunkt und Browser-/Geräteinformationen. Diese technischen Hostingdaten sind von den im Buchungsformular eingegebenen Identitätsdaten zu unterscheiden.</p>
 
 <h2>Sicherheitsprüfung des gewählten Termins</h2>
-<p>Der Browser kann für die Buchung keine mediDate-interne Client-, Standort-, Service-, Arzt- oder Terminlisten-ID vorgeben. Der ausgewählte Termin wird durch einen serverseitig erzeugten verschlüsselten Termin-Schlüssel gebunden. Unmittelbar vor der Buchung werden Terminart, Ärztin, Terminliste, Datum, Uhrzeit und freie Verfügbarkeit erneut serverseitig geprüft. Manipulierte oder abgelaufene Termin-Schlüssel werden abgelehnt.</p>
+<p>Die Website stellt nur freigegebene Terminarten und Ärztinnen dar. Unmittelbar vor dem verbindlichen Absenden prüft der Browser die aktuelle freie Verfügbarkeit nochmals direkt bei mediDate. Die eigentliche Buchung wird anschließend unmittelbar an die mediDate-API gesendet.</p>
 
 <h2>Öffentliche Website</h2>
 <p>Beim Aufruf der Website verarbeitet der jeweilige Website-Host technisch notwendige Verbindungsdaten wie insbesondere IP-Adresse, Zeitpunkt, Browser-/Geräteinformationen und aufgerufene Seiten. Die öffentliche Verfügbarkeitsansicht enthält keine Patientennamen und keine belegten MEDISOFT-Termine.</p>
 
 <h2>Patienten- und Gesundheitsdaten bei der Buchung</h2>
-<p>Die eigentliche Terminbuchung erfolgt technisch über die serverseitige Buchungsfunktion und mediDate/MediSoftware. Rechtsgrundlagen für die Terminorganisation und die medizinisch erforderliche Verarbeitung sind – soweit einschlägig – insbesondere Art. 6 Abs. 1 lit. b DSGVO sowie Art. 9 Abs. 2 lit. h DSGVO in Verbindung mit § 22 Abs. 1 Nr. 1 lit. b BDSG.</p>
+<p>Die eigentliche Terminbuchung erfolgt technisch durch eine direkte Verbindung des Browsers zu mediDate/MediSoftware. Rechtsgrundlagen für die Terminorganisation und die medizinisch erforderliche Verarbeitung sind – soweit einschlägig – insbesondere Art. 6 Abs. 1 lit. b DSGVO sowie Art. 9 Abs. 2 lit. h DSGVO in Verbindung mit § 22 Abs. 1 Nr. 1 lit. b BDSG.</p>
 <p>Die Terminbuchung ist <strong>keine Einwilligung in eine medizinische Maßnahme</strong>. Medizinische Aufklärung und Einwilligung erfolgen – soweit erforderlich – gesondert vor der Behandlung.</p>
 
 <h2>Datenminimierung</h2>
