@@ -4,7 +4,7 @@
 const fs=require('fs');
 const path=require('path');
 const crypto=require('crypto');
-const {buildPublicBundle,readSecret}=require('../lib/medidate-core');
+const {buildPublicBundle,readSecret,bootstrap,API_BASE}=require('../lib/medidate-core');
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 let liveBundlePromise=null;
 async function getLiveBundle(){
@@ -44,7 +44,12 @@ module.exports=async function handler(req,res){
     const action=String(req.query?.action||'health');
     if(action==='health'){
       const bundle=readSeedBundle();
-      return send(res,200,{ok:true,buildBundleReady:Boolean(bundle),generatedAt:bundle?.generatedAt||null,groups:Array.isArray(bundle?.groups)?bundle.groups.length:0,securityMode:'opaque-slot-tokens',elapsedMs:Date.now()-started});
+      return send(res,200,{ok:true,buildBundleReady:Boolean(bundle),generatedAt:bundle?.generatedAt||null,groups:Array.isArray(bundle?.groups)?bundle.groups.length:0,securityMode:'browser-direct-medidate-no-pii-proxy',elapsedMs:Date.now()-started});
+    }
+    if(action==='publicSession'||action==='liveSession'){
+      if(!refreshAllowed(req))return send(res,429,{ok:false,error:'Zu viele Sitzungsanfragen.'},{cache:'no-store'});
+      const s=await bootstrap(action==='liveSession');
+      return send(res,200,{ok:true,token:s.token,clientId:s.clientId,locationId:s.locationId,apiBase:API_BASE,issuedAt:s.issuedAt||Date.now()},{cache:'no-store'});
     }
     if(action==='diagnostics'){
       if(!refreshAllowed(req))return send(res,429,{ok:false,error:'Zu viele Diagnoseanfragen.'},{cache:'no-store'});
@@ -68,7 +73,6 @@ module.exports=async function handler(req,res){
       const bundle=await getLiveBundle();
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=30, stale-while-revalidate=120',cdn:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400',vercel:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400'});
     }
-    // Deliberately removed: publicSession/liveSession. Browser never gets mediDate bearer token.
     return send(res,404,{ok:false,error:'Unbekannte oder nicht freigegebene Aktion.'});
   }catch(e){
     console.error('Secure availability refresh error',{action:req.query?.action,message:e?.message,elapsedMs:Date.now()-started});

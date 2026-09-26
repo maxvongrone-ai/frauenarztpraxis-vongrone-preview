@@ -528,7 +528,7 @@ async function apiGet(action,params={},timeoutMs=8000){
 //
 // mediDate wird nur im Hintergrund aktualisiert. Selbst 30–60 Sekunden externe
 // Latenz blockieren dadurch niemals die Kalenderanzeige.
-const PUBLIC_CACHE_PREFIX='fg-medidate-public-v608-secure:';
+const PUBLIC_CACHE_PREFIX='fg-medidate-public-v609-direct:';
 const LOCAL_CACHE_MAX_AGE=24*60*60*1000;
 let publicBundleNetworkPromise=null;
 let deploymentBundlePromise=null;
@@ -787,7 +787,7 @@ function buildAvailableDays(raw){
      const slotToken=typeof tv==='object'?String(tv?.slotToken||''):'';
      if(!t||!slotToken)continue;
      const dt=new Date(day+'T'+t.replace('.',':')+':00');if(dt<now)continue;
-     const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,slotToken};
+     const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,slotToken,direct:(typeof tv==='object'&&tv?.direct)?tv.direct:null};
      // Liegt der Sondertag vor der regulären Freigabegrenze (insb. GKV-Bestand),
      // werden Starts 12:00–12:45 sowie 13:00 nur als technischer Folgeslot berücksichtigt.
      if(day<rule.earliest && !isSpecialOpenWindow(candidate) && !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
@@ -1093,18 +1093,77 @@ async function loadAcuteSlots(){
  showAcuteUnavailable();
 }
 
-async function sendBookingTracking(receipt){
- // Das Tracking akzeptiert ausschließlich einen vom Buchungsserver signierten
- // Beleg einer tatsächlich erfolgreichen Buchung. Browserdaten können die
- // Statistik dadurch nicht mehr frei manipulieren.
- if(!receipt)return;
+async function sendBookingTracking(slot){
+ // Keine Identitätsdaten: ausschließlich der bereits serverseitig ausgegebene
+ // Termin-Schlüssel sowie Buchungspfad/Patientenstatus für die interne Statistik.
+ if(!slot?.slotToken)return;
  try{
    await fetch('/api/tracking',{
      method:'POST',cache:'no-store',credentials:'same-origin',keepalive:true,
      headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({receipt})
+     body:JSON.stringify({
+       direct:true,
+       slotToken:String(slot.slotToken),
+       route:String(state.insurance||''),
+       patientType:String(state.patientType||'')
+     })
    });
  }catch{}
+}
+
+let directSessionCache=null;
+async function getDirectMediDateSession(force=false){
+ if(!force&&directSessionCache&&Date.now()-Number(directSessionCache.issuedAt||0)<12*60*1000)return directSessionCache;
+ const j=await apiGet(force?'liveSession':'publicSession',{},30000);
+ if(!j?.token||!j?.apiBase||!Number(j?.clientId)||!Number(j?.locationId))throw new Error('Die mediDate-Sitzung ist derzeit nicht verfügbar.');
+ directSessionCache=j;return j;
+}
+async function directMediDateRequest(path,{method='GET',query=null,body=null}={},retry=true){
+ const s=await getDirectMediDateSession(false);
+ const u=new URL(String(path||'').replace(/^\//,''),s.apiBase);
+ if(query)Object.entries(query).forEach(([k,v])=>u.searchParams.set(k,String(v)));
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000);
+ let r,text;
+ try{
+   r=await fetch(u,{
+     method,mode:'cors',credentials:'omit',cache:'no-store',signal:controller.signal,
+     headers:{'Accept':'application/json','Content-Type':'application/json','Authorization':`Bearer ${s.token}`},
+     body:body==null?undefined:JSON.stringify(body)
+   });
+   text=await r.text();
+ }catch(e){
+   const write=String(method).toUpperCase()!=='GET';
+   const err=new Error(write?'mediDate hat den Buchungsstatus nicht eindeutig bestätigt. Bitte nicht erneut absenden.':'Die direkte Browser-Verbindung zu mediDate ist derzeit nicht verfügbar.');
+   err.code=write?'BOOKING_STATUS_UNCLEAR':(e?.name==='AbortError'?'DIRECT_TIMEOUT':'DIRECT_CORS_UNAVAILABLE');
+   throw err;
+ }finally{clearTimeout(timer)}
+ if((r.status===401||r.status===403)&&retry){
+   directSessionCache=null;
+   await getDirectMediDateSession(true);
+   return directMediDateRequest(path,{method,query,body},false);
+ }
+ let data=null;if(text){try{data=JSON.parse(text)}catch{data=text}}
+ if(!r.ok){
+   const write=String(method).toUpperCase()!=='GET';
+   const err=new Error(write&&r.status>=500?'mediDate hat den Buchungsstatus nicht eindeutig bestätigt. Bitte nicht erneut absenden.':`mediDate antwortet mit HTTP ${r.status}.`);
+   if(write&&r.status>=500)err.code='BOOKING_STATUS_UNCLEAR';
+   err.status=r.status;err.data=data;throw err;
+ }
+ return data;
+}
+function directAppointmentCode(data){
+ const seen=new Set();
+ function walk(v,depth=0){
+   if(v==null||depth>6)return '';
+   if(typeof v==='string'){const m=v.match(/\/Appointment\/Cancel\/([A-Za-z0-9_-]{6,120})(?:[/?#]|$)/i);return m?m[1]:''}
+   if(typeof v!=='object'||seen.has(v))return '';seen.add(v);
+   for(const k of ['appointmentCode','AppointmentCode','cancelCode','cancellationCode','stornoCode']){
+     const x=String(v[k]||'').trim();if(/^[A-Za-z0-9_-]{6,120}$/.test(x))return x;
+   }
+   for(const x of Object.values(v)){const y=walk(x,depth+1);if(y)return y}
+   return '';
+ }
+ return walk(data);
 }
 
 function openBooking(slot){
@@ -1121,7 +1180,7 @@ function openBooking(slot){
    <div class="field"><label>Geburtsdatum *</label><input id="bookBirth" type="date" autocomplete="bday"></div>
    <div class="field"><label>E-Mail-Adresse *</label><input id="bookEmail" type="email" autocomplete="email" inputmode="email" required></div>
  </div>
- <div class="subtle" style="margin-top:6px">Die Angaben werden beim Absenden verschlüsselt an den Buchungsserver der Praxis übertragen, dort nur im Arbeitsspeicher geprüft und unmittelbar an mediDate/MediSoftware weitergegeben. Eine dauerhafte Speicherung der Identitätsdaten auf dem Website-Server erfolgt nicht.</div><input id="bookWebsite" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px">
+ <div class="subtle" style="margin-top:6px">Vorname, Nachname, Geburtsdatum und E-Mail-Adresse bleiben bis zum Absenden in Ihrem Browser und werden dann direkt von Ihrem Browser an mediDate/MediSoftware übertragen. Sie werden nicht an den Website-Server/Vercel gesendet.</div><input id="bookWebsite" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px">
  ${pregnancyOtherPracticeQuestionHtml('bookPregOtherPractice')}
  ${state.insurance==='PKV'?`<label class="confirm"><input id="goaeAck" type="checkbox"><span>Ich bin damit einverstanden, dass privatärztliche Leistungen nach GOÄ in der Regel bis zum <strong>2,3-fachen Gebührensatz</strong> und bei entsprechender Begründung bis zum <strong>3,5-fachen Gebührensatz</strong> abgerechnet werden können.</span></label>`:''}
  ${(state.insurance==='SELF')?`<label class="confirm"><input id="privateRequestAck" type="checkbox"><span>Ich wähle diese privatärztliche/Selbstzahlerleistung ausdrücklich auf eigenen Wunsch und eigene Kosten. Mir ist bekannt, dass gesetzlich Versicherte je nach medizinischer Situation einen Leistungsanspruch der gesetzlichen Krankenversicherung haben können. Die Wahl der Selbstzahlerleistung ist freiwillig und keine Voraussetzung für eine GKV-Behandlung.</span></label>
@@ -1130,7 +1189,7 @@ function openBooking(slot){
  <label class="confirm"><input id="feeAck" type="checkbox"><span>Ich bin damit einverstanden, dass bei einem für mich verbindlich und ausschließlich reservierten Termin, den ich nicht wahrnehme oder weniger als 24 Stunden vorher absage, eine Ausfallpauschale von <strong>60 €</strong> berechnet werden kann, sofern der Termin nicht anderweitig vergeben werden konnte. Mir bleibt der Nachweis vorbehalten, dass kein oder ein wesentlich geringerer Schaden entstanden ist. Dies gilt nicht, wenn mir die rechtzeitige Absage aufgrund eines unvorhersehbaren, von mir nicht zu vertretenden Umstands nicht möglich oder nicht zumutbar war. Die Ausfallpauschale wird nicht von der gesetzlichen oder privaten Krankenversicherung übernommen.</span></label>
  <div class="private-note">
    <strong>Datenschutz bei der Terminbuchung</strong>
-   <div class="subtle">Vorname, Nachname, Geburtsdatum und E-Mail-Adresse werden beim Absenden kurzzeitig durch den Buchungsserver der Praxis verarbeitet, serverseitig gegen den ausgewählten Termin geprüft und anschließend an mediDate/MediSoftware weitergegeben. Sie werden dort nicht in einer Website-Datenbank gespeichert. <a href="/privacy-booking.html" target="_blank" rel="noopener">Datenschutzhinweise</a>.</div>
+   <div class="subtle">Vorname, Nachname, Geburtsdatum und E-Mail-Adresse werden nicht an den Website-Server/Vercel übermittelt. Beim Absenden überträgt Ihr Browser diese Angaben direkt an mediDate/MediSoftware. <a href="/privacy-booking.html" target="_blank" rel="noopener">Datenschutzhinweise</a>.</div>
  </div>
  <label class="confirm"><input id="bookConsent" type="checkbox"><span>Ich bestätige, dass meine Angaben richtig sind und möchte diesen Termin verbindlich buchen.</span></label>
  <button id="bookBtn" class="primary">Termin verbindlich buchen</button><div id="bookStatus" class="status"></div>
@@ -1166,6 +1225,8 @@ function downloadCalendarEntry(info){
 async function bookNow(){
  const st=$('#bookStatus'),btn=$('#bookBtn');
  if(btn.disabled)return;
+ if(String($('#bookWebsite')?.value||'').trim()){st.className='status bad';st.textContent='Buchung konnte nicht geprüft werden.';return}
+
  let pregnancyOtherPractice='';
  if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'){
    pregnancyOtherPractice=pregnancyOtherPracticeValue('bookPregOtherPractice');
@@ -1183,45 +1244,71 @@ async function bookNow(){
  const rule=currentRule(),specialOverride=specialOpenBookingAllowed(state.selectedSlot);
  if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
  if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return}
- if(!state.selectedSlot?.slotToken){st.className='status bad';st.textContent='Der Termin-Schlüssel fehlt. Bitte wählen Sie den Termin erneut aus.';return}
+ const tech=state.selectedSlot?.direct;
+ if(!tech||!Number(tech.clientId)||!Number(tech.locationId)||!Number(tech.serviceId)||!Number(tech.doctorId)){st.className='status bad';st.textContent='Die technischen Termindaten fehlen. Bitte Terminansicht neu laden.';return}
 
- btn.disabled=true;st.className='status';st.textContent='Termin wird serverseitig geprüft und verbindlich bei mediDate gebucht …';
+ btn.disabled=true;st.className='status';st.textContent='Termin wird direkt bei mediDate geprüft und gebucht …';
  try{
-   const payload={
-     slotToken:state.selectedSlot.slotToken,
-     formStartedAt:Number(state.formStartedAt||0),
-     website:String($('#bookWebsite')?.value||''),
-     patient,
-     context:{route:state.insurance,patientType:state.patientType,topicMode:state.topicMode,doctorChoice:String(state.doctor?.id??'0'),pregnancyOtherPractice:pregnancyOtherPractice||''}
-   };
-   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
-   let r,text,j;
-   try{
-     r=await fetch('/api/booking',{method:'POST',cache:'no-store',credentials:'same-origin',signal:controller.signal,headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
-     text=await r.text();try{j=JSON.parse(text)}catch{j={ok:false,error:'Ungültige Serverantwort.'}}
-   }finally{clearTimeout(timer)}
-   if(!r.ok||!j?.ok){const err=new Error(j?.error||`Buchung nicht möglich (HTTP ${r.status}).`);err.code=r.status>=500?'BOOKING_STATUS_UNCLEAR':'BOOKING_REJECTED';throw err}
+   const s=await getDirectMediDateSession(false);
+   if(Number(s.clientId)!==Number(tech.clientId)||Number(s.locationId)!==Number(tech.locationId))throw new Error('Die mediDate-Praxiskonfiguration hat sich geändert. Bitte Seite neu laden.');
 
-   const doctorName=doctorDisplayName(j.doctorKey||state.selectedSlot.doctorId);
-   void sendBookingTracking(j.trackingReceipt);
-   const code=String(j.appointmentCode||'');
-   const cancelHtml=/^[A-Za-z0-9_-]{6,120}$/.test(code)
+   // Unmittelbar vor dem POST: freie Verfügbarkeit direkt im Browser gegen mediDate prüfen.
+   const live=await directMediDateRequest('appointments/appointmenttimes',{query:{
+     clientid:Number(s.clientId),locationId:Number(s.locationId),serviceId:Number(tech.serviceId),doctorId:Number(tech.doctorId)
+   }});
+   const rows=Array.isArray(live?.appointmentTimes)?live.appointmentTimes:[];
+   let row=null;
+   for(const r of rows){
+     if(String(r?.dateTimeStart||'').slice(0,10)!==String(state.selectedSlot.date))continue;
+     if(Number(r?.doctorId)!==Number(tech.doctorId))continue;
+     if(Number(r?.duration)!==Number(tech.duration||state.selectedSlot.duration))continue;
+     if(Number(r?.listReferenzId||0)!==Number(tech.listReferenzId||0))continue;
+     if((Array.isArray(r?.times)?r.times:[]).map(String).includes(String(state.selectedSlot.time))){row=r;break}
+   }
+   if(!row)throw new Error('Dieser Termin ist inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
+
+   const flags=[];
+   if(state.insurance==='SELF')flags.push('IGeL/Selbstzahler');
+   if(state.topicMode==='pregnancy')flags.push('Schwangerschaft');
+   if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'&&pregnancyOtherPractice)flags.push(`Andere gyn. Schwangerschaftsvorsorge/-betreuung lfd. Quartal: ${pregnancyOtherPractice==='yes'?'JA':'NEIN'}`);
+   const now=new Date().toISOString();
+   const payload={
+     id:0,appointmentCode:'',mediSoftId:0,
+     clientId:Number(s.clientId),locationId:Number(s.locationId),
+     doctorId:Number(tech.doctorId),serviceId:Number(tech.serviceId),
+     listReferenzId:Number(tech.listReferenzId||0),timeSlotId:0,type:'Online',state:1,
+     dueDate:`${state.selectedSlot.date}T${String(state.selectedSlot.time).replace('.',':')}:00`,
+     duration:Number(tech.duration||state.selectedSlot.duration||15),dayOfYear:0,
+     calenderWeek:Number(tech.calendarWeek||row?.calendarWeek||row?.calenderWeek||0),
+     birthDate:patient.birthDate,firstName:patient.firstName,lastName:patient.lastName,
+     ticketid:'',sex:'Frau',mobilePhone:'',eMailAddress:patient.email,
+     comment:flags.length?`[${flags.join(' | ')}]`:'',
+     createdOn:now,changedOn:now
+   };
+
+   // Entscheidend: dieser POST geht direkt vom Browser zu mediDate.
+   const result=await directMediDateRequest('appointments',{method:'POST',body:payload});
+   const code=directAppointmentCode(result);
+   const doctorName=doctorDisplayName(state.selectedSlot.doctorId);
+   void sendBookingTracking(state.selectedSlot);
+
+   const cancelHtml=code
      ?`<div class="private-note"><strong>Online-Stornierung</strong><div style="margin-top:8px"><a href="https://portal.medidate.org/Appointment/Cancel/${encodeURIComponent(code)}" target="_blank" rel="noopener noreferrer">Termin bei mediDate stornieren</a></div></div>`
      :'<div class="subtle">Für diesen Termin wurde kein Online-Stornierungscode zurückgegeben. Bitte wenden Sie sich bei einer Absage an die Praxis.</div>';
 
    $('#bookingBox').innerHTML=`<div class="success">
-     <strong>Ihr Termin wurde erfolgreich bei mediDate gebucht.</strong><br>
-     ${deDate(j.date||state.selectedSlot.date)} · ${String(j.time||state.selectedSlot.time).replace('.',':')} Uhr
+     <strong>Ihr Termin wurde erfolgreich direkt bei mediDate gebucht.</strong><br>
+     ${deDate(state.selectedSlot.date)} · ${String(state.selectedSlot.time).replace('.',':')} Uhr
      ${doctorName?`<br>${esc(doctorName)}`:''}
-     <p>Der Termin wurde serverseitig gegen die aktuelle mediDate-Verfügbarkeit geprüft. Die Identitätsdaten wurden nur für diesen Buchungsvorgang verarbeitet und nicht in einer Website-Datenbank gespeichert.</p>
+     <p>Vorname, Nachname, Geburtsdatum und E-Mail-Adresse wurden direkt aus Ihrem Browser an mediDate/MediSoftware übertragen und nicht an den Website-Server/Vercel gesendet.</p>
      <button type="button" class="primary" id="downloadIcs">Kalendereintrag herunterladen</button>
      ${cancelHtml}
    </div>`;
-   $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:j.date||state.selectedSlot.date,time:j.time||state.selectedSlot.time,duration:Number(j.duration||15),doctorName});
+   $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:state.selectedSlot.date,time:state.selectedSlot.time,duration:Number(tech.duration||15),doctorName});
  }catch(e){
    if(e?.name==='AbortError'||e?.code==='BOOKING_STATUS_UNCLEAR'){
      st.className='status bad';
-     st.innerHTML='Der Buchungsstatus konnte nicht eindeutig bestätigt werden. <strong>Bitte nicht mehrfach absenden.</strong> Prüfen Sie eine mögliche Bestätigung oder kontaktieren Sie die Praxis unter 040 / 603 81 41.';
+     st.innerHTML='Der Buchungsstatus bei mediDate konnte nicht eindeutig bestätigt werden. <strong>Bitte nicht mehrfach absenden.</strong> Prüfen Sie eine mögliche Bestätigung oder kontaktieren Sie die Praxis unter 040 / 603 81 41.';
      btn.disabled=true;return;
    }
    st.className='status bad';st.textContent=e?.message||'Die Buchung konnte nicht abgeschlossen werden.';btn.disabled=false;

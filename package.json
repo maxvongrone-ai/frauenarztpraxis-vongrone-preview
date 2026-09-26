@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.8.3",
+  "version": "60.9.0",
   "private": true,
-  "description": "mediDate V60.8.3: sicherer serverseitiger Runtime-Bootstrap ohne Build-Netzwerkabhängigkeit",
+  "description": "mediDate V60.9.0: Patient identity stays in browser and is posted directly to mediDate; Vercel handles only public availability/technical session data and non-identifying analytics.",
   "engines": {
     "node": "22.x"
   },
