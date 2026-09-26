@@ -997,7 +997,8 @@ function renderMonthCalendar(loading=false){
  const wrap=document.createElement('div');wrap.className='calendar-wrap';
  const head=document.createElement('div');head.className='calendar-head';
  const prev=document.createElement('button');prev.className='cal-nav';prev.type='button';prev.setAttribute('aria-label','Vorheriger Monat');prev.textContent='‹';
- prev.disabled=shown<=currentStart;prev.onclick=()=>{state.calendarMonth=shiftMonth(shown,-1);renderMonthCalendar(loading)}; const title=document.createElement('div');title.className='calendar-title';title.textContent=new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(shown);
+ prev.disabled=shown<=currentStart;prev.onclick=()=>{state.calendarMonth=shiftMonth(shown,-1);renderMonthCalendar(loading)};
+ const title=document.createElement('div');title.className='calendar-title';title.textContent=new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(shown);
  const next=document.createElement('button');next.className='cal-nav';next.type='button';next.setAttribute('aria-label','Nächster Monat');next.textContent='›';
  next.disabled=shown>=last;next.onclick=()=>{state.calendarMonth=shiftMonth(shown,1);renderMonthCalendar(loading)};
  head.append(prev,title,next);wrap.appendChild(head);
