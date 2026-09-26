@@ -1076,7 +1076,8 @@ async function sendBookingTracking(slot){
        direct:true,
        slotToken:String(slot.slotToken),
        route:String(state.insurance||''),
-       patientType:String(state.patientType||'')
+       patientType:String(state.patientType||''),
+       topicMode:String(state.topicMode||'regular')
      })
    });
  }catch{}
