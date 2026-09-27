@@ -13,7 +13,7 @@
 <body><div class="wrap">
 <section class="panel">
 <h1>Interne Buchungsauswertung</h1>
-<p class="muted">Diese geheime URL ist zugleich der Zugangsschlüssel. Bitte nicht öffentlich weitergeben. Gespeichert werden nur Buchungsmetadaten erfolgreicher Online-Buchungen; keine Namen, Geburtsdaten, E-Mail-Adressen, Telefonnummern oder Freitexte.</p>
+<p class="muted">Die Buchungsmetadaten werden bereits im Browser der Patientin Ende-zu-Ende verschlüsselt. Vercel speichert ausschließlich Ciphertext. Entschlüsselt werden die Daten erst hier in Ihrem Browser. Der Schlüssel steht nur im Fragment dieser geheimen URL und wird nicht an den Server übertragen.</p>
 <div class="row"><div class="urlbox" id="currentUrl"></div><button id="copyUrl">URL kopieren</button><button class="primary" id="reload">Aktualisieren</button><button id="csv" class="hidden">CSV exportieren</button></div>
 <div id="status" class="muted" style="margin-top:10px">Lädt …</div>
 </section>
@@ -32,41 +32,86 @@
 </div>
 <script>
 const $=s=>document.querySelector(s);let current=[];
+const WRAPPED_PRIVATE=Object.freeze({
+ v:2,kdf:'PBKDF2-SHA256',iterations:310000,
+ salt:'CUWiHAZxsaOu87AkHGPG3Q',
+ iv:'PzDY7w7oFYVIdK79',
+ data:'fQWw4FjsPHX-oCZRTLxdptfw0cY4zgUaM95HQw0JHGObm8oFCRp5aGhPnSxv8yJQmJVZLZQiwCgQT0W7ZUOQKBmnncSE8_pe5Z8E_UyQzWbRqA_SzRUOdAs8sB6yFSI67_AGykAE1p6VArxSjG1q0BXL9CIlTWLXGzCqPK0wxgCqHEWZDtnvVcX26x_V1q4jNx4bmetfMWSV8A',
+ aad:'medidate-tracking-private-key-v2'
+});
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deDate=iso=>String(iso||'').split('-').reverse().join('.');
 const routeName=r=>r==='PKV'?'Privatversicherte / Selbstzahler':r==='GKV'?'Gesetzlich Versicherte':r==='SELF'?'Besondere Selbstzahlerleistungen':r;
 const patientName=p=>p==='existing'?'Bestandspatientin':p==='new'?'Neupatientin':'';
+function b64urlToBytes(s){
+ let x=String(s||'').replace(/-/g,'+').replace(/_/g,'/');
+ while(x.length%4)x+='=';
+ const bin=atob(x),out=new Uint8Array(bin.length);
+ for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);
+ return out;
+}
 function accessKey(){
  const raw=String(location.hash||'').replace(/^#/,'');
- const params=new URLSearchParams(raw);
- const fragmentKey=String(params.get('k')||'');
- if(fragmentKey)return fragmentKey;
- const prefix='/praxis-auswertung-';
- const path=String(location.pathname||'');
- if(path.startsWith(prefix))return path.slice(prefix.length);
- return '';
+ return String(new URLSearchParams(raw).get('k')||'');
 }
-function render(events,retention,storage){
- current=events||[];
- $('#nAll').textContent=current.length;$('#nPkv').textContent=current.filter(x=>x.route==='PKV').length;$('#nGkv').textContent=current.filter(x=>x.route==='GKV').length;$('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;
+async function privateKey(key){
+ const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(key),'PBKDF2',false,['deriveKey']);
+ const wrapKey=await crypto.subtle.deriveKey({
+   name:'PBKDF2',salt:b64urlToBytes(WRAPPED_PRIVATE.salt),
+   iterations:WRAPPED_PRIVATE.iterations,hash:'SHA-256'
+ },base,{name:'AES-GCM',length:256},false,['decrypt']);
+ const raw=await crypto.subtle.decrypt({
+   name:'AES-GCM',iv:b64urlToBytes(WRAPPED_PRIVATE.iv),
+   additionalData:new TextEncoder().encode(WRAPPED_PRIVATE.aad)
+ },wrapKey,b64urlToBytes(WRAPPED_PRIVATE.data));
+ return crypto.subtle.importKey('pkcs8',raw,{name:'ECDH',namedCurve:'P-256'},false,['deriveBits']);
+}
+async function decryptEnvelope(env,priv){
+ if(!env||env.v!==2||env.alg!=='ECDH-P256+A256GCM')throw new Error('Unbekanntes Verschlüsselungsformat.');
+ const epk=await crypto.subtle.importKey('spki',b64urlToBytes(env.epk),{name:'ECDH',namedCurve:'P-256'},false,[]);
+ const shared=await crypto.subtle.deriveBits({name:'ECDH',public:epk},priv,256);
+ const aes=await crypto.subtle.importKey('raw',shared,{name:'AES-GCM'},false,['decrypt']);
+ const raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64urlToBytes(env.iv)},aes,b64urlToBytes(env.data));
+ return JSON.parse(new TextDecoder().decode(raw));
+}
+function render(events,retention,storage,migration){
+ current=(events||[]).slice().sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
+ $('#nAll').textContent=current.length;
+ $('#nPkv').textContent=current.filter(x=>x.route==='PKV').length;
+ $('#nGkv').textContent=current.filter(x=>x.route==='GKV').length;
+ $('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;
  $('#rows').innerHTML=current.map(x=>`<tr><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType))}</td><td>${esc(x.serviceName)}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
  $('#summaryPanel').classList.remove('hidden');$('#tablePanel').classList.remove('hidden');$('#csv').classList.remove('hidden');
- const storageName=storage==='vercel-blob-private'?'privater Vercel Blob':storage||'Speicher';
- $('#status').className='muted';$('#status').textContent=`${current.length} Datensätze geladen · Speicherdauer: ${retention} Tage · Speicher: ${storageName}`;
+ const storageName=storage==='vercel-blob-private-e2ee'?'privater Vercel Blob · Ende-zu-Ende verschlüsselt':storage||'Speicher';
+ const mig=Number(migration?.migrated||0)>0?` · ${migration.migrated} Alt-Datensätze verschlüsselt migriert`:'';
+ $('#status').className='muted';$('#status').textContent=`${current.length} Datensätze geladen · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}`;
 }
 async function load(){
- const key=accessKey();$('#status').className='muted';$('#status').textContent='Lädt …';
- if(!key){$('#status').className='muted bad';$('#status').textContent='Ungültige Auswertungs-URL.';return}
+ const key=accessKey();$('#status').className='muted';$('#status').textContent='Lädt und entschlüsselt …';
+ if(!key){$('#status').className='muted bad';$('#status').textContent='Ungültige Auswertungs-URL: Schlüssel fehlt.';return}
  try{
-  const r=await fetch('/api/tracking?limit=2000',{cache:'no-store',credentials:'same-origin',headers:{'X-MediDate-Tracking-Key':key}});const j=await r.json();
-  if(!r.ok||!j.ok)throw new Error(j.error||`HTTP ${r.status}`);render(j.events,j.retentionDays,j.storage);
- }catch(e){$('#status').className='muted bad';$('#status').textContent=e.message;$('#summaryPanel').classList.add('hidden');$('#tablePanel').classList.add('hidden');$('#csv').classList.add('hidden')}
+  const priv=await privateKey(key);
+  const r=await fetch('/api/tracking?limit=2000',{cache:'no-store',credentials:'same-origin',headers:{'X-MediDate-Tracking-Key':key}});
+  const j=await r.json();
+  if(!r.ok||!j.ok)throw new Error(j.error||`HTTP ${r.status}`);
+  const events=[];
+  for(let i=0;i<(j.events||[]).length;i+=50){
+    const batch=await Promise.all((j.events||[]).slice(i,i+50).map(x=>decryptEnvelope(x,priv)));
+    events.push(...batch);
+  }
+  render(events,j.retentionDays,j.storage,j.migration);
+ }catch(e){
+  $('#status').className='muted bad';
+  $('#status').textContent='Auswertung konnte nicht entschlüsselt werden. Prüfen Sie, ob Sie die neue geheime Auswertungs-URL verwenden.';
+  $('#summaryPanel').classList.add('hidden');$('#tablePanel').classList.add('hidden');$('#csv').classList.add('hidden');
+ }
 }
 function csv(){
  const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Terminart','Ärztin','Dauer Minuten','Erfasst'];
  const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
  const lines=[head,...current.map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
- const blob=new Blob(['\ufeff'+lines],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='medidate-buchungsauswertung.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
+ const blob=new Blob(['\ufeff'+lines],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=u;a.download='medidate-buchungsauswertung.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
 }
 $('#currentUrl').textContent=location.href;
 $('#copyUrl').onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$('#copyUrl').textContent='Kopiert';setTimeout(()=>$('#copyUrl').textContent='URL kopieren',1200)}catch{}};
