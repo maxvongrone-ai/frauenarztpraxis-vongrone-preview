@@ -7,7 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "build": "node scripts/build-seed.js",
+    "build": "npm run test:security && node scripts/build-seed.js",
     "test:security": "node tests/security-function-test.js"
   },
   "dependencies": {
