@@ -842,10 +842,11 @@ function buildAvailableDays(raw){
    for(const tv of (r.times||[])){
      const t=typeof tv==='string'?tv:String(tv?.time||'');
      const trackingNonce=typeof tv==='object'?String(tv?.trackingNonce||''):'';
+     const trackingExp=typeof tv==='object'?Number(tv?.trackingExp||0):0;
      const trackingProof=typeof tv==='object'?String(tv?.trackingProof||''):'';
-     if(!t||!trackingNonce||!trackingProof)continue;
+     if(!t||!trackingNonce||!trackingExp||!trackingProof)continue;
      const dt=new Date(day+'T'+t.replace('.',':')+':00');if(dt<now)continue;
-     const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,trackingNonce,trackingProof,direct:(typeof tv==='object'&&tv?.direct)?tv.direct:null};
+     const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,trackingNonce,trackingExp,trackingProof,direct:(typeof tv==='object'&&tv?.direct)?tv.direct:null};
      // Liegt der Sondertag vor der regulären Freigabegrenze (insb. GKV-Bestand),
      // werden Starts 12:00–12:45 sowie 13:00 nur als technischer Folgeslot berücksichtigt.
      if(day<rule.earliest && !isSpecialOpenWindow(candidate) && !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
@@ -1139,7 +1140,7 @@ function addDaysISOClient(iso,days){
 async function sendBookingTracking(slot){
  // Die Auswertungsdaten werden bereits im Browser verschlüsselt.
  // Vercel erhält nur Ciphertext plus einen HMAC-Nachweis für einen echten angezeigten Slot.
- if(!slot?.trackingNonce||!slot?.trackingProof)return;
+ if(!slot?.trackingNonce||!slot?.trackingExp||!slot?.trackingProof)return;
  try{
    const topic=String(state.topicMode||'regular');
    const serviceId=topic==='pregnancy'?'pregnancy':(topic==='igel_hormon'?'IGEL_HORMON':String(slot.serviceId||state.service?.id||''));
@@ -1171,6 +1172,7 @@ async function sendBookingTracking(slot){
        encrypted:true,
        envelope,
        trackingNonce:String(slot.trackingNonce),
+       trackingExp:Number(slot.trackingExp),
        trackingProof:String(slot.trackingProof)
      })
    });

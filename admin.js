@@ -1,0 +1,22 @@
+const $=s=>document.querySelector(s);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function doctorName(id){return String(id)==='moxter'?'Dr. med. Christina Moxter':String(id)==='vongrone'?'Dr. med. Friederike von Grone':`Ärztin ${id}`}
+async function load(){
+ const st=$('#status'),box=$('#content');st.textContent=' Lädt …';box.innerHTML='';
+ try{
+   const r=await fetch('/api/medidate?action=publicBundle',{cache:'no-store'}),j=await r.json();
+   if(!r.ok||!j.ok)throw new Error(j.error||`HTTP ${r.status}`);
+   const rows=[];
+   for(const g of (j.groups||[])){
+     for(const a of (g.availability?.appointmentTimes||[])){
+       const date=String(a.dateTimeStart||'').slice(0,10);
+       for(const tv of (a.times||[])){const time=typeof tv==='string'?tv:String(tv?.time||'');if(time)rows.push({date,time,doctorId:a.doctorKey,serviceName:g.serviceName,duration:a.duration});}
+     }
+   }
+   rows.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+   const byDate=new Map();for(const x of rows){if(!byDate.has(x.date))byDate.set(x.date,[]);byDate.get(x.date).push(x)}
+   box.innerHTML=[...byDate].map(([date,items])=>`<div class="day"><strong>${esc(date.split('-').reverse().join('.'))}</strong><div>${items.map(x=>`<span class="slot">${esc(x.time.replace('.',':'))} · ${esc(x.serviceName)} · ${esc(doctorName(x.doctorId))}</span>`).join('')}</div></div>`).join('')||'<div class="muted">Keine freien Slots.</div>';
+   st.textContent=` ${rows.length} freie Slots`;
+ }catch(e){st.className='muted bad';st.textContent=' '+e.message}
+}
+$('#reload').onclick=load;load();
