@@ -68,6 +68,7 @@ assert(buildScript.includes("outfile:path.join(publicDir,'botid-client.js')"),'S
 assert(pkg.dependencies?.botid==='1.5.11','BotID dependency must stay pinned');
 assert(pkg.dependencies?.esbuild==='0.28.2','BotID client bundler must stay pinned');
 
+const cfg=JSON.parse(vercel);
 const botProxyBase='/149e9513-01fa-4fb0-aad4-566afd725d1b/2d206a39-8ed7-437e-a3be-862e0f06eea3';
 assert((cfg.rewrites||[]).some(x=>x.source===botProxyBase+'/a-4-a/c.js'&&String(x.destination).includes('/bot-protection/v1/challenge')),'BotID challenge rewrite missing');
 assert((cfg.rewrites||[]).some(x=>x.source===botProxyBase+'/:path*'&&String(x.destination).includes('/bot-protection/v1/proxy/')),'BotID proxy rewrite missing');
@@ -88,7 +89,6 @@ assert(!index.includes("!isPrivateOnlyWindow(state.selectedSlot)||!isPrivateOnly
 assert(index.includes("return Boolean(byKey.get("),'Menopause booking starts must still require the following 15-minute slot');
 assert(dashboardJs.length>1000&&adminJs.length>100,'External internal-page scripts must be present');
 
-const cfg=JSON.parse(vercel);
 for(const source of ['/admin.html','/praxis','/tracking.html','/praxis-auswertung']){
   const entry=(cfg.headers||[]).find(x=>x.source===source);
   assert(entry,source+' strict header rule missing');
