@@ -313,17 +313,20 @@ function needs30MinuteBlock(){
 }
 function onlyBookableStarts(items){
  if(isMenopauseMode()){
+   // Wechseljahressprechstunde: 30 Minuten werden durch zwei unmittelbar
+   // aufeinanderfolgende freie 15-Minuten-Slots derselben Ärztin/Leistung
+   // abgesichert. Eine zusätzliche Bindung an Privatsprechstundenfenster
+   // besteht bewusst nicht.
    const byKey=new Map();
    for(const x of items){
-     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))continue;
+     if(Number(x.duration)!==15)continue;
      byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
    }
    return items.filter(x=>{
-     if(Number(x.duration)!==15||!isPrivateOnlyWindow(x))return false;
+     if(Number(x.duration)!==15)return false;
      const nextTime=add15DotTime(x.time);
      if(!nextTime)return false;
-     const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
-     return Boolean(next&&isPrivateOnlyWindow(next));
+     return Boolean(byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`));
    });
  }
 
@@ -529,7 +532,9 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  if(state.topicMode==='acute'||state.topicMode==='pregnancy'){
    normal=allSlots.filter(maySeeSlot);
  }else if(isMenopauseMode()){
-   normal=allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x));
+   // Bereits auf Dr. von Grone und zusammenhängende 30-Minuten-Blöcke
+   // gefiltert; keine zusätzliche Uhrzeit-/Privatfenster-Beschränkung.
+   normal=allSlots.slice();
  }else if(state.insurance==='PKV'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
    normal=state.patientType==='new'
@@ -1361,8 +1366,7 @@ async function bookNow(){
        if(Number(r?.listReferenzId||0)!==Number(tech.listReferenzId||0))continue;
        if(nextTime&&(Array.isArray(r?.times)?r.times:[]).map(String).includes(String(nextTime))){nextRow=r;break}
      }
-     const nextSlot={date:state.selectedSlot.date,time:nextTime,doctorId:state.selectedSlot.doctorId,duration:15,serviceId:state.selectedSlot.serviceId};
-     if(!nextTime||!nextRow||!isPrivateOnlyWindow(state.selectedSlot)||!isPrivateOnlyWindow(nextSlot)){
+     if(!nextTime||!nextRow){
        throw new Error('Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende 15-Minuten-Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
      }
    }

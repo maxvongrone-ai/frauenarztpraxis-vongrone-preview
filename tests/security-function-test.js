@@ -58,6 +58,10 @@ assert(index.includes("const MENOPAUSE_DOCTOR_KEY='vongrone'"),'Menopause doctor
 assert(index.includes("if(isMenopauseMode()&&String(r.doctorKey)!==MENOPAUSE_DOCTOR_KEY)continue"),'Menopause availability must exclude other doctors');
 assert(index.includes("Die Wechseljahressprechstunde ist ausschließlich bei Dr. med. Friederike von Grone buchbar."),'Final menopause booking guard must reject other doctors');
 assert(index.includes("Wechseljahressprechstunde ausschließlich bei dieser Ärztin"),'Menopause doctor UI must expose only the dedicated doctor path');
+assert(index.includes("Eine zusätzliche Bindung an Privatsprechstundenfenster"),'Menopause availability must document removal of private-window restriction');
+assert(!index.includes("normal=allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x))"),'Menopause visibility must not be restricted to private-only windows');
+assert(!index.includes("!isPrivateOnlyWindow(state.selectedSlot)||!isPrivateOnlyWindow(nextSlot)"),'Final menopause booking check must not require private-only windows');
+assert(index.includes("return Boolean(byKey.get("),'Menopause booking starts must still require the following 15-minute slot');
 assert(dashboardJs.length>1000&&adminJs.length>100,'External internal-page scripts must be present');
 
 const cfg=JSON.parse(vercel);

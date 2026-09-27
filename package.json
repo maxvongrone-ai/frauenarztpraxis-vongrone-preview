@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.3",
+  "version": "60.10.4",
   "private": true,
-  "description": "mediDate V60.10.3: menopause appointments restricted to Dr. med. Friederike von Grone; V60.10.2 security hardening retained.",
+  "description": "mediDate V60.10.4: menopause appointments remain exclusive to Dr. med. Friederike von Grone and require two consecutive free 15-minute slots, without private-window restriction.",
   "engines": {
     "node": "22.x"
   },
