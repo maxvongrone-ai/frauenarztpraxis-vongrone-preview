@@ -50,8 +50,36 @@ jobs:
               }
               starts.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
               const thisYear=starts.filter(x=>x.date<='2026-12-31');
+              const all15=[],private15=[],pairsAnywhere=[];
+              for(const g of b.groups||[]){
+                for(const r of g.availability?.appointmentTimes||[]){
+                  if(String(r.doctorKey)!==doctor)continue;
+                  const date=String(r.dateTimeStart||'').slice(0,10);
+                  const times=(r.times||[]).map(x=>typeof x==='string'?x:String(x.time||'')).filter(Boolean);
+                  const set=new Set(times);
+                  for(const t of times){
+                    all15.push({date,time:t,service:g.serviceKey});
+                    if(privateWindow(date,t))private15.push({date,time:t,service:g.serviceKey});
+                    const m=mins(t)+15;
+                    const next=String(Math.floor(m/60)).padStart(2,'0')+'.'+String(m%60).padStart(2,'0');
+                    if(set.has(next))pairsAnywhere.push({date,time:t,service:g.serviceKey});
+                  }
+                }
+              }
+              all15.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+              private15.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+              pairsAnywhere.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
               console.log(JSON.stringify({
                 doctor,
+                total15:all15.length,
+                thisYear15:all15.filter(x=>x.date<='2026-12-31').length,
+                first15:all15[0]||null,
+                privateWindow15:private15.length,
+                privateWindow15ThisYear:private15.filter(x=>x.date<='2026-12-31').length,
+                firstPrivate15:private15[0]||null,
+                consecutiveAnywhere:pairsAnywhere.length,
+                consecutiveAnywhereThisYear:pairsAnywhere.filter(x=>x.date<='2026-12-31').length,
+                firstConsecutiveAnywhere:pairsAnywhere[0]||null,
                 total30MinStarts:starts.length,
                 thisYearCount:thisYear.length,
                 first:thisYear[0]||starts[0]||null,
