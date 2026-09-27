@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.0",
+  "version": "60.10.1",
   "private": true,
-  "description": "mediDate V60.10.0: end-to-end encrypted booking analytics with browser-only decryption, browser-direct patient booking, and no application-level IP processing.",
+  "description": "mediDate V60.10.1: end-to-end encrypted booking analytics with browser-side cancellation reconciliation and encrypted status persistence.",
   "engines": {
     "node": "22.x"
   },
