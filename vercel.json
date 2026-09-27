@@ -22,10 +22,6 @@
     {
       "source": "/praxis-auswertung",
       "destination": "/tracking.html"
-    },
-    {
-      "source": "/praxis-auswertung-juyY7KFzMJIXC4Zyd4T7OdOR4swyhBr1",
-      "destination": "/tracking.html"
     }
   ],
   "headers": [
@@ -129,19 +125,6 @@
     },
     {
       "source": "/praxis-auswertung",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, max-age=0"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow, noarchive"
-        }
-      ]
-    },
-    {
-      "source": "/praxis-auswertung-juyY7KFzMJIXC4Zyd4T7OdOR4swyhBr1",
       "headers": [
         {
           "key": "Cache-Control",
