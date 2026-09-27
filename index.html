@@ -173,6 +173,7 @@ function daysBetween(a,b){const A=new Date(a.getFullYear(),a.getMonth(),a.getDat
 function isIgelMode(mode=state.topicMode){return String(mode||'').startsWith('igel')}
 function isHarmonyMode(mode=state.topicMode){return mode==='igel_harmony'}
 function isMenopauseMode(mode=state.topicMode){return mode==='igel_hormon'}
+const MENOPAUSE_DOCTOR_KEY='vongrone';
 
 // Einmalige Zusatzfreigabe: Montag, 28.09.2026, 12:00–13:00 Uhr.
 // Sie erweitert nur die Sichtbarkeit tatsächlich freier mediDate-Termine;
@@ -797,6 +798,17 @@ function loadDoctors(){
  const p=startSelectedAvailability();
  if(p)p.catch(()=>{});
 
+ if(isMenopauseMode()){
+   const d=PRACTICE_DOCTORS.find(x=>String(x.id)===MENOPAUSE_DOCTOR_KEY);
+   if(!d){st.className='status bad';st.textContent='Die Ärztin für die Wechseljahressprechstunde ist derzeit nicht konfiguriert.';return}
+   state.doctor=null;
+   const b=document.createElement('button');b.className='choice';b.dataset.doctor=String(d.id);
+   b.innerHTML=`<strong>${esc(d.displayName)}</strong><small>Wechseljahressprechstunde ausschließlich bei dieser Ärztin</small>`;
+   b.onclick=()=>{state.doctor=d;select('[data-doctor]',b);loadSlots()};
+   box.appendChild(b);
+   return;
+ }
+
  const any=document.createElement('button');any.className='choice';any.dataset.doctor='0';
  any.innerHTML='<strong>Nächster verfügbarer Termin</strong><small>Unabhängig von der Ärztin</small>';
  any.onclick=()=>{state.doctor={id:0,displayName:'Nächster verfügbarer Termin'};select('[data-doctor]',any);loadSlots()};
@@ -826,7 +838,8 @@ function rawFromIgelGroups(groups){
  for(const g of (groups||[])){
    const rows=g.availability?.appointmentTimes||[];
    for(const r of rows){
-     if(String(state.doctor.id)!=='0' && String(r.doctorKey)!==String(state.doctor.id))continue;
+     if(isMenopauseMode()&&String(r.doctorKey)!==MENOPAUSE_DOCTOR_KEY)continue;
+     if(String(state.doctor?.id||'0')!=='0' && String(r.doctorKey)!==String(state.doctor.id))continue;
      raw.push({row:r,serviceId:g.serviceKey,serviceName:g.serviceName});
    }
  }
@@ -1312,6 +1325,9 @@ async function bookNow(){
  const rule=currentRule(),specialOverride=specialOpenBookingAllowed(state.selectedSlot);
  if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
  if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return}
+ if(isMenopauseMode()&&String(state.selectedSlot?.doctorId)!==MENOPAUSE_DOCTOR_KEY){
+   st.className='status bad';st.textContent='Die Wechseljahressprechstunde ist ausschließlich bei Dr. med. Friederike von Grone buchbar.';return
+ }
  const tech=state.selectedSlot?.direct;
  if(!tech||!Number(tech.clientId)||!Number(tech.locationId)||!Number(tech.serviceId)||!Number(tech.doctorId)){st.className='status bad';st.textContent='Die technischen Termindaten fehlen. Bitte Terminansicht neu laden.';return}
 
