@@ -1,0 +1,122 @@
+name: External bulk-booking dry run
+
+on:
+  push:
+    branches: [external-bulk-booking-dryrun]
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test external booking surface without creating appointments
+        run: |
+          node <<'NODE'
+          const ORIGIN='https://medidate-v604-fast-booking-blob-oid.vercel.app';
+
+          async function json(url,opts={}){
+            const r=await fetch(url,opts);
+            const t=await r.text();
+            let j=null; try{j=JSON.parse(t)}catch{}
+            if(!r.ok) throw new Error('HTTP '+r.status+' '+url+' '+(j?.error||t.slice(0,200)));
+            return {r,j};
+          }
+
+          (async()=>{
+            // Simulate a non-browser/raw external client. Sec-Fetch-Site is deliberately
+            // supplied by the client to test whether that header alone gates access.
+            const common={'Accept':'application/json','Sec-Fetch-Site':'same-origin'};
+            const sess=(await json(ORIGIN+'/api/medidate?action=publicSession',{headers:common})).j;
+            const bundle=(await json(ORIGIN+'/api/medidate?action=publicBundle',{headers:common})).j;
+
+            const token=String(sess?.token||'');
+            const result={
+              publicSessionFromExternal:!!(sess?.ok&&token&&sess?.apiBase&&sess?.clientId&&sess?.locationId),
+              tokenFormat:token.split('.').length===3?'jwt':'opaque',
+              tokenLength:token.length,
+              bundleFromExternal:!!bundle?.ok,
+              groups:Array.isArray(bundle?.groups)?bundle.groups.length:0,
+              technicalSlotRows:0,
+              bundleSlotEntries:0,
+              uniqueTechnicalSlots:0,
+              liveConfirmedSlots:0,
+              corsPreflightStatus:null,
+              corsAllowOrigin:null,
+              corsAllowMethods:null,
+              canReachBookingSurface:false
+            };
+
+            const groups=new Map();
+            const physical=new Set();
+
+            for(const g of (bundle?.groups||[])){
+              for(const row of (g?.availability?.appointmentTimes||[])){
+                result.technicalSlotRows++;
+                for(const tv of (row?.times||[])){
+                  const time=typeof tv==='string'?tv:String(tv?.time||'');
+                  const d=typeof tv==='object'?tv?.direct:null;
+                  if(!time||!d?.serviceId||!d?.doctorId) continue;
+                  result.bundleSlotEntries++;
+                  const key=[d.serviceId,d.doctorId].join('|');
+                  if(!groups.has(key)) groups.set(key,{serviceId:Number(d.serviceId),doctorId:Number(d.doctorId)});
+                  physical.add([
+                    String(row?.dateTimeStart||'').slice(0,10),
+                    time,
+                    Number(d.doctorId),
+                    Number(d.listReferenzId||0)
+                  ].join('|'));
+                }
+              }
+            }
+            result.uniqueTechnicalSlots=physical.size;
+
+            // Re-query mediDate directly from this external runner using the bearer token.
+            const livePhysical=new Set();
+            for(const g of groups.values()){
+              const u=new URL('appointments/appointmenttimes',sess.apiBase);
+              u.searchParams.set('clientid',String(sess.clientId));
+              u.searchParams.set('locationId',String(sess.locationId));
+              u.searchParams.set('serviceId',String(g.serviceId));
+              u.searchParams.set('doctorId',String(g.doctorId));
+              const {j}=await json(u,{
+                headers:{
+                  'Accept':'application/json',
+                  'Content-Type':'application/json',
+                  'Authorization':'Bearer '+token
+                }
+              });
+              for(const row of (j?.appointmentTimes||[])){
+                const date=String(row?.dateTimeStart||'').slice(0,10);
+                for(const time of (row?.times||[])){
+                  livePhysical.add([date,String(time),Number(row?.doctorId||g.doctorId),Number(row?.listReferenzId||0)].join('|'));
+                }
+              }
+            }
+            result.liveConfirmedSlots=livePhysical.size;
+
+            // Browser would POST to this route. Only perform an OPTIONS preflight:
+            // absolutely no appointment-creating POST is sent.
+            const bookingUrl=new URL('appointments',sess.apiBase);
+            const pre=await fetch(bookingUrl,{
+              method:'OPTIONS',
+              headers:{
+                'Origin':ORIGIN,
+                'Access-Control-Request-Method':'POST',
+                'Access-Control-Request-Headers':'authorization,content-type'
+              }
+            });
+            result.corsPreflightStatus=pre.status;
+            result.corsAllowOrigin=pre.headers.get('access-control-allow-origin');
+            result.corsAllowMethods=pre.headers.get('access-control-allow-methods');
+            result.canReachBookingSurface=pre.ok || pre.status===204;
+
+            console.log('DRY_RUN_RESULT '+JSON.stringify(result));
+          })().catch(e=>{console.error('DRY_RUN_ERROR '+String(e?.stack||e));process.exit(1)});
+          NODE
