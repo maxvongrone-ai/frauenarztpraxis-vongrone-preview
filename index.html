@@ -123,6 +123,37 @@ const DEFAULT_SERVICES=[
   {id:'breast',name:'Brustultraschall',duration:15,sortOrder:4}
 ];
 
+// Öffentlicher Schlüssel für die Ende-zu-Ende-verschlüsselte Buchungsauswertung.
+// Nur der Praxis-Auswertungsbrowser besitzt den dazugehörigen privaten Schlüssel.
+const TRACKING_PUBLIC_KEY_SPKI_B64='MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA578kL88BzE8PWPrrcKjjwF+vYB/7idETPjgLutvcSO9WhQcJluI4o5WeBpmtfh2qsS5RLN3dXsv373koWH1FJFkyR4943191LTNUcLfg17yYBsajZLFNTifk/TRp6U3h+eZJ3dhUXCluSaf80fhraQ+nZxGkpppwmTaZpUhPf0UIOBzSI3ej+jHVBcluFQTHtE2uwDcPt7xl2JdQ5dKxkS4uX98RWUsh84lAugbFK3mfIhtkNMEHG8dur6qDjqnr52oauVW2agDif3hndG8LZ730/ng9AQuwesGmsSJV2KBfzcvF7ozD00aZcTDtWigYAqHbu3h3yBjFb8Pwf6alrW+tpAJnWPwqzC5H9XvaAAJ+hxZtt0HQWZ0pwvxZAw475duk70qQ7Ym6ARN/hF7rH0CQ2q0I/B5q88fmIn6ZNhPZ6sGVk80Hb/iVWqkRBsyxiO1pk/BQLazpQg5QPihB9gfCW3K5/bYLnGWGdLo3+BmEDCdJGns9K+ic0P8ylfs7AgMBAAE=';
+let trackingPublicKeyPromise=null;
+function b64ToBytes(s){
+ const bin=atob(String(s||'')),out=new Uint8Array(bin.length);
+ for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);
+ return out;
+}
+function bytesToB64Url(bytes){
+ let s='';const a=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);
+ for(let i=0;i<a.length;i+=0x8000)s+=String.fromCharCode(...a.subarray(i,i+0x8000));
+ return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function trackingPublicKey(){
+ if(!trackingPublicKeyPromise){
+   trackingPublicKeyPromise=crypto.subtle.importKey(
+     'spki',b64ToBytes(TRACKING_PUBLIC_KEY_SPKI_B64),
+     {name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']
+   );
+ }
+ return trackingPublicKeyPromise;
+}
+async function encryptTrackingEvent(event){
+ const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']);
+ const raw=await crypto.subtle.exportKey('raw',aes),iv=crypto.getRandomValues(new Uint8Array(12));
+ const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},aes,new TextEncoder().encode(JSON.stringify(event)));
+ const ek=await crypto.subtle.encrypt({name:'RSA-OAEP'},await trackingPublicKey(),raw);
+ return {v:1,alg:'RSA-OAEP-256+A256GCM',id:event.eventId,ek:bytesToB64Url(ek),iv:bytesToB64Url(iv),data:bytesToB64Url(data)};
+}
+
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const show=s=>$(s).classList.remove('hidden');
 function select(sel,b){$$(sel).forEach(x=>x.classList.remove('sel'));b.classList.add('sel')}
@@ -810,7 +841,7 @@ function buildAvailableDays(raw){
      const slotToken=typeof tv==='object'?String(tv?.slotToken||''):'';
      if(!t||!slotToken)continue;
      const dt=new Date(day+'T'+t.replace('.',':')+':00');if(dt<now)continue;
-     const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,slotToken,direct:(typeof tv==='object'&&tv?.direct)?tv.direct:null};
+     const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,slotToken,trackingProof:(typeof tv==='object'?String(tv?.trackingProof||''):''),direct:(typeof tv==='object'&&tv?.direct)?tv.direct:null};
      // Liegt der Sondertag vor der regulären Freigabegrenze (insb. GKV-Bestand),
      // werden Starts 12:00–12:45 sowie 13:00 nur als technischer Folgeslot berücksichtigt.
      if(day<rule.earliest && !isSpecialOpenWindow(candidate) && !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
@@ -1102,19 +1133,38 @@ function addDaysISOClient(iso,days){
  return x.toISOString().slice(0,10);
 }
 async function sendBookingTracking(slot){
- // Keine Identitätsdaten: ausschließlich der bereits serverseitig ausgegebene
- // Termin-Schlüssel sowie Buchungspfad/Patientenstatus für die interne Statistik.
- if(!slot?.slotToken)return;
+ // Die Auswertungsdaten werden bereits im Browser verschlüsselt.
+ // Vercel erhält nur Ciphertext plus einen HMAC-Nachweis für einen echten angezeigten Slot.
+ if(!slot?.slotToken||!slot?.trackingProof)return;
  try{
+   const topic=String(state.topicMode||'regular');
+   const serviceId=topic==='pregnancy'?'pregnancy':(topic==='igel_hormon'?'IGEL_HORMON':String(slot.serviceId||state.service?.id||''));
+   const serviceName=topic==='pregnancy'?'Schwangerschaft':(topic==='igel_hormon'?'Wechseljahressprechstunde':String(state.service?.name||slot.serviceName||'Termin'));
+   const event={
+     schemaVersion:6,
+     eventId:(crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(16).slice(2)}-4000-8000-${Math.random().toString(16).slice(2)}`).slice(0,36),
+     eventType:'booking_completed',
+     route:String(state.insurance||''),
+     patientType:String(state.patientType||''),
+     serviceId,
+     serviceName,
+     appointmentDate:String(slot.date||''),
+     appointmentTime:String(slot.time||''),
+     doctorId:String(slot.doctorId||''),
+     doctorName:doctorDisplayName(slot.doctorId),
+     duration:isMenopauseMode()?30:Number(slot.duration||15),
+     recordedAt:new Date().toISOString()
+   };
+   if(!/^[0-9a-f-]{36}$/i.test(event.eventId))event.eventId=crypto.randomUUID();
+   const envelope=await encryptTrackingEvent(event);
    await fetch('/api/tracking',{
      method:'POST',cache:'no-store',credentials:'same-origin',keepalive:true,
      headers:{'Content-Type':'application/json'},
      body:JSON.stringify({
-       direct:true,
+       encrypted:true,
+       envelope,
        slotToken:String(slot.slotToken),
-       route:String(state.insurance||''),
-       patientType:String(state.patientType||''),
-       topicMode:String(state.topicMode||'regular')
+       trackingProof:String(slot.trackingProof)
      })
    });
  }catch{}
