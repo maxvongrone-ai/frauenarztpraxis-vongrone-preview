@@ -1,5 +1,5 @@
 const crypto=require('crypto');
-const {readSecret,openSlot}=require('../lib/medidate-core');
+const {readSecret}=require('../lib/medidate-core');
 
 let _blobApiPromise;
 async function blobApi(){
@@ -8,43 +8,22 @@ async function blobApi(){
   return _blobApiPromise;
 }
 
-const ADMIN_TOKEN_SHA256=['c125504d58925765cf1a6d9f6149842696d0c0618bc5293f65e842609e24ad02','57c856614af64afa3277710a7012aca0b1b9b151703c4efbea9f69db310ace46','62a3135d23b226e926ead9b3274ac9c69028c20f7c376b9b4ebb334ec00462c7'];
+const ADMIN_TOKEN_SHA256='c194250e573f3811002e49a67dd2098308f0bbe5a6042783028ad506b144dcd0';
 const RETENTION_DAYS=180;
-const TRACKING_PREFIX='medidate-booking-tracking/v3/events/';
-const MAINTENANCE_PREFIX='medidate-booking-tracking/v3/maintenance/';
-
-// Einmalige, exakt begrenzte Bereinigung eines versehentlich erzeugten
-// Tracking-Datensatzes. Sonstige Tracking-Daten und Buchungsregeln bleiben
-// unverändert.
-const ONE_TIME_PURGE=Object.freeze({
-  appointmentDate:'2026-10-29',
-  appointmentTime:'10.15',
-  route:'PKV',
-  patientType:'existing',
-  serviceId:'1950',
-  doctorId:512,
-  duration:15,
-  recordedAtPrefix:'2026-09-23T09:25:30'
-});
-const ONE_TIME_PURGE_MARKER=`${MAINTENANCE_PREFIX}purge-2026-09-23-112530-pkv-vorsorge-moxter.json`;
-const SERVICE_NAMES=Object.freeze({
-  'vorsorge':'Vorsorge',
-  'contraception':'Verhütung – Kontrolltermin',
-  'pregnancy':'Schwangerschaft',
-  'followup':'Tumornachsorge',
-  'breast':'Brustultraschall',
-  '1950':'Vorsorge',
-  '1973':'Nachsorge',
-  '1974':'Brustultraschall',
-  'IGEL_HORMON':'Wechseljahressprechstunde',
-  'IGEL_SPIRALE':'Spirale Einlage'
-});
-const DOCTOR_NAMES=Object.freeze({
-  'moxter':'Dr. med. Christina Moxter',
-  'vongrone':'Dr. med. Friederike von Grone',
-  '512':'Dr. med. Christina Moxter',
-  '513':'Dr. med. Friederike von Grone'
-});
+const TRACKING_PREFIX='medidate-booking-tracking/v4/events/';
+const LEGACY_PREFIX='medidate-booking-tracking/v3/events/';
+const MAINTENANCE_PREFIX='medidate-booking-tracking/v4/maintenance/';
+const TRACKING_PUBLIC_KEY_PEM=`-----BEGIN PUBLIC KEY-----
+MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA578kL88BzE8PWPrrcKjj
+wF+vYB/7idETPjgLutvcSO9WhQcJluI4o5WeBpmtfh2qsS5RLN3dXsv373koWH1F
+JFkyR4943191LTNUcLfg17yYBsajZLFNTifk/TRp6U3h+eZJ3dhUXCluSaf80fhr
+aQ+nZxGkpppwmTaZpUhPf0UIOBzSI3ej+jHVBcluFQTHtE2uwDcPt7xl2JdQ5dKx
+kS4uX98RWUsh84lAugbFK3mfIhtkNMEHG8dur6qDjqnr52oauVW2agDif3hndG8L
+Z730/ng9AQuwesGmsSJV2KBfzcvF7ozD00aZcTDtWigYAqHbu3h3yBjFb8Pwf6al
+rW+tpAJnWPwqzC5H9XvaAAJ+hxZtt0HQWZ0pwvxZAw475duk70qQ7Ym6ARN/hF7r
+H0CQ2q0I/B5q88fmIn6ZNhPZ6sGVk80Hb/iVWqkRBsyxiO1pk/BQLazpQg5QPihB
+9gfCW3K5/bYLnGWGdLo3+BmEDCdJGns9K+ic0P8ylfs7AgMBAAE=
+-----END PUBLIC KEY-----`;
 
 function send(res,status,body){
   res.statusCode=status;
@@ -56,25 +35,27 @@ function send(res,status,body){
   res.setHeader('X-Robots-Tag','noindex, nofollow, noarchive');
   res.end(JSON.stringify(body));
 }
-function sameOrigin(req){
-  const origin=String(req.headers.origin||''),host=String(req.headers.host||'');
-  if(!origin)return true;
-  try{return new URL(origin).host===host}catch{return false}
+function browserSameOrigin(req){
+  const site=String(req.headers['sec-fetch-site']||'');
+  const origin=String(req.headers.origin||'');
+  const host=String(req.headers.host||'');
+  if(site&&site!=='same-origin')return false;
+  if(origin){
+    try{if(new URL(origin).host!==host)return false}catch{return false}
+  }
+  return site==='same-origin'||Boolean(origin);
 }
-function safeEqualHex(a,b){
-  const A=Buffer.from(String(a||''),'hex'),B=Buffer.from(String(b||''),'hex');
+function safeEqualText(a,b){
+  const A=Buffer.from(String(a||'')),B=Buffer.from(String(b||''));
   return A.length===B.length&&A.length>0&&crypto.timingSafeEqual(A,B);
 }
 function authorized(req){
   const supplied=String(req.headers['x-medidate-tracking-key']||'');
   if(!supplied)return false;
   const digest=crypto.createHash('sha256').update(supplied,'utf8').digest('hex');
-  return ADMIN_TOKEN_SHA256.some(expected=>safeEqualHex(digest,expected));
+  return safeEqualText(digest,ADMIN_TOKEN_SHA256);
 }
 function ensureBlobConfigured(){
-  // Bei aktuellen Vercel-Blob-Projektverbindungen authentifiziert @vercel/blob
-  // automatisch per OIDC. BLOB_STORE_ID wird von der Projektverbindung gesetzt.
-  // Ein alter BLOB_READ_WRITE_TOKEN bleibt als Fallback kompatibel.
   if(!process.env.BLOB_STORE_ID&&!process.env.BLOB_READ_WRITE_TOKEN){
     throw Object.assign(new Error('Der private Vercel Blob Store ist mit diesem Deployment nicht verbunden.'),{code:'TRACKING_NOT_CONFIGURED'});
   }
@@ -82,74 +63,32 @@ function ensureBlobConfigured(){
 async function readJsonBody(req){
   if(req.body&&typeof req.body==='object')return req.body;
   if(typeof req.body==='string'){
-    if(req.body.length>4096)throw new Error('Payload zu groß.');
+    if(req.body.length>16384)throw new Error('Payload zu groß.');
     return JSON.parse(req.body||'{}');
   }
   let raw='';
   for await(const chunk of req){
     raw+=chunk;
-    if(raw.length>4096)throw new Error('Payload zu groß.');
+    if(raw.length>16384)throw new Error('Payload zu groß.');
   }
   return JSON.parse(raw||'{}');
 }
-function verifyBookingReceipt(receipt){
-  const token=String(receipt||'');
-  if(token.length<40||token.length>4096)throw new Error('Ungültiger Tracking-Beleg.');
-  const parts=token.split('.');if(parts.length!==2)throw new Error('Ungültiger Tracking-Beleg.');
-  const [body,sig]=parts;
-  const expected=crypto.createHmac('sha256',readSecret()).update(body).digest('base64url');
-  const A=Buffer.from(sig),B=Buffer.from(expected);if(A.length!==B.length||!crypto.timingSafeEqual(A,B))throw new Error('Ungültiger Tracking-Beleg.');
-  let x;try{x=JSON.parse(Buffer.from(body,'base64url').toString('utf8'))}catch{throw new Error('Ungültiger Tracking-Beleg.')}
-  if(x?.v!==1||x?.eventType!=='booking_completed'||!Number.isFinite(x?.exp)||Date.now()>x.exp)throw new Error('Tracking-Beleg ist ungültig oder abgelaufen.');
-  if(!/^[0-9a-f-]{36}$/i.test(String(x.eventId||'')))throw new Error('Ungültiger Tracking-Beleg.');
-  const route=String(x.route||'');if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Tracking-Beleg.');
-  const patientType=String(x.patientType||'');if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Tracking-Beleg.');
-  const serviceId=String(x.serviceId||'');if(!['vorsorge','contraception','followup','breast','pregnancy'].includes(serviceId))throw new Error('Ungültiger Tracking-Beleg.');
-  const appointmentDate=String(x.appointmentDate||''),appointmentTime=String(x.appointmentTime||''),doctorId=String(x.doctorId||'');
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)||!/^\d{1,2}\.\d{2}$/.test(appointmentTime)||!['moxter','vongrone'].includes(doctorId))throw new Error('Ungültiger Tracking-Beleg.');
-  const duration=Number(x.duration);if(duration!==15)throw new Error('Ungültiger Tracking-Beleg.');
-  const recordedAt=String(x.recordedAt||'');if(!/^\d{4}-\d{2}-\d{2}T/.test(recordedAt))throw new Error('Ungültiger Tracking-Beleg.');
-  return {schemaVersion:3,eventId:String(x.eventId),eventType:'booking_completed',route,patientType,serviceId,serviceName:SERVICE_NAMES[serviceId]||'Termin',appointmentDate,appointmentTime,doctorId,doctorName:DOCTOR_NAMES[doctorId]||'Ärztin',duration,recordedAt};
+function validB64Url(v,min,max){
+  const s=String(v||'');
+  return s.length>=min&&s.length<=max&&/^[A-Za-z0-9_-]+$/.test(s);
 }
-function directEvent(body){
-  const slot=openSlot(String(body?.slotToken||''));
-  const route=String(body?.route||'');
-  const patientType=String(body?.patientType||'');
-  if(!['PKV','GKV','SELF'].includes(route))throw new Error('Ungültiger Buchungspfad.');
-  if(!['existing','new'].includes(patientType))throw new Error('Ungültiger Patientenstatus.');
-  if(!['vorsorge','contraception','followup','breast'].includes(String(slot.sk||'')))throw new Error('Ungültige Terminart.');
-  if(!['moxter','vongrone'].includes(String(slot.dk||'')))throw new Error('Ungültige Ärztin.');
-  const topicMode=String(body?.topicMode||'regular');
-  const trackedServiceId=topicMode==='pregnancy'?'pregnancy':(topicMode==='igel_hormon'?'IGEL_HORMON':String(slot.sk));
-  return {
-    schemaVersion:5,
-    eventId:crypto.randomUUID(),
-    eventType:'booking_completed',
-    route,
-    patientType,
-    serviceId:trackedServiceId,
-    serviceName:SERVICE_NAMES[trackedServiceId]||SERVICE_NAMES[String(slot.sk)]||'Termin',
-    appointmentDate:String(slot.date),
-    appointmentTime:String(slot.time),
-    doctorId:String(slot.dk),
-    doctorName:DOCTOR_NAMES[String(slot.dk)]||'Ärztin',
-    duration:Number(slot.dur)||15,
-    recordedAt:new Date().toISOString()
-  };
+function validateEnvelope(raw){
+  const x=raw&&typeof raw==='object'?raw:null;
+  if(!x||x.v!==1||x.alg!=='RSA-OAEP-256+A256GCM')throw new Error('Ungültiger verschlüsselter Tracking-Datensatz.');
+  if(!/^[0-9a-f-]{36}$/i.test(String(x.id||'')))throw new Error('Ungültige Ereignis-ID.');
+  if(!validB64Url(x.ek,256,1024)||!validB64Url(x.iv,12,32)||!validB64Url(x.data,32,12000))throw new Error('Ungültiger verschlüsselter Tracking-Datensatz.');
+  return {v:1,alg:'RSA-OAEP-256+A256GCM',id:String(x.id),ek:String(x.ek),iv:String(x.iv),data:String(x.data)};
 }
-function eventPath(event){
-  const day=event.recordedAt.slice(0,10);
-  const stamp=event.recordedAt.replace(/[-:.TZ]/g,'');
-  return `${TRACKING_PREFIX}${day}/${stamp}-${event.eventId}.json`;
-}
-async function saveEvent(event){
-  ensureBlobConfigured();
-  const {get,put}=await blobApi();
-  const path=eventPath(event);
-  const existing=await get(path,{access:'private',useCache:false}).catch(()=>null);
-  if(existing?.statusCode===200)return false;
-  await put(path,JSON.stringify(event),{access:'private',contentType:'application/json; charset=utf-8',addRandomSuffix:false,allowOverwrite:false});
-  return true;
+function trackingProofValid(slotToken,proof){
+  const token=String(slotToken||''),given=String(proof||'');
+  if(token.length<40||token.length>4096||!validB64Url(given,20,128))return false;
+  const expected=crypto.createHmac('sha256',readSecret()).update('tracking:'+token).digest('base64url');
+  return safeEqualText(given,expected);
 }
 async function listAll(prefix){
   ensureBlobConfigured();
@@ -161,36 +100,6 @@ async function listAll(prefix){
     cursor=r?.hasMore?r.cursor:undefined;
   }while(cursor&&out.length<20000);
   return out;
-}
-function dateFromPath(pathname){
-  const m=String(pathname||'').match(/\/(?:events|maintenance)\/(?:cleanup-)?(\d{4}-\d{2}-\d{2})/);
-  return m?new Date(`${m[1]}T00:00:00Z`).getTime():NaN;
-}
-function blobDateMs(blob){
-  const uploaded=blob?.uploadedAt?new Date(blob.uploadedAt).getTime():NaN;
-  return Number.isFinite(uploaded)?uploaded:dateFromPath(blob?.pathname);
-}
-async function cleanupIfNeeded(){
-  ensureBlobConfigured();
-  const today=new Date().toISOString().slice(0,10);
-  const markerPath=`${MAINTENANCE_PREFIX}cleanup-${today}.json`;
-  const {get,del,put}=await blobApi();
-  const marker=await get(markerPath,{access:'private',useCache:false}).catch(()=>null);
-  if(marker?.statusCode===200)return;
-
-  const cutoff=Date.now()-RETENTION_DAYS*86400000;
-  const blobs=await listAll(TRACKING_PREFIX);
-  const expired=blobs.filter(b=>{const t=blobDateMs(b);return Number.isFinite(t)&&t<cutoff;}).map(b=>b.url||b.pathname);
-  for(let i=0;i<expired.length;i+=250)await del(expired.slice(i,i+250));
-
-  const oldMarkers=(await listAll(MAINTENANCE_PREFIX)).filter(b=>{
-    const t=blobDateMs(b);return Number.isFinite(t)&&t<Date.now()-14*86400000;
-  }).map(b=>b.url||b.pathname);
-  for(let i=0;i<oldMarkers.length;i+=250)await del(oldMarkers.slice(i,i+250));
-
-  await put(markerPath,JSON.stringify({cleanedAt:new Date().toISOString(),deleted:expired.length}),{
-    access:'private',contentType:'application/json; charset=utf-8',addRandomSuffix:false,allowOverwrite:true
-  });
 }
 async function streamToText(stream){
   if(!stream)return '';
@@ -204,68 +113,130 @@ async function readOne(blob){
     return JSON.parse(await streamToText(r.stream));
   }catch{return null}
 }
-function matchesOneTimePurge(event){
-  return !!event &&
-    String(event.appointmentDate||'')===ONE_TIME_PURGE.appointmentDate &&
-    String(event.appointmentTime||'')===ONE_TIME_PURGE.appointmentTime &&
-    String(event.route||'')===ONE_TIME_PURGE.route &&
-    String(event.patientType||'')===ONE_TIME_PURGE.patientType &&
-    String(event.serviceId||'')===ONE_TIME_PURGE.serviceId &&
-    Number(event.doctorId||0)===ONE_TIME_PURGE.doctorId &&
-    Number(event.duration||0)===ONE_TIME_PURGE.duration &&
-    String(event.recordedAt||'').startsWith(ONE_TIME_PURGE.recordedAtPrefix);
+function envelopePath(envelope){
+  return `${TRACKING_PREFIX}${envelope.id}.json`;
 }
-async function purgeRequestedTrackingEvent(){
+async function saveEnvelope(envelope,{pathOverride=null}={}){
   ensureBlobConfigured();
-  const {get,del,put}=await blobApi();
-  const marker=await get(ONE_TIME_PURGE_MARKER,{access:'private',useCache:false}).catch(()=>null);
-  if(marker?.statusCode===200)return false;
-
-  const blobs=await listAll(TRACKING_PREFIX);
+  const {get,put}=await blobApi();
+  const path=pathOverride||envelopePath(envelope);
+  const existing=await get(path,{access:'private',useCache:false}).catch(()=>null);
+  if(existing?.statusCode===200)return false;
+  await put(path,JSON.stringify(envelope),{
+    access:'private',contentType:'application/json; charset=utf-8',
+    addRandomSuffix:false,allowOverwrite:false
+  });
+  return true;
+}
+function b64url(buf){return Buffer.from(buf).toString('base64url')}
+function encryptLegacyEvent(event){
+  const aesKey=crypto.randomBytes(32),iv=crypto.randomBytes(12);
+  const cipher=crypto.createCipheriv('aes-256-gcm',aesKey,iv);
+  const plaintext=Buffer.from(JSON.stringify(event),'utf8');
+  const ciphertext=Buffer.concat([cipher.update(plaintext),cipher.final(),cipher.getAuthTag()]);
+  const ek=crypto.publicEncrypt({
+    key:TRACKING_PUBLIC_KEY_PEM,
+    padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,
+    oaepHash:'sha256'
+  },aesKey);
+  const id=/^[0-9a-f-]{36}$/i.test(String(event?.eventId||''))?String(event.eventId):crypto.randomUUID();
+  return {v:1,alg:'RSA-OAEP-256+A256GCM',id,ek:b64url(ek),iv:b64url(iv),data:b64url(ciphertext)};
+}
+function isKnownBadLegacyEvent(event){
+  return !!event &&
+    String(event.appointmentDate||'')==='2026-10-29' &&
+    String(event.appointmentTime||'')==='10.15' &&
+    String(event.route||'')==='PKV' &&
+    String(event.patientType||'')==='existing' &&
+    String(event.serviceId||'')==='1950' &&
+    Number(event.doctorId||0)===512 &&
+    Number(event.duration||0)===15 &&
+    String(event.recordedAt||'').startsWith('2026-09-23T09:25:30');
+}
+async function migrateLegacy(){
+  const {del}=await blobApi();
+  const blobs=await listAll(LEGACY_PREFIX);
+  let migrated=0,deleted=0,failed=0;
   for(const blob of blobs){
     const event=await readOne(blob);
-    if(!matchesOneTimePurge(event))continue;
-    await del(blob.url||blob.pathname);
-    await put(ONE_TIME_PURGE_MARKER,JSON.stringify({deletedAt:new Date().toISOString()}),{
-      access:'private',contentType:'application/json; charset=utf-8',addRandomSuffix:false,allowOverwrite:true
-    });
-    return true;
+    if(!event){failed++;continue}
+    const src=String(blob.pathname||'');
+    if(isKnownBadLegacyEvent(event)){
+      await del(blob.url||blob.pathname);deleted++;continue;
+    }
+    try{
+      const envelope=encryptLegacyEvent(event);
+      const fingerprint=crypto.createHash('sha256').update(src).digest('hex').slice(0,40);
+      await saveEnvelope(envelope,{pathOverride:`${TRACKING_PREFIX}migrated-${fingerprint}.json`});
+      await del(blob.url||blob.pathname);
+      migrated++;
+    }catch{failed++}
   }
-  return false;
+  return {migrated,deleted,failed};
 }
-
-async function readEvents(limit){
+function blobDateMs(blob){
+  const uploaded=blob?.uploadedAt?new Date(blob.uploadedAt).getTime():NaN;
+  return Number.isFinite(uploaded)?uploaded:NaN;
+}
+async function cleanupIfNeeded(){
   ensureBlobConfigured();
+  const today=new Date().toISOString().slice(0,10);
+  const markerPath=`${MAINTENANCE_PREFIX}cleanup-${today}.json`;
+  const {get,del,put}=await blobApi();
+  const marker=await get(markerPath,{access:'private',useCache:false}).catch(()=>null);
+  if(marker?.statusCode===200)return;
+  const cutoff=Date.now()-RETENTION_DAYS*86400000;
+  const blobs=await listAll(TRACKING_PREFIX);
+  const expired=blobs.filter(b=>{const t=blobDateMs(b);return Number.isFinite(t)&&t<cutoff}).map(b=>b.url||b.pathname);
+  for(let i=0;i<expired.length;i+=250)await del(expired.slice(i,i+250));
+  const oldMarkers=(await listAll(MAINTENANCE_PREFIX)).filter(b=>{
+    const t=blobDateMs(b);return Number.isFinite(t)&&t<Date.now()-14*86400000;
+  }).map(b=>b.url||b.pathname);
+  for(let i=0;i<oldMarkers.length;i+=250)await del(oldMarkers.slice(i,i+250));
+  await put(markerPath,JSON.stringify({cleanedAt:new Date().toISOString(),deleted:expired.length}),{
+    access:'private',contentType:'application/json; charset=utf-8',addRandomSuffix:false,allowOverwrite:true
+  });
+}
+async function readEncryptedEvents(limit){
   const blobs=(await listAll(TRACKING_PREFIX))
     .sort((a,b)=>blobDateMs(b)-blobDateMs(a))
     .slice(0,limit);
   const events=[];
   for(let i=0;i<blobs.length;i+=40){
     const batch=await Promise.all(blobs.slice(i,i+40).map(readOne));
-    events.push(...batch.filter(Boolean));
+    for(const x of batch){
+      try{events.push(validateEnvelope(x))}catch{}
+    }
   }
-  return events.sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
+  return events;
 }
 
 module.exports=async function handler(req,res){
   try{
     if(req.method==='POST'){
-      if(!sameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
+      if(!browserSameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
       const body=await readJsonBody(req);
-      const event=body?.direct===true?directEvent(body):verifyBookingReceipt(body?.receipt);
-      const stored=await saveEvent(event);
-      await purgeRequestedTrackingEvent().catch(()=>{});
+      if(body?.encrypted!==true) return send(res,426,{ok:false,error:'Für die Buchungsauswertung werden nur noch Ende-zu-Ende-verschlüsselte Datensätze akzeptiert.'});
+      if(!trackingProofValid(body?.slotToken,body?.trackingProof))return send(res,403,{ok:false,error:'Ungültiger Tracking-Nachweis.'});
+      const envelope=validateEnvelope(body?.envelope);
+      const stored=await saveEnvelope(envelope);
+      // Einmalige Altbestandsmigration: vorhandene V3-Klartextdaten werden
+      // mit dem öffentlichen Auswertungsschlüssel verschlüsselt und anschließend gelöscht.
+      migrateLegacy().catch(()=>{});
       cleanupIfNeeded().catch(()=>{});
-      return send(res,200,{ok:true,storage:'vercel-blob-private',duplicate:!stored});
+      return send(res,200,{ok:true,storage:'vercel-blob-private-e2ee',duplicate:!stored});
     }
 
     if(req.method==='GET'){
-      if(!sameOrigin(req)||!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});
+      if(!browserSameOrigin(req)||!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});
       const limit=Math.max(1,Math.min(5000,Number(req.query?.limit)||2000));
-      await purgeRequestedTrackingEvent();
+      const migration=await migrateLegacy();
       await cleanupIfNeeded().catch(()=>{});
-      const events=await readEvents(limit);
-      return send(res,200,{ok:true,storage:'vercel-blob-private',retentionDays:RETENTION_DAYS,events});
+      const events=await readEncryptedEvents(limit);
+      return send(res,200,{
+        ok:true,storage:'vercel-blob-private-e2ee',retentionDays:RETENTION_DAYS,
+        events,migration
+      });
     }
 
     return send(res,405,{ok:false,error:'Methode nicht erlaubt.'});
