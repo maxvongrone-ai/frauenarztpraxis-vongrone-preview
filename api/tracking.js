@@ -190,12 +190,31 @@ async function readEncryptedEvents(limit){
     .slice(0,limit);
   const events=[];
   for(let i=0;i<blobs.length;i+=40){
-    const batch=await Promise.all(blobs.slice(i,i+40).map(readOne));
-    for(const x of batch){
-      try{events.push(validateEnvelope(x))}catch{}
+    const part=blobs.slice(i,i+40);
+    const batch=await Promise.all(part.map(readOne));
+    for(let j=0;j<batch.length;j++){
+      try{
+        const envelope=validateEnvelope(batch[j]);
+        events.push({...envelope,storageRef:String(part[j]?.pathname||'')});
+      }catch{}
     }
   }
   return events;
+}
+async function replaceEncryptedEvent(storageRef,envelope){
+  ensureBlobConfigured();
+  const ref=String(storageRef||'');
+  if(!ref.startsWith(TRACKING_PREFIX)||ref.length>500)throw new Error('Ungültiger Tracking-Speicherverweis.');
+  const {get,put}=await blobApi();
+  const current=await get(ref,{access:'private',useCache:false}).catch(()=>null);
+  if(!current||current.statusCode!==200)throw new Error('Tracking-Datensatz wurde nicht gefunden.');
+  let existing;
+  try{existing=validateEnvelope(JSON.parse(await streamToText(current.stream)))}catch{throw new Error('Tracking-Datensatz ist beschädigt.')}
+  if(existing.id!==envelope.id)throw new Error('Tracking-Datensatz stimmt nicht überein.');
+  await put(ref,JSON.stringify(envelope),{
+    access:'private',contentType:'application/json; charset=utf-8',
+    addRandomSuffix:false,allowOverwrite:true
+  });
 }
 
 module.exports=async function handler(req,res){
@@ -203,6 +222,14 @@ module.exports=async function handler(req,res){
     if(req.method==='POST'){
       if(!browserSameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
       const body=await readJsonBody(req);
+
+      if(String(req.query?.action||'')==='replace'){
+        if(!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});
+        const envelope=validateEnvelope(body?.envelope);
+        await replaceEncryptedEvent(body?.storageRef,envelope);
+        return send(res,200,{ok:true,storage:'vercel-blob-private-e2ee'});
+      }
+
       if(body?.encrypted!==true) return send(res,426,{ok:false,error:'Für die Buchungsauswertung werden nur noch Ende-zu-Ende-verschlüsselte Datensätze akzeptiert.'});
       if(!trackingProofValid(body?.trackingNonce,body?.trackingProof))return send(res,403,{ok:false,error:'Ungültiger Tracking-Nachweis.'});
       const envelope=validateEnvelope(body?.envelope);
