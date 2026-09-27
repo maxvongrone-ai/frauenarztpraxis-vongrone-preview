@@ -14,9 +14,10 @@ async function getLiveBundle(){
 
 function requestAllowed(req){
   // Deliberately do not read, hash, store or rate-limit by client IP.
-  // Keep only the browser's same-origin signal as an application-level guard.
-  const site=String(req.headers['sec-fetch-site']||'');
-  return !site||site==='same-origin';
+  // Sensitive bridge actions require the browser-generated Fetch Metadata signal.
+  // Requests with a missing signal are rejected instead of being treated as trusted.
+  const site=String(req.headers['sec-fetch-site']||'').toLowerCase();
+  return site==='same-origin';
 }
 
 function send(res,status,body,{cache='no-store',cdn=null,vercel=null}={}){
