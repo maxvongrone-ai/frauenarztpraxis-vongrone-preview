@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.2",
+  "version": "60.10.3",
   "private": true,
-  "description": "mediDate V60.10.2: strict same-origin bridge, expiring tracking proofs, and no-inline CSP for internal practice pages.",
+  "description": "mediDate V60.10.3: menopause appointments restricted to Dr. med. Friederike von Grone; V60.10.2 security hardening retained.",
   "engines": {
     "node": "22.x"
   },

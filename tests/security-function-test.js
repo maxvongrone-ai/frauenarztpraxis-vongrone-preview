@@ -54,6 +54,10 @@ assert(!admin.includes('<style>')&&!admin.includes('<script>'),'Admin page must 
 assert(!dashboard.includes('style=')&&!admin.includes('style='),'Strict-CSP internal pages must not use inline style attributes');
 assert(dashboard.includes('/tracking.css')&&dashboard.includes('/tracking.js'),'Tracking page assets must be external');
 assert(admin.includes('/admin.css')&&admin.includes('/admin.js'),'Admin page assets must be external');
+assert(index.includes("const MENOPAUSE_DOCTOR_KEY='vongrone'"),'Menopause doctor must be fixed to Dr. von Grone');
+assert(index.includes("if(isMenopauseMode()&&String(r.doctorKey)!==MENOPAUSE_DOCTOR_KEY)continue"),'Menopause availability must exclude other doctors');
+assert(index.includes("Die Wechseljahressprechstunde ist ausschließlich bei Dr. med. Friederike von Grone buchbar."),'Final menopause booking guard must reject other doctors');
+assert(index.includes("Wechseljahressprechstunde ausschließlich bei dieser Ärztin"),'Menopause doctor UI must expose only the dedicated doctor path');
 assert(dashboardJs.length>1000&&adminJs.length>100,'External internal-page scripts must be present');
 
 const cfg=JSON.parse(vercel);
