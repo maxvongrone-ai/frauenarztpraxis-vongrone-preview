@@ -13,18 +13,7 @@ const RETENTION_DAYS=180;
 const TRACKING_PREFIX='medidate-booking-tracking/v4/events/';
 const LEGACY_PREFIX='medidate-booking-tracking/v3/events/';
 const MAINTENANCE_PREFIX='medidate-booking-tracking/v4/maintenance/';
-const TRACKING_PUBLIC_KEY_PEM=`-----BEGIN PUBLIC KEY-----
-MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA578kL88BzE8PWPrrcKjj
-wF+vYB/7idETPjgLutvcSO9WhQcJluI4o5WeBpmtfh2qsS5RLN3dXsv373koWH1F
-JFkyR4943191LTNUcLfg17yYBsajZLFNTifk/TRp6U3h+eZJ3dhUXCluSaf80fhr
-aQ+nZxGkpppwmTaZpUhPf0UIOBzSI3ej+jHVBcluFQTHtE2uwDcPt7xl2JdQ5dKx
-kS4uX98RWUsh84lAugbFK3mfIhtkNMEHG8dur6qDjqnr52oauVW2agDif3hndG8L
-Z730/ng9AQuwesGmsSJV2KBfzcvF7ozD00aZcTDtWigYAqHbu3h3yBjFb8Pwf6al
-rW+tpAJnWPwqzC5H9XvaAAJ+hxZtt0HQWZ0pwvxZAw475duk70qQ7Ym6ARN/hF7r
-H0CQ2q0I/B5q88fmIn6ZNhPZ6sGVk80Hb/iVWqkRBsyxiO1pk/BQLazpQg5QPihB
-9gfCW3K5/bYLnGWGdLo3+BmEDCdJGns9K+ic0P8ylfs7AgMBAAE=
------END PUBLIC KEY-----`;
-
+const TRACKING_PUBLIC_KEY_DER=Buffer.from('MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAErHJvD6uRk7+vGJePnhFJgkoMiyLv+5c4PhyW2D1o+hPFVRQj6qTZslPtqWhY0xE7kMZDuALT8d6gLhBvg95vpQ==','base64');
 function send(res,status,body){
   res.statusCode=status;
   res.setHeader('Content-Type','application/json; charset=utf-8');
@@ -79,10 +68,10 @@ function validB64Url(v,min,max){
 }
 function validateEnvelope(raw){
   const x=raw&&typeof raw==='object'?raw:null;
-  if(!x||x.v!==1||x.alg!=='RSA-OAEP-256+A256GCM')throw new Error('Ungültiger verschlüsselter Tracking-Datensatz.');
+  if(!x||x.v!==2||x.alg!=='ECDH-P256+A256GCM')throw new Error('Ungültiger verschlüsselter Tracking-Datensatz.');
   if(!/^[0-9a-f-]{36}$/i.test(String(x.id||'')))throw new Error('Ungültige Ereignis-ID.');
-  if(!validB64Url(x.ek,256,1024)||!validB64Url(x.iv,12,32)||!validB64Url(x.data,32,12000))throw new Error('Ungültiger verschlüsselter Tracking-Datensatz.');
-  return {v:1,alg:'RSA-OAEP-256+A256GCM',id:String(x.id),ek:String(x.ek),iv:String(x.iv),data:String(x.data)};
+  if(!validB64Url(x.epk,80,256)||!validB64Url(x.iv,12,32)||!validB64Url(x.data,32,12000))throw new Error('Ungültiger verschlüsselter Tracking-Datensatz.');
+  return {v:2,alg:'ECDH-P256+A256GCM',id:String(x.id),epk:String(x.epk),iv:String(x.iv),data:String(x.data)};
 }
 function trackingProofValid(slotToken,proof){
   const token=String(slotToken||''),given=String(proof||'');
@@ -130,17 +119,15 @@ async function saveEnvelope(envelope,{pathOverride=null}={}){
 }
 function b64url(buf){return Buffer.from(buf).toString('base64url')}
 function encryptLegacyEvent(event){
-  const aesKey=crypto.randomBytes(32),iv=crypto.randomBytes(12);
-  const cipher=crypto.createCipheriv('aes-256-gcm',aesKey,iv);
+  const recipient=crypto.createPublicKey({key:TRACKING_PUBLIC_KEY_DER,format:'der',type:'spki'});
+  const {publicKey,privateKey}=crypto.generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+  const shared=crypto.diffieHellman({privateKey,publicKey:recipient});
+  const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',shared,iv);
   const plaintext=Buffer.from(JSON.stringify(event),'utf8');
   const ciphertext=Buffer.concat([cipher.update(plaintext),cipher.final(),cipher.getAuthTag()]);
-  const ek=crypto.publicEncrypt({
-    key:TRACKING_PUBLIC_KEY_PEM,
-    padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,
-    oaepHash:'sha256'
-  },aesKey);
+  const epk=publicKey.export({format:'der',type:'spki'});
   const id=/^[0-9a-f-]{36}$/i.test(String(event?.eventId||''))?String(event.eventId):crypto.randomUUID();
-  return {v:1,alg:'RSA-OAEP-256+A256GCM',id,ek:b64url(ek),iv:b64url(iv),data:b64url(ciphertext)};
+  return {v:2,alg:'ECDH-P256+A256GCM',id,epk:b64url(epk),iv:b64url(iv),data:b64url(ciphertext)};
 }
 function isKnownBadLegacyEvent(event){
   return !!event &&
