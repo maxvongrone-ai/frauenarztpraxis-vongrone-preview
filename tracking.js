@@ -135,9 +135,10 @@ function render(events=current,retention=currentRetention,storage=currentStorage
 let sessionCache=null;
 async function mediDateSession(force=false){
  if(!force&&sessionCache&&Date.now()-Number(sessionCache.issuedAt||0)<10*60*1000)return sessionCache;
- const u=new URL('/api/medidate',location.origin);u.searchParams.set('action',force?'liveSession':'publicSession');
- const r=await fetch(u,{cache:'no-store',credentials:'same-origin'}),j=await r.json();
- if(!r.ok||!j?.ok||!j?.token||!j?.apiBase)throw new Error(j?.error||'mediDate-Sitzung nicht verfügbar.');
+ const u=new URL('/api/session',location.origin);
+ if(force)u.searchParams.set('force','1');
+ const r=await fetch(u,{cache:'no-store',credentials:'same-origin'}),j=await r.json().catch(()=>null);
+ if(!r.ok||!j?.ok||!j?.token||!j?.apiBase)throw new Error(j?.error||'Sichere mediDate-Sitzung nicht verfügbar.');
  sessionCache=j;return j;
 }
 async function fetchAvailability(serviceId,doctorId){

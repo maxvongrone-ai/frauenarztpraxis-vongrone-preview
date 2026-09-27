@@ -43,9 +43,7 @@ module.exports=async function handler(req,res){
       return send(res,200,{ok:true,buildBundleReady:Boolean(bundle),generatedAt:bundle?.generatedAt||null,groups:Array.isArray(bundle?.groups)?bundle.groups.length:0,securityMode:'browser-direct-medidate-no-pii-proxy',elapsedMs:Date.now()-started});
     }
     if(action==='publicSession'||action==='liveSession'){
-      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
-      const s=await bootstrap(action==='liveSession');
-      return send(res,200,{ok:true,token:s.token,clientId:s.clientId,locationId:s.locationId,apiBase:API_BASE,issuedAt:s.issuedAt||Date.now()},{cache:'no-store'});
+      return send(res,410,{ok:false,error:'Die mediDate-Sitzung wird nur noch über den BotID-geschützten Sitzungsendpunkt ausgegeben.'},{cache:'no-store'});
     }
     if(action==='diagnostics'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});

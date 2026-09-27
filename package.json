@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.4",
+  "version": "60.10.5",
   "private": true,
-  "description": "mediDate V60.10.4: menopause appointments remain exclusive to Dr. med. Friederike von Grone and require two consecutive free 15-minute slots, without private-window restriction.",
+  "description": "mediDate V60.10.5: browser-direct booking with BotID-protected session token issuance; encrypted tracking and existing booking rules retained.",
   "engines": {
     "node": "22.x"
   },
@@ -11,6 +11,8 @@
     "test:security": "node tests/security-function-test.js"
   },
   "dependencies": {
-    "@vercel/blob": "2.8.0"
+    "@vercel/blob": "2.8.0",
+    "botid": "1.5.11",
+    "esbuild": "0.28.2"
   }
 }

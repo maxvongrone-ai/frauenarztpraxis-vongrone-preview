@@ -5,6 +5,7 @@ const read=p=>fs.readFileSync(p,'utf8');
 const index=read('index.html');
 const tracking=read('api/tracking.js');
 const medidate=read('api/medidate.js');
+const session=read('api/session.js');
 const booking=read('api/booking.js');
 const vercel=read('vercel.json');
 const dashboard=read('tracking.html');
@@ -12,6 +13,9 @@ const dashboardJs=read('tracking.js');
 const admin=read('admin.html');
 const adminJs=read('admin.js');
 const core=read('lib/medidate-core.js');
+const botidClient=read('botid-client-entry.js');
+const buildScript=read('scripts/build-seed.js');
+const pkg=JSON.parse(read('package.json'));
 
 assert(booking.includes('res.statusCode=410'),'Legacy /api/booking must stay disabled');
 assert(!index.includes("fetch('/api/booking'"),'Frontend must not send patient booking data to Vercel');
@@ -36,7 +40,7 @@ assert(!tracking.includes("appointmentDate:String(body"),'Tracking API must not 
 assert(!vercel.includes('praxis-auswertung-juyY7KFzMJIXC4Zyd4T7OdOR4swyhBr1'),'Old exposed tracking path must stay removed');
 assert(!tracking.includes('c125504d58925765cf1a6d9f6149842696d0c0618bc5293f65e842609e24ad02'),'Old tracking access hash must stay revoked');
 
-for(const s of [medidate,tracking]){
+for(const s of [medidate,tracking,session]){
   assert(!/x-forwarded-for|x-real-ip|__MEDIDATE_REFRESH_RATE__/i.test(s),'Application code must not read or rate-limit by client IP');
 }
 
@@ -48,6 +52,27 @@ assert(tracking.includes('trackingExp')&&tracking.includes('exp<=now'),'Tracking
 
 assert(medidate.includes("return site==='same-origin'"),'mediDate bridge must require an explicit same-origin Fetch Metadata signal');
 assert(!medidate.includes("return !site||site==='same-origin'"),'Missing Fetch Metadata must not be trusted');
+
+assert(!medidate.includes("token:s.token"),'General mediDate bridge must never return the bearer token');
+assert(medidate.includes("action==='publicSession'||action==='liveSession'")&&medidate.includes("return send(res,410"),'Legacy session actions must be retired');
+assert(session.includes("checkBotId"),'Session token endpoint must perform BotID verification');
+assert(session.includes("checkLevel:'basic'"),'Session token endpoint must use BotID Basic checks');
+assert(session.includes("return site==='same-origin'"),'Session token endpoint must also require same-origin Fetch Metadata');
+assert(session.includes("token:s.token"),'Only the dedicated protected session endpoint may return the mediDate bearer token');
+assert(index.includes("new URL('/api/session',location.origin)"),'Booking flow must use the protected session endpoint');
+assert(dashboardJs.includes("new URL('/api/session',location.origin)"),'Cancellation reconciliation must use the protected session endpoint');
+assert(!index.includes("apiGet(force?'liveSession':'publicSession'"),'Booking flow must not use legacy token actions');
+assert(!dashboardJs.includes("action',force?'liveSession':'publicSession'"),'Dashboard must not use legacy token actions');
+assert(botidClient.includes("path: '/api/session'")&&botidClient.includes("method: 'GET'")&&botidClient.includes("checkLevel: 'basic'"),'BotID client must protect the session endpoint with Basic checks');
+assert(buildScript.includes("outfile:path.join(publicDir,'botid-client.js')"),'Static build must bundle the BotID client locally');
+assert(pkg.dependencies?.botid==='1.5.11','BotID dependency must stay pinned');
+assert(pkg.dependencies?.esbuild==='0.28.2','BotID client bundler must stay pinned');
+
+const cfg=JSON.parse(vercel);
+const botProxyBase='/149e9513-01fa-4fb0-aad4-566afd725d1b/2d206a39-8ed7-437e-a3be-862e0f06eea3';
+assert((cfg.rewrites||[]).some(x=>x.source===botProxyBase+'/a-4-a/c.js'&&String(x.destination).includes('/bot-protection/v1/challenge')),'BotID challenge rewrite missing');
+assert((cfg.rewrites||[]).some(x=>x.source===botProxyBase+'/:path*'&&String(x.destination).includes('/bot-protection/v1/proxy/')),'BotID proxy rewrite missing');
+assert((cfg.headers||[]).some(x=>x.source===botProxyBase+'/:path*'&&(x.headers||[]).some(h=>h.key==='X-Frame-Options'&&h.value==='SAMEORIGIN')),'BotID proxy frame header missing');
 
 assert(!dashboard.includes('<style>')&&!dashboard.includes('<script>'),'Tracking page must not contain inline style/script blocks');
 assert(!admin.includes('<style>')&&!admin.includes('<script>'),'Admin page must not contain inline style/script blocks');
@@ -64,7 +89,6 @@ assert(!index.includes("!isPrivateOnlyWindow(state.selectedSlot)||!isPrivateOnly
 assert(index.includes("return Boolean(byKey.get("),'Menopause booking starts must still require the following 15-minute slot');
 assert(dashboardJs.length>1000&&adminJs.length>100,'External internal-page scripts must be present');
 
-const cfg=JSON.parse(vercel);
 for(const source of ['/admin.html','/praxis','/tracking.html','/praxis-auswertung']){
   const entry=(cfg.headers||[]).find(x=>x.source===source);
   assert(entry,source+' strict header rule missing');

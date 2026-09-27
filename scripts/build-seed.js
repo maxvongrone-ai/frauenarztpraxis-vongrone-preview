@@ -1,6 +1,7 @@
 const fs=require('fs');
 const path=require('path');
 const crypto=require('crypto');
+const esbuild=require('esbuild');
 
 // V60.8.2: deployment builds are deliberately network-independent.
 // mediDate is contacted only at runtime through /api/medidate.
@@ -25,6 +26,18 @@ function buildStaticAssets(){
   // No deployment-time slot tokens: they are generated with the deployment secret at runtime.
   fs.writeFileSync(path.join(publicDir,'seed-data.js'),'window.__MEDIDATE_SEED__=null;\n','utf8');
   fs.writeFileSync(path.join(publicDir,'app.js'),scriptMatches[1][1].trim()+'\n','utf8');
+
+  esbuild.buildSync({
+    entryPoints:[path.join(process.cwd(),'botid-client-entry.js')],
+    bundle:true,
+    format:'iife',
+    platform:'browser',
+    target:['es2020'],
+    minify:true,
+    legalComments:'none',
+    define:{'process.env.NODE_ENV':'"production"'},
+    outfile:path.join(publicDir,'botid-client.js')
+  });
 
   let builtIndex=sourceIndex.replace(styleMatch[0],'<link rel="stylesheet" href="/styles.css">');
   builtIndex=builtIndex.replace(scriptMatches[0][0],'<script src="/seed-data.js"></script>');

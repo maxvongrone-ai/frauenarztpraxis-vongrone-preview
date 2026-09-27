@@ -108,6 +108,7 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
 /* Vercel build replaces this null marker with the current public availability snapshot. */
 window.__MEDIDATE_SEED__=null;
 </script>
+<script src="/botid-client.js"></script>
 <script>
 const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0};
 // Im Browser werden nur lokale, nicht-mediDate-interne Bezeichner verwendet.
@@ -1200,9 +1201,17 @@ async function sendBookingTracking(slot){
 let directSessionCache=null;
 async function getDirectMediDateSession(force=false){
  if(!force&&directSessionCache&&Date.now()-Number(directSessionCache.issuedAt||0)<12*60*1000)return directSessionCache;
- const j=await apiGet(force?'liveSession':'publicSession',{},30000);
- if(!j?.token||!j?.apiBase||!Number(j?.clientId)||!Number(j?.locationId))throw new Error('Die mediDate-Sitzung ist derzeit nicht verfügbar.');
- directSessionCache=j;return j;
+ const u=new URL('/api/session',location.origin);
+ if(force)u.searchParams.set('force','1');
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
+ try{
+   const r=await fetch(u,{cache:'no-store',credentials:'same-origin',signal:controller.signal});
+   const j=await r.json().catch(()=>null);
+   if(!r.ok||!j?.ok||!j?.token||!j?.apiBase||!Number(j?.clientId)||!Number(j?.locationId)){
+     throw new Error(j?.error||'Die sichere mediDate-Sitzung ist derzeit nicht verfügbar.');
+   }
+   directSessionCache=j;return j;
+ }finally{clearTimeout(timer)}
 }
 async function directMediDateRequest(path,{method='GET',query=null,body=null}={},retry=true){
  const s=await getDirectMediDateSession(false);
