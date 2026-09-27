@@ -1,0 +1,62 @@
+name: Diagnose menopause availability
+
+on:
+  push:
+    branches: [diagnose-menopause-availability]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check public mediDate availability
+        env:
+          BOOKING_TOKEN_SECRET: diagnostic-only-random-secret-2026-09-27-abcdefghijklmnopqrstuvwxyz
+        run: |
+          node <<'NODE'
+          const {buildPublicBundle}=require('./lib/medidate-core');
+          function mins(t){const m=String(t).match(/^(\d{1,2})\.(\d{2})$/);return m?+m[1]*60 + +m[2]:-1}
+          function privateWindow(date,time){
+            const wd=new Date(date+'T12:00:00').getDay(),m=mins(time);
+            const inw=(a,b)=>m>=a&&m<=b;
+            if(wd===3)return inw(14*60+30,15*60+30)||inw(16*60,16*60+30);
+            if(wd===4)return inw(8*60+30,9*60+30)||inw(10*60,10*60+30)||inw(14*60+30,15*60+30)||inw(16*60,16*60+30);
+            return false;
+          }
+          (async()=>{
+            const b=await buildPublicBundle();
+            for(const doctor of ['vongrone','moxter']){
+              const starts=[];
+              for(const g of b.groups||[]){
+                for(const r of g.availability?.appointmentTimes||[]){
+                  if(String(r.doctorKey)!==doctor)continue;
+                  const date=String(r.dateTimeStart||'').slice(0,10);
+                  const times=(r.times||[]).map(x=>typeof x==='string'?x:String(x.time||'')).filter(Boolean);
+                  const set=new Set(times);
+                  for(const t of times){
+                    if(!privateWindow(date,t))continue;
+                    const m=mins(t)+15;
+                    const next=String(Math.floor(m/60)).padStart(2,'0')+'.'+String(m%60).padStart(2,'0');
+                    if(set.has(next)&&privateWindow(date,next))starts.push({date,time:t,service:g.serviceKey});
+                  }
+                }
+              }
+              starts.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+              const thisYear=starts.filter(x=>x.date<='2026-12-31');
+              console.log(JSON.stringify({
+                doctor,
+                total30MinStarts:starts.length,
+                thisYearCount:thisYear.length,
+                first:thisYear[0]||starts[0]||null,
+                firstTen:starts.slice(0,10)
+              }));
+            }
+          })().catch(e=>{console.error(e?.stack||e);process.exit(1)});
+          NODE
