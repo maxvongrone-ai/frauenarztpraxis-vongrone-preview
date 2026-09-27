@@ -73,10 +73,12 @@ function validateEnvelope(raw){
   if(!validB64Url(x.epk,80,256)||!validB64Url(x.iv,12,32)||!validB64Url(x.data,32,12000))throw new Error('Ungültiger verschlüsselter Tracking-Datensatz.');
   return {v:2,alg:'ECDH-P256+A256GCM',id:String(x.id),epk:String(x.epk),iv:String(x.iv),data:String(x.data)};
 }
-function trackingProofValid(trackingNonce,proof){
-  const nonce=String(trackingNonce||''),given=String(proof||'');
-  if(!validB64Url(nonce,20,80)||!validB64Url(given,20,128))return false;
-  const expected=crypto.createHmac('sha256',readSecret()).update('tracking:'+nonce).digest('base64url');
+function trackingProofValid(trackingNonce,trackingExp,proof){
+  const nonce=String(trackingNonce||''),given=String(proof||''),exp=Number(trackingExp);
+  const now=Date.now();
+  if(!validB64Url(nonce,20,80)||!validB64Url(given,20,128)||!Number.isFinite(exp))return false;
+  if(exp<=now||exp>now+12*60*60*1000+5*60*1000)return false;
+  const expected=crypto.createHmac('sha256',readSecret()).update('tracking:'+nonce+':'+exp).digest('base64url');
   return safeEqualText(given,expected);
 }
 async function listAll(prefix){
@@ -231,7 +233,7 @@ module.exports=async function handler(req,res){
       }
 
       if(body?.encrypted!==true) return send(res,426,{ok:false,error:'Für die Buchungsauswertung werden nur noch Ende-zu-Ende-verschlüsselte Datensätze akzeptiert.'});
-      if(!trackingProofValid(body?.trackingNonce,body?.trackingProof))return send(res,403,{ok:false,error:'Ungültiger Tracking-Nachweis.'});
+      if(!trackingProofValid(body?.trackingNonce,body?.trackingExp,body?.trackingProof))return send(res,403,{ok:false,error:'Ungültiger oder abgelaufener Tracking-Nachweis.'});
       const envelope=validateEnvelope(body?.envelope);
       const nonceHash=crypto.createHash('sha256').update(String(body.trackingNonce)).digest('hex');
       const stored=await saveEnvelope(envelope,{pathOverride:`${TRACKING_PREFIX}${nonceHash}.json`});
