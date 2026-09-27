@@ -1,13 +1,13 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.9.4",
+  "version": "60.10.0",
   "private": true,
-  "description": "mediDate V60.9.4: restore full special self-pay selection with menopause private-window pair logic, while retaining browser-direct booking and no application-level IP processing.",
+  "description": "mediDate V60.10.0: end-to-end encrypted booking analytics with browser-only decryption, browser-direct patient booking, and no application-level IP processing.",
   "engines": {
     "node": "22.x"
   },
   "scripts": {
-    "build": "node scripts/build-seed.js",
+    "build": "npm run test:security && node scripts/build-seed.js",
     "test:security": "node tests/security-function-test.js"
   },
   "dependencies": {
