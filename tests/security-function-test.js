@@ -23,6 +23,12 @@ assert(tracking.includes("ECDH-P256+A256GCM"),'Tracking API must accept only enc
 
 assert(dashboard.includes("p.get('a')")&&dashboard.includes("p.get('d')"),'Dashboard must separate auth and decryption secrets');
 assert(dashboard.includes("crypto.subtle.decrypt"),'Dashboard must decrypt only in the browser');
+assert(dashboard.includes("Stornierungen prüfen"),'Encrypted dashboard must retain cancellation reconciliation');
+assert(dashboard.includes("slot_reappeared_in_medidate"),'Cancellation evidence must be evaluated in the practice browser');
+assert(dashboard.includes("fetchAvailability"),'Practice browser must compare decrypted bookings directly with mediDate');
+assert(dashboard.includes("action','replace"),'Encrypted cancellation status must be persisted without plaintext');
+assert(tracking.includes("replaceEncryptedEvent"),'Tracking API must only overwrite opaque encrypted events');
+assert(!tracking.includes("appointmentDate:String(body"),'Tracking API must not receive plaintext appointment metadata during reconciliation');
 
 assert(!vercel.includes('praxis-auswertung-juyY7KFzMJIXC4Zyd4T7OdOR4swyhBr1'),'Old exposed tracking path must stay removed');
 assert(!tracking.includes('c125504d58925765cf1a6d9f6149842696d0c0618bc5293f65e842609e24ad02'),'Old tracking access hash must stay revoked');
