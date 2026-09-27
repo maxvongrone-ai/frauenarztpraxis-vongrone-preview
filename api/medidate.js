@@ -62,12 +62,12 @@ module.exports=async function handler(req,res){
         if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
         bundle=await getLiveBundle();
       }
-      return send(res,200,{ok:true,...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=60',cdn:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400',vercel:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400'});
+      return send(res,200,{ok:true,...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=60',cdn:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600',vercel:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600'});
     }
     if(action==='liveBundle'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const bundle=await getLiveBundle();
-      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=30, stale-while-revalidate=120',cdn:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400',vercel:'public, s-maxage=600, stale-while-revalidate=86400, stale-if-error=86400'});
+      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=30, stale-while-revalidate=120',cdn:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600',vercel:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600'});
     }
     return send(res,404,{ok:false,error:'Unbekannte oder nicht freigegebene Aktion.'});
   }catch(e){
