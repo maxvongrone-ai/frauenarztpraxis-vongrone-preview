@@ -123,9 +123,9 @@ const DEFAULT_SERVICES=[
   {id:'breast',name:'Brustultraschall',duration:15,sortOrder:4}
 ];
 
-// Öffentlicher Schlüssel für die Ende-zu-Ende-verschlüsselte Buchungsauswertung.
-// Nur der Praxis-Auswertungsbrowser besitzt den dazugehörigen privaten Schlüssel.
-const TRACKING_PUBLIC_KEY_SPKI_B64='MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA578kL88BzE8PWPrrcKjjwF+vYB/7idETPjgLutvcSO9WhQcJluI4o5WeBpmtfh2qsS5RLN3dXsv373koWH1FJFkyR4943191LTNUcLfg17yYBsajZLFNTifk/TRp6U3h+eZJ3dhUXCluSaf80fhraQ+nZxGkpppwmTaZpUhPf0UIOBzSI3ej+jHVBcluFQTHtE2uwDcPt7xl2JdQ5dKxkS4uX98RWUsh84lAugbFK3mfIhtkNMEHG8dur6qDjqnr52oauVW2agDif3hndG8LZ730/ng9AQuwesGmsSJV2KBfzcvF7ozD00aZcTDtWigYAqHbu3h3yBjFb8Pwf6alrW+tpAJnWPwqzC5H9XvaAAJ+hxZtt0HQWZ0pwvxZAw475duk70qQ7Ym6ARN/hF7rH0CQ2q0I/B5q88fmIn6ZNhPZ6sGVk80Hb/iVWqkRBsyxiO1pk/BQLazpQg5QPihB9gfCW3K5/bYLnGWGdLo3+BmEDCdJGns9K+ic0P8ylfs7AgMBAAE=';
+// Öffentlicher ECDH-P-256-Schlüssel für die Ende-zu-Ende-verschlüsselte
+// Buchungsauswertung. Der private Schlüssel bleibt ausschließlich im Praxis-Browser.
+const TRACKING_PUBLIC_KEY_SPKI_B64='MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAErHJvD6uRk7+vGJePnhFJgkoMiyLv+5c4PhyW2D1o+hPFVRQj6qTZslPtqWhY0xE7kMZDuALT8d6gLhBvg95vpQ==';
 let trackingPublicKeyPromise=null;
 function b64ToBytes(s){
  const bin=atob(String(s||'')),out=new Uint8Array(bin.length);
@@ -141,17 +141,20 @@ async function trackingPublicKey(){
  if(!trackingPublicKeyPromise){
    trackingPublicKeyPromise=crypto.subtle.importKey(
      'spki',b64ToBytes(TRACKING_PUBLIC_KEY_SPKI_B64),
-     {name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']
+     {name:'ECDH',namedCurve:'P-256'},false,[]
    );
  }
  return trackingPublicKeyPromise;
 }
 async function encryptTrackingEvent(event){
- const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']);
- const raw=await crypto.subtle.exportKey('raw',aes),iv=crypto.getRandomValues(new Uint8Array(12));
+ const recipient=await trackingPublicKey();
+ const ephemeral=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+ const shared=await crypto.subtle.deriveBits({name:'ECDH',public:recipient},ephemeral.privateKey,256);
+ const aes=await crypto.subtle.importKey('raw',shared,{name:'AES-GCM'},false,['encrypt']);
+ const iv=crypto.getRandomValues(new Uint8Array(12));
  const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},aes,new TextEncoder().encode(JSON.stringify(event)));
- const ek=await crypto.subtle.encrypt({name:'RSA-OAEP'},await trackingPublicKey(),raw);
- return {v:1,alg:'RSA-OAEP-256+A256GCM',id:event.eventId,ek:bytesToB64Url(ek),iv:bytesToB64Url(iv),data:bytesToB64Url(data)};
+ const epk=await crypto.subtle.exportKey('spki',ephemeral.publicKey);
+ return {v:2,alg:'ECDH-P256+A256GCM',id:event.eventId,epk:bytesToB64Url(epk),iv:bytesToB64Url(iv),data:bytesToB64Url(data)};
 }
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
