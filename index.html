@@ -1157,6 +1157,10 @@ async function sendBookingTracking(slot){
      doctorId:String(slot.doctorId||''),
      doctorName:doctorDisplayName(slot.doctorId),
      duration:isMenopauseMode()?30:Number(slot.duration||15),
+     mediDateServiceId:Number(slot?.direct?.serviceId||0)||undefined,
+     mediDateDoctorId:Number(slot?.direct?.doctorId||0)||undefined,
+     mediDateListReferenzId:Number(slot?.direct?.listReferenzId||0)||undefined,
+     bookingStatus:'booked',
      recordedAt:new Date().toISOString()
    };
    const envelope=await encryptTrackingEvent(event);
