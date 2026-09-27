@@ -31,7 +31,12 @@ function buildStaticAssets(){
   builtIndex=builtIndex.replace(scriptMatches[1][0],'<script src="/app.js"></script>');
   fs.writeFileSync(path.join(publicDir,'index.html'),builtIndex,'utf8');
 
-  for(const file of ['admin.html','privacy-booking.html','tracking.html','robots.txt']){
+  for(const file of [
+    'admin.html','admin.css','admin.js',
+    'privacy-booking.html',
+    'tracking.html','tracking.css','tracking.js',
+    'robots.txt'
+  ]){
     fs.copyFileSync(path.join(process.cwd(),file),path.join(publicDir,file));
   }
 
