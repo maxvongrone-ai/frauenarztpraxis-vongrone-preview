@@ -13,7 +13,7 @@
 <body><div class="wrap">
 <section class="panel">
 <h1>Interne Buchungsauswertung</h1>
-<p class="muted">Die Buchungsmetadaten werden bereits im Browser der Patientin Ende-zu-Ende verschlüsselt. Vercel speichert ausschließlich Ciphertext. Entschlüsselt werden die Daten erst hier in Ihrem Browser. Der Schlüssel steht nur im Fragment dieser geheimen URL und wird nicht an den Server übertragen.</p>
+<p class="muted">Die Buchungsmetadaten werden bereits im Browser der Patientin Ende-zu-Ende verschlüsselt. Vercel speichert ausschließlich Ciphertext. Entschlüsselt werden die Daten erst hier in Ihrem Browser. Der separate Entschlüsselungsschlüssel steht nur im Fragment dieser geheimen URL und wird nicht an den Server übertragen.</p>
 <div class="row"><div class="urlbox" id="currentUrl"></div><button id="copyUrl">URL kopieren</button><button class="primary" id="reload">Aktualisieren</button><button id="csv" class="hidden">CSV exportieren</button></div>
 <div id="status" class="muted" style="margin-top:10px">Lädt …</div>
 </section>
@@ -33,11 +33,11 @@
 <script>
 const $=s=>document.querySelector(s);let current=[];
 const WRAPPED_PRIVATE=Object.freeze({
- v:2,kdf:'PBKDF2-SHA256',iterations:310000,
- salt:'CUWiHAZxsaOu87AkHGPG3Q',
- iv:'PzDY7w7oFYVIdK79',
- data:'fQWw4FjsPHX-oCZRTLxdptfw0cY4zgUaM95HQw0JHGObm8oFCRp5aGhPnSxv8yJQmJVZLZQiwCgQT0W7ZUOQKBmnncSE8_pe5Z8E_UyQzWbRqA_SzRUOdAs8sB6yFSI67_AGykAE1p6VArxSjG1q0BXL9CIlTWLXGzCqPK0wxgCqHEWZDtnvVcX26x_V1q4jNx4bmetfMWSV8A',
- aad:'medidate-tracking-private-key-v2'
+ v:3,kdf:'PBKDF2-SHA256',iterations:310000,
+ salt:'8FRW7TuDk1dcegVpoRbEWQ',
+ iv:'JbfgT1gdN4YuNFdP',
+ data:'wyH8fgHoZEs1qUDlhWQQ97TIu5dli_ANsFmeNQLc5t7DB7YSphpBHnERvPTc30d8gCQABIYHf5ErxNCkuMRUFs2zNywDIw9T5ZyuNSioWWzWAJBywGuftwRLk4Mkj0_EjBHihbfAmW4_dDxxPvc3JEQvqHAdpUpbk-OUmXXP1T51PGiphxT9R1FjBE55mVSOujCy8HgVodhYBg',
+ aad:'medidate-tracking-private-key-v3'
 });
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deDate=iso=>String(iso||'').split('-').reverse().join('.');
@@ -50,12 +50,13 @@ function b64urlToBytes(s){
  for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);
  return out;
 }
-function accessKey(){
+function secretParts(){
  const raw=String(location.hash||'').replace(/^#/,'');
- return String(new URLSearchParams(raw).get('k')||'');
+ const p=new URLSearchParams(raw);
+ return {auth:String(p.get('a')||''),decrypt:String(p.get('d')||'')};
 }
-async function privateKey(key){
- const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(key),'PBKDF2',false,['deriveKey']);
+async function privateKey(decryptSecret){
+ const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(decryptSecret),'PBKDF2',false,['deriveKey']);
  const wrapKey=await crypto.subtle.deriveKey({
    name:'PBKDF2',salt:b64urlToBytes(WRAPPED_PRIVATE.salt),
    iterations:WRAPPED_PRIVATE.iterations,hash:'SHA-256'
@@ -87,11 +88,11 @@ function render(events,retention,storage,migration){
  $('#status').className='muted';$('#status').textContent=`${current.length} Datensätze geladen · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}`;
 }
 async function load(){
- const key=accessKey();$('#status').className='muted';$('#status').textContent='Lädt und entschlüsselt …';
- if(!key){$('#status').className='muted bad';$('#status').textContent='Ungültige Auswertungs-URL: Schlüssel fehlt.';return}
+ const secret=secretParts();$('#status').className='muted';$('#status').textContent='Lädt und entschlüsselt …';
+ if(!secret.auth||!secret.decrypt){$('#status').className='muted bad';$('#status').textContent='Ungültige Auswertungs-URL: Zugangs- oder Entschlüsselungsschlüssel fehlt.';return}
  try{
-  const priv=await privateKey(key);
-  const r=await fetch('/api/tracking?limit=2000',{cache:'no-store',credentials:'same-origin',headers:{'X-MediDate-Tracking-Key':key}});
+  const priv=await privateKey(secret.decrypt);
+  const r=await fetch('/api/tracking?limit=2000',{cache:'no-store',credentials:'same-origin',headers:{'X-MediDate-Tracking-Key':secret.auth}});
   const j=await r.json();
   if(!r.ok||!j.ok)throw new Error(j.error||`HTTP ${r.status}`);
   const events=[];
