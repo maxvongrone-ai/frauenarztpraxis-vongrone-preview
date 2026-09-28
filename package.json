@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.5",
+  "version": "60.10.6",
   "private": true,
-  "description": "mediDate V60.10.5: browser-direct booking with BotID-protected session token issuance; encrypted tracking and existing booking rules retained.",
+  "description": "mediDate V60.10.6: BotID-protected session flow retained; tracking assets are versioned and no-store to prevent stale cancellation-check code.",
   "engines": {
     "node": "22.x"
   },
