@@ -873,14 +873,6 @@ function chooseService(s,b,mode){
  serviceStatus.className='status';
  serviceStatus.textContent='';
 
- const pregInfo=$('#pregnancyGkvInfo');
- if(state.insurance==='GKV'&&mode==='pregnancy'){
-   pregInfo.classList.remove('hidden');
-   pregInfo.innerHTML='<strong>Hinweis zur Schwangerschaftsbetreuung:</strong> Für Schwangerschaften werden Ihnen dieselben geeigneten Starttermine angezeigt wie einer privatversicherten Neupatientin. Gesetzlich Versicherte müssen bei der Buchung bestätigen, dass sie im Kalenderquartal dieses ersten Schwangerschaftstermins wegen dieser Schwangerschaft nicht bereits in einer anderen gynäkologischen Praxis betreut wurden und in diesem Quartal auch keine entsprechende Betreuung dort in Anspruch nehmen werden.';
- }else{
-   pregInfo.classList.add('hidden');pregInfo.innerHTML='';
- }
-
  // Einmalige Slotabfrage startet sofort; die Arztauswahl ist rein lokal.
  prefetchAvailability();
  loadDoctors();
@@ -1000,7 +992,7 @@ const PREGNANCY_SHORT_TERM_DAYS=14;
 
 function pregnancyOtherPracticeQuestionHtml(namePrefix='pregOtherPractice'){
  if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';
- return `<label class="confirm"><input id="${namePrefix}Ack" type="checkbox"><span>Ich bestätige, dass ich im Kalenderquartal dieses ersten Schwangerschaftstermins wegen dieser Schwangerschaft bislang nicht in einer anderen gynäkologischen Praxis betreut wurde und in diesem Quartal auch keine entsprechende Schwangerschaftsbetreuung in einer anderen gynäkologischen Praxis in Anspruch nehmen werde.</span></label>`;
+ return `<label class="confirm"><input id="${namePrefix}Ack" type="checkbox"><span><strong>Hinweis zur Schwangerschaftsbetreuung:</strong> Ich bestätige, dass ich im Kalenderquartal dieses ersten Schwangerschaftstermins wegen dieser Schwangerschaft nicht bereits in einer anderen gynäkologischen Praxis betreut wurde und in diesem Quartal auch keine entsprechende Betreuung dort in Anspruch nehmen werde.</span></label>`;
 }
 function renderPregnancyRequestOption(days){
  const box=$('#pregnancyRequestBox');
