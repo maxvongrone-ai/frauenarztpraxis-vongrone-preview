@@ -235,14 +235,51 @@ function inStartWindow(mins,startHour,startMinute,lastHour,lastMinute){
  const last=lastHour*60+lastMinute;
  return mins>=start && mins<=last;
 }
+function hamburgEasterSundayUTC(year){
+ const a=year%19,b=Math.floor(year/100),cc=year%100,d=Math.floor(b/4),e=b%4;
+ const f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3);
+ const h=(19*a+b-d-g+15)%30,i=Math.floor(cc/4),k=cc%4;
+ const l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+ const month=Math.floor((h+l-7*m+114)/31);
+ const day=((h+l-7*m+114)%31)+1;
+ return new Date(Date.UTC(year,month-1,day));
+}
+function utcISO(d){return d.toISOString().slice(0,10)}
+function isHamburgPublicHolidayISO(iso){
+ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+ if(!m)return false;
+ const year=Number(m[1]),md=`${m[2]}-${m[3]}`;
+ if(new Set(['01-01','05-01','10-03','10-31','12-25','12-26']).has(md))return true;
+ const easter=hamburgEasterSundayUTC(year);
+ const movable=new Set([-2,1,39,50].map(offset=>{
+   const d=new Date(easter.getTime());d.setUTCDate(d.getUTCDate()+offset);return utcISO(d);
+ }));
+ return movable.has(iso);
+}
 function isPrivateOnlyWindow(slot){
+ // Reservierter Zeitraum: GKV bleibt bis zum Ende des Privatblocks vollständig draußen.
  const wd=slotWeekday(slot),mins=minutesOf(slot.time);
  if(wd===3){
-   return inStartWindow(mins,14,30,15,30) || inStartWindow(mins,16,0,16,30);
+   return mins>=14*60+30 && mins<17*60;
  }
  if(wd===4){
-   return inStartWindow(mins,8,30,9,30) || inStartWindow(mins,10,0,10,30) ||
-          inStartWindow(mins,14,30,15,30) || inStartWindow(mins,16,0,16,30);
+   if(isHamburgPublicHolidayISO(slot?.date))return false;
+   const afternoon=String(slot?.date||'')>='2026-11-05' && mins>=14*60+30 && mins<17*60;
+   const morning=String(slot?.date||'')>='2026-11-12' && mins>=8*60+30 && mins<11*60;
+   return morning||afternoon;
+ }
+ return false;
+}
+function isPrivateWindowStart(slot){
+ // Letzter Start 16:30 bzw. vormittags 10:30. Der zweite 15-Minuten-Block
+ // eines 30-Minuten-Termins darf danach noch bis 17:00 bzw. 11:00 reichen.
+ const wd=slotWeekday(slot),mins=minutesOf(slot.time);
+ if(wd===3)return inStartWindow(mins,14,30,16,30);
+ if(wd===4){
+   if(isHamburgPublicHolidayISO(slot?.date))return false;
+   const afternoon=String(slot?.date||'')>='2026-11-05' && inStartWindow(mins,14,30,16,30);
+   const morning=String(slot?.date||'')>='2026-11-12' && inStartWindow(mins,8,30,10,30);
+   return morning||afternoon;
  }
  return false;
 }
@@ -264,7 +301,11 @@ const BOOKING_POLICY=Object.freeze({
 
 function maySeeSlot(slot){
  // Fest reservierte Privat-/Selbstzahler-Sprechstunden werden niemals für GKV freigegeben.
- if(isPrivateOnlyWindow(slot))return state.insurance==='PKV'||state.insurance==='SELF';
+ // Innerhalb des Blocks dürfen Privat/Selbstzahler nur bis 16:30 bzw. 10:30 starten;
+ // 16:45 bzw. 10:45 bleiben ausschließlich als zweiter 15-Minuten-Block nutzbar.
+ if(isPrivateOnlyWindow(slot)){
+   return (state.insurance==='PKV'||state.insurance==='SELF') && isPrivateWindowStart(slot);
+ }
 
  // Akut und Schwangerschaft bleiben eigene Freigabekanäle und werden von der
  // Kontingentlogik nicht verändert.
@@ -309,22 +350,23 @@ function add15DotTime(t){
  return `${String(Math.floor(mins/60)).padStart(2,'0')}.${String(mins%60).padStart(2,'0')}`;
 }
 function needs30MinuteBlock(){
- // Alle regulären Buchungen verwenden wieder genau einen 15-Minuten-Termin.
- return false;
+ // Privat-Neupatientinnen und besondere Selbstzahlerleistungen erhalten 30 Minuten.
+ // Die Wechseljahressprechstunde bleibt ebenfalls ein 30-Minuten-Termin.
+ return isMenopauseMode() ||
+        state.insurance==='SELF' ||
+        (state.insurance==='PKV'&&state.patientType==='new');
 }
 function onlyBookableStarts(items){
  if(isMenopauseMode()){
-   // Wechseljahressprechstunde: 30 Minuten werden durch zwei unmittelbar
-   // aufeinanderfolgende freie 15-Minuten-Slots derselben Ärztin/Leistung
-   // abgesichert. Eine zusätzliche Bindung an Privatsprechstundenfenster
-   // besteht bewusst nicht.
+   // Wechseljahressprechstunde: nur in den festgelegten Privatsprechstunden
+   // und nur mit zwei unmittelbar aufeinanderfolgenden freien 15-Minuten-Slots.
    const byKey=new Map();
    for(const x of items){
      if(Number(x.duration)!==15)continue;
      byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
    }
    return items.filter(x=>{
-     if(Number(x.duration)!==15)return false;
+     if(Number(x.duration)!==15||!isPrivateWindowStart(x))return false;
      const nextTime=add15DotTime(x.time);
      if(!nextTime)return false;
      return Boolean(byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`));
@@ -350,7 +392,11 @@ function onlyBookableStarts(items){
    const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
    if(!next)return false;
 
-   return maySeeSlot(x) && maySeeSlot(next);
+   if(!maySeeSlot(x))return false;
+   // Bei einem Start um 16:30 bzw. 10:30 ist der Folgeblock 16:45 bzw. 10:45
+   // technisch Teil desselben 30-Minuten-Termins, aber kein eigener buchbarer Start.
+   if(isPrivateWindowStart(x)&&isPrivateOnlyWindow(next))return true;
+   return maySeeSlot(next);
  });
 }
 function minutesOf(t){
@@ -533,9 +579,9 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  if(state.topicMode==='acute'||state.topicMode==='pregnancy'){
    normal=allSlots.filter(maySeeSlot);
  }else if(isMenopauseMode()){
-   // Bereits auf Dr. von Grone und zusammenhängende 30-Minuten-Blöcke
-   // gefiltert; keine zusätzliche Uhrzeit-/Privatfenster-Beschränkung.
-   normal=allSlots.slice();
+   // Bereits auf Dr. von Grone, Privatsprechstunden und zusammenhängende
+   // 30-Minuten-Blöcke gefiltert.
+   normal=allSlots.filter(isPrivateWindowStart);
  }else if(state.insurance==='PKV'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
    normal=state.patientType==='new'
@@ -1182,7 +1228,7 @@ async function sendBookingTracking(slot){
      appointmentTime:String(slot.time||''),
      doctorId:String(slot.doctorId||''),
      doctorName:doctorDisplayName(slot.doctorId),
-     duration:isMenopauseMode()?30:Number(slot.duration||15),
+     duration:needs30MinuteBlock()?30:Number(slot.duration||15),
      mediDateServiceId:Number(slot?.direct?.serviceId||0)||undefined,
      mediDateDoctorId:Number(slot?.direct?.doctorId||0)||undefined,
      mediDateListReferenzId:Number(slot?.direct?.listReferenzId||0)||undefined,
@@ -1274,7 +1320,7 @@ function openBooking(slot){
  $('#bookingBox').innerHTML=`<div class="booking-card">
  <h2>Termin ${deDate(slot.date)} · ${slot.time.replace('.',':')} Uhr buchen</h2>
  <div class="summary" style="margin-bottom:14px"><strong>Ärztin: ${esc(doctorDisplayName(slot.doctorId))}</strong>${state.insurance==='SELF'?`<br><span>Leistung: ${esc(state.service?.name||'Selbstzahlerleistung')}${state.service?.price?` · <strong>${esc(state.service.price)}</strong>`:''}</span>`:''}</div>
- ${needs30MinuteBlock()?'<div class="subtle"><strong>Für Neupatientinnen werden 30 Minuten reserviert.</strong></div>':''}
+ ${needs30MinuteBlock()?'<div class="subtle"><strong>Für diesen Termin werden 30 Minuten reserviert.</strong></div>':''}
  <div class="formgrid">
    <div class="field"><label>Vorname *</label><input id="bookFirst" autocomplete="given-name"></div>
    <div class="field"><label>Nachname *</label><input id="bookLast" autocomplete="family-name"></div>
@@ -1348,6 +1394,9 @@ async function bookNow(){
  if(isMenopauseMode()&&String(state.selectedSlot?.doctorId)!==MENOPAUSE_DOCTOR_KEY){
    st.className='status bad';st.textContent='Die Wechseljahressprechstunde ist ausschließlich bei Dr. med. Friederike von Grone buchbar.';return
  }
+ if(isMenopauseMode()&&!isPrivateWindowStart(state.selectedSlot)){
+   st.className='status bad';st.textContent='Die Wechseljahressprechstunde ist ausschließlich in den festgelegten Privatsprechstunden buchbar.';return
+ }
  const tech=state.selectedSlot?.direct;
  if(!tech||!Number(tech.clientId)||!Number(tech.locationId)||!Number(tech.serviceId)||!Number(tech.doctorId)){st.className='status bad';st.textContent='Die technischen Termindaten fehlen. Bitte Terminansicht neu laden.';return}
 
@@ -1371,9 +1420,10 @@ async function bookNow(){
    }
    if(!row)throw new Error('Dieser Termin ist inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
 
-   if(isMenopauseMode()){
-     const nextTime=add15DotTime(state.selectedSlot.time);
-     let nextRow=null;
+   const need30=needs30MinuteBlock();
+   let nextTime=null,nextRow=null;
+   if(need30){
+     nextTime=add15DotTime(state.selectedSlot.time);
      for(const r of rows){
        if(String(r?.dateTimeStart||'').slice(0,10)!==String(state.selectedSlot.date))continue;
        if(Number(r?.doctorId)!==Number(tech.doctorId))continue;
@@ -1382,7 +1432,9 @@ async function bookNow(){
        if(nextTime&&(Array.isArray(r?.times)?r.times:[]).map(String).includes(String(nextTime))){nextRow=r;break}
      }
      if(!nextTime||!nextRow){
-       throw new Error('Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende 15-Minuten-Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.');
+       throw new Error(isMenopauseMode()
+         ?'Für diesen Termin der Wechseljahressprechstunde ist der direkt anschließende 15-Minuten-Termin inzwischen nicht mehr frei. Bitte wählen Sie einen anderen Termin.'
+         :'Für diesen 30-Minuten-Termin sind nicht mehr zwei unmittelbar aufeinanderfolgende 15-Minuten-Termine frei. Bitte wählen Sie einen anderen Termin.');
      }
    }
 
@@ -1391,29 +1443,45 @@ async function bookNow(){
    if(isMenopauseMode())flags.push('Selbstzahler: Wechseljahressprechstunde');
    if(state.topicMode==='pregnancy')flags.push('Schwangerschaft');
    if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'&&pregnancyOtherPractice)flags.push(`Andere gyn. Schwangerschaftsvorsorge/-betreuung lfd. Quartal: ${pregnancyOtherPractice==='yes'?'JA':'NEIN'}`);
+   if(need30)flags.push('30 Min. / 2 Blöcke');
    const now=new Date().toISOString();
-   const payload={
-     id:0,appointmentCode:'',mediSoftId:0,
-     clientId:Number(s.clientId),locationId:Number(s.locationId),
-     doctorId:Number(tech.doctorId),serviceId:Number(tech.serviceId),
-     listReferenzId:Number(tech.listReferenzId||0),timeSlotId:0,type:'Online',state:1,
-     dueDate:`${state.selectedSlot.date}T${String(state.selectedSlot.time).replace('.',':')}:00`,
-     duration:Number(tech.duration||state.selectedSlot.duration||15),dayOfYear:0,
-     calenderWeek:Number(tech.calendarWeek||row?.calendarWeek||row?.calenderWeek||0),
-     birthDate:patient.birthDate,firstName:patient.firstName,lastName:patient.lastName,
-     ticketid:'',sex:'Frau',mobilePhone:'',eMailAddress:patient.email,
-     comment:flags.length?`[${flags.join(' | ')}]`:'',
-     createdOn:now,changedOn:now
-   };
+   function payloadFor(time,rowForTime,extra=''){
+     return {
+       id:0,appointmentCode:'',mediSoftId:0,
+       clientId:Number(s.clientId),locationId:Number(s.locationId),
+       doctorId:Number(tech.doctorId),serviceId:Number(tech.serviceId),
+       listReferenzId:Number(rowForTime?.listReferenzId||tech.listReferenzId||0),timeSlotId:0,type:'Online',state:1,
+       dueDate:`${state.selectedSlot.date}T${String(time).replace('.',':')}:00`,
+       duration:Number(rowForTime?.duration||tech.duration||state.selectedSlot.duration||15),dayOfYear:0,
+       calenderWeek:Number(rowForTime?.calendarWeek||rowForTime?.calenderWeek||tech.calendarWeek||0),
+       birthDate:patient.birthDate,firstName:patient.firstName,lastName:patient.lastName,
+       ticketid:'',sex:'Frau',mobilePhone:'',eMailAddress:patient.email,
+       comment:[flags.length?`[${flags.join(' | ')}]`:'',extra].filter(Boolean).join(' '),
+       createdOn:now,changedOn:now
+     };
+   }
 
-   // Entscheidend: dieser POST geht direkt vom Browser zu mediDate.
-   const result=await directMediDateRequest('appointments',{method:'POST',body:payload});
-   const code=directAppointmentCode(result);
+   // Entscheidend: diese POSTs gehen direkt vom Browser zu mediDate.
+   const result1=await directMediDateRequest('appointments',{method:'POST',body:payloadFor(state.selectedSlot.time,row,need30?'[Block 1/2]':'')});
+   let result2=null;
+   if(need30){
+     try{
+       st.textContent='Erster 15-Minuten-Block bestätigt. Zweiter Block wird direkt bei mediDate gebucht …';
+       result2=await directMediDateRequest('appointments',{method:'POST',body:payloadFor(nextTime,nextRow,'[Block 2/2]')});
+     }catch(e){
+       const partial=new Error(e?.code==='BOOKING_STATUS_UNCLEAR'
+         ?'Der erste 15-Minuten-Block wurde gebucht. Beim zweiten Block ist der Buchungsstatus nicht eindeutig. Bitte nicht erneut buchen und die Praxis unter 040 / 603 81 41 kontaktieren.'
+         :'Der erste 15-Minuten-Block wurde gebucht, der zweite konnte nicht bestätigt werden. Bitte nicht erneut buchen und die Praxis unter 040 / 603 81 41 kontaktieren.');
+       partial.code='PARTIAL_30_MIN_BOOKING';
+       throw partial;
+     }
+   }
+   const codes=[directAppointmentCode(result1),directAppointmentCode(result2)].filter(Boolean);
    const doctorName=doctorDisplayName(state.selectedSlot.doctorId);
    void sendBookingTracking(state.selectedSlot);
 
-   const cancelHtml=code
-     ?`<div class="private-note"><strong>Online-Stornierung</strong><div style="margin-top:8px"><a href="https://portal.medidate.org/Appointment/Cancel/${encodeURIComponent(code)}" target="_blank" rel="noopener noreferrer">Termin bei mediDate stornieren</a></div></div>`
+   const cancelHtml=codes.length
+     ?`<div class="private-note"><strong>Online-Stornierung</strong>${codes.map((code,i)=>`<div style="margin-top:8px"><a href="https://portal.medidate.org/Appointment/Cancel/${encodeURIComponent(code)}" target="_blank" rel="noopener noreferrer">${codes.length>1?`Teil ${i+1} von ${codes.length} stornieren`:'Termin bei mediDate stornieren'}</a></div>`).join('')}${codes.length>1?'<div class="subtle">Der 30-Minuten-Termin besteht technisch aus zwei 15-Minuten-Blöcken; bei einer vollständigen Absage bitte beide stornieren.</div>':''}</div>`
      :'<div class="subtle">Für diesen Termin wurde kein Online-Stornierungscode zurückgegeben. Bitte wenden Sie sich bei einer Absage an die Praxis.</div>';
 
    $('#bookingBox').innerHTML=`<div class="success">
@@ -1424,8 +1492,13 @@ async function bookNow(){
      <button type="button" class="primary" id="downloadIcs">Kalendereintrag herunterladen</button>
      ${cancelHtml}
    </div>`;
-   $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:state.selectedSlot.date,time:state.selectedSlot.time,duration:isMenopauseMode()?30:Number(tech.duration||15),doctorName});
+   $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:state.selectedSlot.date,time:state.selectedSlot.time,duration:need30?30:Number(tech.duration||15),doctorName});
  }catch(e){
+   if(e?.code==='PARTIAL_30_MIN_BOOKING'){
+     st.className='status bad';
+     st.innerHTML=`${esc(e.message)} <strong>Bitte klicken Sie nicht erneut auf „Termin verbindlich buchen“.</strong>`;
+     btn.disabled=true;return;
+   }
    if(e?.name==='AbortError'||e?.code==='BOOKING_STATUS_UNCLEAR'){
      st.className='status bad';
      st.innerHTML='Der Buchungsstatus bei mediDate konnte nicht eindeutig bestätigt werden. <strong>Bitte nicht mehrfach absenden.</strong> Prüfen Sie eine mögliche Bestätigung oder kontaktieren Sie die Praxis unter 040 / 603 81 41.';
