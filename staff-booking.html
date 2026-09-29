@@ -79,11 +79,14 @@
         <div id="chainStatus" class="status"></div>
         <div id="chainTable" class="tablewrap hidden">
           <table>
-            <thead><tr><th>SSW</th><th>Zielzeitraum</th><th>Dauer / Besonderheit</th><th>Termin</th></tr></thead>
+            <thead><tr><th>Buchen</th><th>SSW</th><th>Zielzeitraum</th><th>Dauer / Besonderheit</th><th>Termin</th><th>Status</th></tr></thead>
             <tbody id="chainRows"></tbody>
           </table>
         </div>
-        <div id="chainBookActions" class="actions hidden"><button id="bookChain" class="primary">Ausgewählte Termine buchen</button></div>
+        <div id="chainBookActions" class="hidden">
+          <label class="check confirm-chain"><input id="chainConfirm" type="checkbox"> Ich habe die berechnete Terminkette geprüft und bestätige die Buchung aller angehakten Termine.</label>
+          <div class="actions"><button id="bookChain" class="primary" disabled>Angehakte Termine verbindlich buchen</button></div>
+        </div>
         <div id="chainBookStatus" class="status"></div>
       </div>
     </section>
