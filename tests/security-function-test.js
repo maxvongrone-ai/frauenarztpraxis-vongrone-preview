@@ -125,7 +125,7 @@ assert(staffJs.includes('1. Trimestertest 199,11 €'),'Optional first-trimester
 assert(staffJs.includes('const chosen=regular.length?regular:eligible.filter(is45);'),':45 starts must be fallback-only within a pregnancy SSW');
 assert(staffJs.includes("route==='PKV'&&pat==='new'&&i===firstFuture"),'First future pregnancy appointment for a PKV new patient must reserve 30 minutes');
 assert(staffJs.includes("payload(second,live.second,p,comment+' [Block 2/2]',false)"),'Second 15-minute staff booking block must suppress the second patient email');
-assert(staff.includes('id="chainConfirm"')&&staff.includes('data-chain-book'),'Staff pregnancy chain must require explicit review confirmation and per-row booking checkmarks');
+assert(staff.includes('id="chainConfirm"')&&staffJs.includes('data-chain-book'),'Staff pregnancy chain must require explicit review confirmation and per-row booking checkmarks');
 assert(staffJs.includes("Kein geeigneter Termin frei – bitte manuell in mediDate buchen."),'Missing pregnancy-chain weeks must be explicitly marked for manual booking');
 assert(staffJs.includes("r.booked=true")&&staffJs.includes("✓ Gebucht"),'Successfully booked chain appointments must be persistently marked in the current session');
 assert(staffJs.includes("if(!check.checked||check.disabled||row?.booked)continue;"),'Already booked or unchecked chain appointments must never be rebooked');
