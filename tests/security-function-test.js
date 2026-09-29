@@ -119,7 +119,7 @@ assert(index.includes("if(isHamburgPublicHolidayISO(day))continue;"),'All Hambur
 assert(index.includes("if(isHamburgPublicHolidayISO(state.selectedSlot?.date))"),'Final booking guard must reject Hamburg public holidays');
 assert(index.includes("mins<17*60"),'Afternoon private-only protection must end before 17:00');
 assert(index.includes("mins<11*60"),'Morning private-only protection must end before 11:00');
-assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.15'),'Staff booking assets must be external and versioned');
+assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.16'),'Staff booking assets must be external and versioned');
 assert(!staff.includes('<style>')&&!staff.includes('<script>'),'Staff booking page must not contain inline style/script blocks');
 assert(staffAuthLib.includes('HttpOnly')&&staffAuthLib.includes('SameSite=Strict')&&staffAuthLib.includes('Secure'),'Staff auth cookie must be HttpOnly, Secure and SameSite Strict');
 assert(staffSession.includes('isAuthenticated(req)'),'Staff mediDate session must require staff authentication');
@@ -157,7 +157,7 @@ assert(staffJs.includes("if(!matches.length)return [];"),'Staff-only direct serv
 assert(staffJs.includes("for(const svc of matches)"),'Staff-only direct service discovery must aggregate all enabled matching mediDate services');
 assert(staffJs.includes("for(const g of (bundle?.groups||[]))"),'Menopause staff availability must use the same public live bundle as the online booking app');
 assert(staffJs.includes("if(x.doctorKey!=='vongrone')continue;"),'Menopause staff availability must remain restricted to Dr. von Grone');
-assert(staffJs.includes("route==='GKV'\n     ?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular']]"),'GKV staff single-service menu must match the public booking app');
+assert(staffJs.includes("route==='GKV'\n     ?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular'],['vorsorge','Schwangerschaft','pregnancy']]"),'GKV staff single-service menu must include pregnancy for existing and new patients');
 assert(staffJs.includes("['SPIRALE','Spirale Einlage · 216,69 €','spirale']"),'Spiral insertion must remain an additional staff-only self-pay booking type');
 assert(staffJs.includes("r.booked=true")&&staffJs.includes("✓ Gebucht"),'Successfully booked chain appointments must be persistently marked in the current session');
 assert(staffJs.includes("if(row?.past||row?.booked||!row?.plannedSlot)continue;"),'Past, already booked, or manually-booked chain rows must never be automatically rebooked');
