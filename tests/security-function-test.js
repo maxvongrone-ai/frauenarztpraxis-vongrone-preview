@@ -142,8 +142,8 @@ assert(staffJs.includes("if(!prev||minutesOf(x.time)>minutesOf(prev.time))byDay.
 assert(staffJs.includes("servicePattern:/spiral|intrauterin|iud/i"),'Spiral insertion must use its dedicated mediDate service when configured');
 assert(staffJs.includes("Spirale Einlage: Es wird pro Tag ausschließlich der späteste freie Randtermin angezeigt."),'Staff UI must explain the spiral edge-slot rule');
 assert(staffJs.includes("r.booked=true")&&staffJs.includes("✓ Gebucht"),'Successfully booked chain appointments must be persistently marked in the current session');
-assert(staffJs.includes("if(row?.past||row?.booked||!row?.candidates?.length)continue;"),'Past, already booked, or manually-booked chain rows must never be automatically rebooked');
-assert(staffJs.includes("const openAuto=chainRowsState.some(r=>!r.past&&r.candidates.length>0&&!r.booked);"),'Global chain confirmation may enable booking only when an unbooked automatic appointment remains');
+assert(staffJs.includes("if(row?.past||row?.booked||!row?.plannedSlot)continue;"),'Past, already booked, or manually-booked chain rows must never be automatically rebooked');
+assert(staffJs.includes("const openAuto=chainRowsState.some(r=>!r.past&&r.plannedSlot&&!r.booked);"),'Global chain confirmation may enable booking only when an unbooked planned appointment remains');
 assert(staffJs.includes("$('#chainConfirm').checked=false"),'Chain confirmation must reset after booking/review');
 assert(staffJs.includes("Für jeden gebuchten SSW-Termin erhält die Patientin eine eigene E-Mailbestätigung."),'Staff UI must state one patient email confirmation per booked SSW appointment');
 assert(staffJs.includes("payload(slot,live.first,p,firstComment,true)"),'Every logical appointment must send the patient email on its first 15-minute block');
