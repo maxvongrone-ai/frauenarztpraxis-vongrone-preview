@@ -106,6 +106,8 @@ assert(index.includes("normal=state.insurance==='GKV'\n     ?allSlots.slice()\n 
 assert(index.includes("bis spätestens zur <strong>7. SSW</strong>"),'All pregnancy booking paths must show the SSW-7 contact-practice notice');
 assert(index.includes("if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';"),'Quarter confirmation must apply to all GKV pregnancy bookings');
 assert(index.includes("bookPregOtherPracticeAck"),'GKV pregnancy booking must require an explicit quarter confirmation checkbox');
+assert(index.includes("<strong>Hinweis zur Schwangerschaftsbetreuung:</strong> Ich bestätige, dass ich im Kalenderquartal dieses ersten Schwangerschaftstermins wegen dieser Schwangerschaft nicht bereits in einer anderen gynäkologischen Praxis betreut wurde und in diesem Quartal auch keine entsprechende Betreuung dort in Anspruch nehmen werde."),'GKV pregnancy confirmation checkbox must use the approved wording');
+assert(!index.includes("Für Schwangerschaften werden Ihnen dieselben geeigneten Starttermine angezeigt wie einer privatversicherten Neupatientin."),'GKV pregnancy confirmation must not be shown before the booking form');
 assert(index.includes("GKV Schwangerschaft: keine andere gyn. Schwangerschaftsbetreuung im Quartal bestätigt"),'Confirmed GKV pregnancy quarter status must be recorded in the mediDate booking comment');
 assert(index.includes("function isQuarter45Start(slot)"),'Quarter-to-hour slots must have a dedicated visibility guard');
 assert(index.includes("if(!needs30MinuteBlock())return items.filter(x=>!isQuarter45Start(x));"),':45 must never be shown as a regular online start');
