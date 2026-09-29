@@ -131,6 +131,7 @@ function filterSingle(all,{route,patient,topic,doctor}){
  }).sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 function optionText(x,duration){return deDate(x.date)+' · '+x.time.replace('.',':')+' · '+DOCTORS[x.doctorKey]+' · '+duration+' Min.'}
+function chainOptionText(x){return deDate(x.date)+' · '+x.time.replace('.',':')+' Uhr'}
 
 async function authState(){
  const r=await fetch('/api/staff-auth',{cache:'no-store',credentials:'same-origin'}),j=await r.json().catch(()=>null);
@@ -300,18 +301,18 @@ async function buildChain(){
 
      const fallback=r.candidates.length&&r.candidates.every(is45);
      const canBook=!r.past&&r.candidates.length>0;
-     if(!r.past&&!r.candidates.length)detail+=' · derzeit nicht buchbar';
+     if(!r.past&&!r.candidates.length)detail+=' · noch kein Termin gefunden – manuell buchen';
 
      let terminHtml='';
      if(r.past){
        terminHtml='<span class="muted">Bereits vergangen</span>';
      }else if(canBook){
-       const options=r.candidates.map((x,j)=>'<option value="'+j+'">'+esc(optionText(x,r.duration))+(is45(x)?' · Ausnahme :45':'')+'</option>').join('');
+       const options=r.candidates.map((x,j)=>'<option value="'+j+'">'+esc(chainOptionText(x))+(is45(x)?' · Ausnahme :45':'')+'</option>').join('');
        terminHtml='<select data-chain-index="'+i+'">'+options+'</select>'+
          (fallback?'<div class="fallback">Nur :45-Ausnahmetermine verfügbar</div>':'')+
          '<div data-chain-status="'+i+'"></div>';
      }else{
-       terminHtml='<span class="missing">Manuell zu buchen</span>';
+       terminHtml='<span class="muted">—</span>';
      }
 
      return '<tr data-chain-row="'+i+'>'+
