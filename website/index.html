@@ -1049,6 +1049,66 @@ body.frame-editing .edit-help{display:block}
 }
 
 
+/* Temporärer Praxishinweis 01.10.2026 – automatische Ausblendung ab 02.10.2026 */
+.praxis-alert{
+  width:100%;
+  overflow:hidden;
+  background:#fff;
+  color:var(--wine);
+  border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);
+  font-size:clamp(12px,1.45vw,16px);
+  line-height:1.45;
+  padding:9px 0 8px;
+}
+.praxis-alert[hidden]{display:none !important}
+.praxis-alert__track{
+  display:flex;
+  width:max-content;
+  min-width:100%;
+  align-items:center;
+  gap:72px;
+  white-space:nowrap;
+  will-change:transform;
+  animation:praxis-alert-scroll 36s linear infinite;
+}
+.praxis-alert__track span{
+  display:inline-block;
+  padding-left:28px;
+}
+@keyframes praxis-alert-scroll{
+  from{transform:translateX(0)}
+  to{transform:translateX(calc(-50% - 36px))}
+}
+@media (max-width:700px){
+  .praxis-alert{
+    font-size:13px;
+    padding:8px 0 7px;
+  }
+  .praxis-alert__track{
+    gap:48px;
+    animation-duration:32s;
+  }
+  .praxis-alert__track span{
+    padding-left:18px;
+  }
+  @keyframes praxis-alert-scroll{
+    from{transform:translateX(0)}
+    to{transform:translateX(calc(-50% - 24px))}
+  }
+}
+@media (prefers-reduced-motion:reduce){
+  .praxis-alert__track{
+    width:100%;
+    justify-content:center;
+    white-space:normal;
+    text-align:center;
+    animation:none;
+  }
+  .praxis-alert__track span{padding:0 16px}
+  .praxis-alert__track span[aria-hidden="true"]{display:none}
+}
+
 /* SEO-interne Verlinkung: optisch unverändert */
 .services li a{
   color:inherit;
@@ -1069,9 +1129,15 @@ body.frame-editing .edit-help{display:block}
       <div data-edit>Dr. med. Christina Moxter</div>
     </div>
     <a class="booking-top" href="https://medidate-v604-fast-booking-blob-oid.vercel.app/" target="_blank" rel="noopener">TERMINBUCHUNG</a>
-    <div class="notice" data-edit>Bitte beachten Sie unsere Regelung zu Terminabsagen und Ausfallhonoraren.</div>
     <a class="phone" href="tel:+49406038141" data-edit>Telefon (Mo-Fr 12-14 Uhr): 040-603 81 41</a>
   </header>
+
+  <div id="praxis-alert-20261001" class="praxis-alert" hidden role="status" aria-live="polite">
+    <div class="praxis-alert__track">
+      <span><strong>Hinweis:</strong>&nbsp;&nbsp;<strong>Am 01.10.2026 ist unsere Praxis nachmittags ab 14:00 Uhr geschlossen.</strong></span>
+      <span aria-hidden="true"><strong>Hinweis:</strong>&nbsp;&nbsp;<strong>Am 01.10.2026 ist unsere Praxis nachmittags ab 14:00 Uhr geschlossen.</strong></span>
+    </div>
+  </div>
 
   <section class="hero">
     <div class="hero-copy">
@@ -1228,5 +1294,22 @@ body.frame-editing .edit-help{display:block}
 
 <a class="to-top" href="#top">↑</a>
 
+<script>
+(function(){
+  var banner=document.getElementById('praxis-alert-20261001');
+  if(!banner)return;
+  function berlinDate(){
+    var parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+    var map={};
+    parts.forEach(function(p){if(p.type!=='literal')map[p.type]=p.value;});
+    return map.year+'-'+map.month+'-'+map.day;
+  }
+  function updateBanner(){
+    banner.hidden=berlinDate()>='2026-10-02';
+  }
+  updateBanner();
+  window.setInterval(updateBanner,60000);
+})();
+</script>
 </body>
 </html>
