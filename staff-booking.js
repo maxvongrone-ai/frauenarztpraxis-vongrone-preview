@@ -372,8 +372,7 @@ async function buildChain(){
    $('#chainConfirm').checked=false;
    $('#chainConfirm').onchange=updateChainBookButton;
    updateChainBookButton();
-   const missing=chainRowsState.filter(r=>!r.past&&!r.candidates.length).length;
-   status(st,missing?('Terminkette berechnet. '+missing+' Termin'+(missing===1?' muss':'e müssen')+' mangels freier Zeit manuell gebucht werden. Bitte die übrigen Termine prüfen und anschließend bestätigen.'):'Terminkette berechnet. Bitte alle Termine prüfen und anschließend bestätigen.',missing?'warn':'ok');
+   status(st,'Terminkette berechnet. Bitte alle Termine prüfen und anschließend bestätigen.','ok');
  }catch(e){status(st,e.message,'bad')}
 }
 async function bookChain(){
