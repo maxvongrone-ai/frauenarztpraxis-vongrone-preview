@@ -315,7 +315,7 @@ function chainCandidates(all,{route,doctor,range,duration,morning}){
 }
 function updateChainBookButton(){
  const confirm=$('#chainConfirm'),btn=$('#bookChain');
- const openAuto=chainRowsState.some(r=>!r.past&&r.candidates.length>0&&!r.booked);
+ const openAuto=chainRowsState.some(r=>!r.past&&r.plannedSlot&&!r.booked);
  btn.disabled=!(confirm?.checked&&openAuto);
 }
 function chainRowStatusHtml(row){
@@ -420,8 +420,8 @@ async function bookChain(){
    $('#chainConfirm').checked=false;
    updateChainBookButton();
    bundle=null;
-   const remaining=chainRowsState.filter(r=>!r.past&&r.candidates.length&&!r.booked).length;
-   const manual=chainRowsState.filter(r=>!r.past&&!r.candidates.length).length;
+   const remaining=chainRowsState.filter(r=>!r.past&&r.plannedSlot&&!r.booked).length;
+   const manual=chainRowsState.filter(r=>!r.past&&!r.plannedSlot).length;
    let msg='Erfolgreich gebucht: '+bookedNow.join(', ')+'. SSW.';
    if(remaining)msg+=' '+remaining+' automatisch buchbare Termin'+(remaining===1?' ist':'e sind')+' noch offen.';
    if(manual)msg+=' '+manual+' Termin'+(manual===1?' muss':'e müssen')+' weiterhin manuell gebucht werden.';
