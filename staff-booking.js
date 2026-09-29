@@ -268,8 +268,8 @@ function chainCandidates(all,{route,doctor,range,duration,morning}){
 }
 function updateChainBookButton(){
  const confirm=$('#chainConfirm'),btn=$('#bookChain');
- const openChecked=$$('[data-chain-book]').some(x=>x.checked&&!x.disabled);
- btn.disabled=!(confirm?.checked&&openChecked);
+ const openAuto=chainRowsState.some(r=>!r.past&&r.candidates.length>0&&!r.booked);
+ btn.disabled=!(confirm?.checked&&openAuto);
 }
 function chainRowStatusHtml(row){
  if(row.past)return '<span class="muted">bereits vergangen</span>';
@@ -300,20 +300,16 @@ async function buildChain(){
 
      const fallback=r.candidates.length&&r.candidates.every(is45);
      const canBook=!r.past&&r.candidates.length>0;
-     if(!r.past&&!r.candidates.length)detail+=' · derzeit nicht automatisch buchbar';
+     if(!r.past&&!r.candidates.length)detail+=' · derzeit nicht buchbar';
 
      let terminHtml='';
      if(r.past){
-       terminHtml='<span class="muted">SSW bereits vergangen</span>';
+       terminHtml='<span class="muted">Bereits vergangen</span>';
      }else if(canBook){
        const options=r.candidates.map((x,j)=>'<option value="'+j+'">'+esc(optionText(x,r.duration))+(is45(x)?' · Ausnahme :45':'')+'</option>').join('');
-       terminHtml=
-         '<div class="chain-book-line">'+
-           '<label class="chain-row-check"><input type="checkbox" data-chain-book="'+i+'" checked aria-label="'+r.ssw+'. SSW buchen"> buchen</label>'+
-           '<select data-chain-index="'+i+'">'+options+'</select>'+
-         '</div>'+
+       terminHtml='<select data-chain-index="'+i+'">'+options+'</select>'+
          (fallback?'<div class="fallback">Nur :45-Ausnahmetermine verfügbar</div>':'')+
-         '<div data-chain-status="'+i+'>'+chainRowStatusHtml(r)+'</div>';
+         '<div data-chain-status="'+i+'"></div>';
      }else{
        terminHtml='<span class="missing">Manuell zu buchen</span>';
      }
@@ -327,11 +323,10 @@ async function buildChain(){
    }).join('');
    $('#chainTable').classList.remove('hidden');$('#chainBookActions').classList.remove('hidden');
    $('#chainConfirm').checked=false;
-   $$('[data-chain-book]').forEach(x=>x.onchange=updateChainBookButton);
    $('#chainConfirm').onchange=updateChainBookButton;
    updateChainBookButton();
    const missing=chainRowsState.filter(r=>!r.past&&!r.candidates.length).length;
-   status(st,missing?('Terminkette berechnet. '+missing+' Termin'+(missing===1?' muss':'e müssen')+' mangels freier Zeit manuell gebucht werden. Bitte die übrigen Termine prüfen und anschließend bestätigen.'):'Terminkette berechnet. Bitte alle Termine prüfen und anschließend die angehakten Termine bestätigen.',missing?'warn':'ok');
+   status(st,missing?('Terminkette berechnet. '+missing+' Termin'+(missing===1?' muss':'e müssen')+' mangels freier Zeit manuell gebucht werden. Bitte die übrigen Termine prüfen und anschließend bestätigen.'):'Terminkette berechnet. Bitte alle Termine prüfen und anschließend bestätigen.',missing?'warn':'ok');
  }catch(e){status(st,e.message,'bad')}
 }
 async function bookChain(){
@@ -340,15 +335,15 @@ async function bookChain(){
    if(!$('#chainConfirm')?.checked)throw new Error('Bitte die Prüfung der Terminkette mit dem Häkchen bestätigen.');
    const p=patient('#preg'),route=$('#pregRoute').value,pat=$('#pregPatient').value;
    const selected=[];
-   for(const check of $$('[data-chain-book]')){
-     const idx=Number(check.dataset.chainBook),row=chainRowsState[idx];
-     if(!check.checked||check.disabled||row?.booked)continue;
+   for(let idx=0;idx<chainRowsState.length;idx++){
+     const row=chainRowsState[idx];
+     if(row?.past||row?.booked||!row?.candidates?.length)continue;
      const sel=$('[data-chain-index="'+idx+'"]');
      if(!sel||sel.disabled||sel.value==='')continue;
-     const slot=row?.candidates?.[Number(sel.value)];
+     const slot=row.candidates[Number(sel.value)];
      if(slot)selected.push({idx,row,slot});
    }
-   if(!selected.length)throw new Error('Es sind keine noch offenen, angehakten Schwangerschaftstermine ausgewählt.');
+   if(!selected.length)throw new Error('Es sind keine noch offenen automatisch geplanten Schwangerschaftstermine vorhanden.');
 
    $('#bookChain').disabled=true;
    status(st,'Die bestätigten Termine werden jetzt einzeln in mediDate gebucht. Für jeden gebuchten SSW-Termin erhält die Patientin eine eigene E-Mailbestätigung.','');
@@ -365,10 +360,9 @@ async function bookChain(){
        // eine Patientenbestätigung pro SSW-Termin ausgelöst wird.
        await bookAppointment(slot,r.duration,p,'['+flags.join(' | ')+']');
        r.booked=true;bookedNow.push(r.ssw);
-       const check=$('[data-chain-book="'+idx+'"]'),sel=$('[data-chain-index="'+idx+'"]'),cell=$('[data-chain-status="'+idx+'"]');
-       if(check){check.checked=true;check.disabled=true}
+       const sel=$('[data-chain-index="'+idx+'"]'),cell=$('[data-chain-status="'+idx+'"]');
        if(sel)sel.disabled=true;
-       if(cell)cell.innerHTML=chainRowStatusHtml(r);
+       if(cell)cell.innerHTML='<span class="booked">✓ Gebucht</span>';
      }catch(e){
        const cell=$('[data-chain-status="'+idx+'"]');
        if(cell)cell.innerHTML='<span class="missing">Nicht gebucht – bitte prüfen</span>';
