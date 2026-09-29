@@ -13,7 +13,6 @@
   "dependencies": {
     "@vercel/blob": "2.8.0",
     "botid": "1.5.11",
-    "esbuild": "0.28.2",
-    "ssh2-sftp-client": "11.0.0"
+    "esbuild": "0.28.2"
   }
 }
