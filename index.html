@@ -362,7 +362,37 @@ function needs30MinuteBlock(){
         state.insurance==='SELF' ||
         (state.insurance==='PKV'&&state.patientType==='new');
 }
+function pregnancyPrivateNewStartPool(items){
+ const byKey=new Map();
+ for(const x of items){
+   if(Number(x.duration)!==15)continue;
+   byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
+ }
+ return items.filter(x=>{
+   if(Number(x.duration)!==15||isQuarter45Start(x))return false;
+   const nextTime=add15DotTime(x.time);
+   if(!nextTime)return false;
+   const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
+   if(!next)return false;
+
+   // Sichtbarkeit exakt wie bei einer PKV-Neupatientin:
+   // Privatsprechstunden dürfen als Start genutzt werden, der :45-Folgeblock
+   // bleibt lediglich technischer Teil des 30-Minuten-Fensters.
+   if(isPrivateOnlyWindow(x)&&!isPrivateWindowStart(x))return false;
+   if(isPrivateWindowStart(x)&&isPrivateOnlyWindow(next))return true;
+   if(isPrivateOnlyWindow(next)&&!isPrivateWindowStart(next))return false;
+   return true;
+ });
+}
+
 function onlyBookableStarts(items){
+ if(state.topicMode==='pregnancy'&&(
+   (state.insurance==='PKV'&&state.patientType==='new') ||
+   state.insurance==='GKV'
+ )){
+   return pregnancyPrivateNewStartPool(items);
+ }
+
  if(isMenopauseMode()){
    // Wechseljahressprechstunde: nur in den festgelegten Privatsprechstunden
    // und nur mit zwei unmittelbar aufeinanderfolgenden freien 15-Minuten-Slots.
@@ -585,8 +615,12 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
    :[];
 
  let normal;
- if(state.topicMode==='acute'||state.topicMode==='pregnancy'){
+ if(state.topicMode==='acute'){
    normal=allSlots.filter(maySeeSlot);
+ }else if(state.topicMode==='pregnancy'){
+   normal=state.insurance==='GKV'
+     ?allSlots.slice()
+     :allSlots.filter(maySeeSlot);
  }else if(isMenopauseMode()){
    // Bereits auf Dr. von Grone, Privatsprechstunden und zusammenhängende
    // 30-Minuten-Blöcke gefiltert.
@@ -760,6 +794,7 @@ function loadServices(){
  // GKV bleibt auf den regulär freigegebenen Terminarten.
  const list=DEFAULT_SERVICES.filter(s=>['vorsorge','followup'].includes(String(s.id)));
  list.forEach(s=>addServiceButton(s));
+ addPregnancyButton(list);
 
  // Keine Hintergrundabfrage hier: der Slot-Request der gewählten Leistung
  // bekommt absolute Priorität.
@@ -839,9 +874,9 @@ function chooseService(s,b,mode){
  serviceStatus.textContent='';
 
  const pregInfo=$('#pregnancyGkvInfo');
- if(state.insurance==='GKV'&&state.patientType==='new'&&mode==='pregnancy'){
+ if(state.insurance==='GKV'&&mode==='pregnancy'){
    pregInfo.classList.remove('hidden');
-   pregInfo.innerHTML='<strong>Hinweis zur Schwangerschaftsbetreuung:</strong> Für Schwangerschaften werden Ihnen alle geeigneten freien Termine angezeigt. Vor dem Absenden der Buchung bzw. einer Terminanfrage bitten wir Sie außerdem um eine Ja/Nein-Angabe dazu, ob Sie im laufenden Kalenderquartal bereits Schwangerschaftsvorsorge bzw. Betreuung nach den Mutterschafts-Richtlinien in einer anderen gynäkologischen Praxis in Anspruch genommen haben oder dort vor diesem Termin noch eine solche Betreuung geplant ist.';
+   pregInfo.innerHTML='<strong>Hinweis zur Schwangerschaftsbetreuung:</strong> Für Schwangerschaften werden Ihnen dieselben geeigneten Starttermine angezeigt wie einer privatversicherten Neupatientin. Gesetzlich Versicherte müssen bei der Buchung bestätigen, dass sie im Kalenderquartal dieses ersten Schwangerschaftstermins wegen dieser Schwangerschaft nicht bereits in einer anderen gynäkologischen Praxis betreut wurden und in diesem Quartal auch keine entsprechende Betreuung dort in Anspruch nehmen werden.';
  }else{
    pregInfo.classList.add('hidden');pregInfo.innerHTML='';
  }
@@ -964,39 +999,21 @@ function buildAvailableDays(raw){
 const PREGNANCY_SHORT_TERM_DAYS=14;
 
 function pregnancyOtherPracticeQuestionHtml(namePrefix='pregOtherPractice'){
- if(!(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'))return '';
- return `<div class="private-note">
-   <strong>Betreuung im laufenden Kalenderquartal</strong>
-   <div class="subtle" style="font-size:13px;margin-top:4px">Haben Sie im laufenden Kalenderquartal bereits Schwangerschaftsvorsorge bzw. Betreuung nach den Mutterschafts-Richtlinien in einer anderen gynäkologischen Praxis in Anspruch genommen oder ist dort vor diesem Termin noch eine solche Betreuung geplant?</div>
-   <div class="radio-row">
-     <label><input type="radio" name="${namePrefix}" value="yes"> Ja</label>
-     <label><input type="radio" name="${namePrefix}" value="no"> Nein</label>
-   </div>
-   <div class="subtle">Diese Angabe dient der Koordination der Schwangerschaftsbetreuung und der Abrechnung. Auch bei „Ja“ können Sie die Buchung bzw. Terminanfrage fortsetzen; medizinisch erforderliche Versorgung bleibt hiervon unberührt.</div>
- </div>`;
-}
-function pregnancyOtherPracticeValue(namePrefix){
- const el=document.querySelector(`input[name="${namePrefix}"]:checked`);
- return el?el.value:'';
-}
-function hasShortTermPregnancySlot(days){
- const horizon=localISO(addDays(new Date(),PREGNANCY_SHORT_TERM_DAYS));
- return [...(days?.keys?.()||[])].some(d=>d<=horizon);
+ if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';
+ return `<label class="confirm"><input id="${namePrefix}Ack" type="checkbox"><span>Ich bestätige, dass ich im Kalenderquartal dieses ersten Schwangerschaftstermins wegen dieser Schwangerschaft bislang nicht in einer anderen gynäkologischen Praxis betreut wurde und in diesem Quartal auch keine entsprechende Schwangerschaftsbetreuung in einer anderen gynäkologischen Praxis in Anspruch nehmen werde.</span></label>`;
 }
 function renderPregnancyRequestOption(days){
  const box=$('#pregnancyRequestBox');
  if(!box)return;
- if(state.topicMode!=='pregnancy'||hasShortTermPregnancySlot(days)){
+ if(state.topicMode!=='pregnancy'){
    box.classList.add('hidden');box.innerHTML='';return;
  }
  box.classList.remove('hidden');
- box.innerHTML=`<strong>Kein kurzfristiger Schwangerschaftstermin verfügbar?</strong>
-   Aus Datenschutzgründen gibt es in dieser Website-Version kein eigenes Patienten-Postfach.
-   Sie können weiterhin einen späteren freien Schwangerschaftstermin auswählen oder die Praxis direkt telefonisch kontaktieren.
+ box.innerHTML=`<strong>Hinweis für Schwangere:</strong>
+   Wenn Ihnen kein kurzfristiger Termin bis spätestens zur <strong>7. SSW</strong> angezeigt wird, melden Sie sich bitte direkt in der Praxis.
    <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
-     <a class="primary" style="text-decoration:none;display:inline-block" href="tel:+49406038141">Praxis anrufen</a>
-   </div>
-   <div class="subtle">Bei akuter Lebensgefahr wählen Sie 112; außerhalb der Sprechzeiten steht der ärztliche Bereitschaftsdienst unter 116 117 zur Verfügung.</div>`;
+     <a class="primary" style="text-decoration:none;display:inline-block" href="tel:+49406038141">Praxis anrufen: 040 / 603 81 41</a>
+   </div>`;
 }
 
 
@@ -1386,10 +1403,14 @@ async function bookNow(){
  if(btn.disabled)return;
  if(String($('#bookWebsite')?.value||'').trim()){st.className='status bad';st.textContent='Buchung konnte nicht geprüft werden.';return}
 
- let pregnancyOtherPractice='';
- if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'){
-   pregnancyOtherPractice=pregnancyOtherPracticeValue('bookPregOtherPractice');
-   if(!pregnancyOtherPractice){st.className='status bad';st.textContent='Bitte mit Ja oder Nein angeben, ob im laufenden Kalenderquartal bereits Schwangerschaftsvorsorge bzw. Betreuung in einer anderen gynäkologischen Praxis erfolgt ist oder vor diesem Termin noch geplant ist.';return}
+ let pregnancyQuarterConfirmed=false;
+ if(state.insurance==='GKV'&&state.topicMode==='pregnancy'){
+   pregnancyQuarterConfirmed=Boolean($('#bookPregOtherPracticeAck')?.checked);
+   if(!pregnancyQuarterConfirmed){
+     st.className='status bad';
+     st.textContent='Bitte bestätigen Sie, dass Sie im Kalenderquartal dieses ersten Schwangerschaftstermins wegen dieser Schwangerschaft nicht in einer anderen gynäkologischen Praxis betreut wurden und dort in diesem Quartal auch keine entsprechende Betreuung in Anspruch nehmen werden.';
+     return;
+   }
  }
  if(state.insurance==='PKV'&&!$('#goaeAck')?.checked){st.className='status bad';st.textContent='Bitte die Hinweise zur privatärztlichen Abrechnung bestätigen.';return}
  if(state.insurance==='SELF'&&!$('#privateRequestAck')?.checked){st.className='status bad';st.textContent='Bitte bestätigen Sie die freiwillige Selbstzahler-/Privatbehandlung auf eigenen Wunsch und eigene Kosten.';return}
@@ -1460,7 +1481,7 @@ async function bookNow(){
    if(state.insurance==='SELF')flags.push('IGeL/Selbstzahler');
    if(isMenopauseMode())flags.push('Selbstzahler: Wechseljahressprechstunde');
    if(state.topicMode==='pregnancy')flags.push('Schwangerschaft');
-   if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'&&pregnancyOtherPractice)flags.push(`Andere gyn. Schwangerschaftsvorsorge/-betreuung lfd. Quartal: ${pregnancyOtherPractice==='yes'?'JA':'NEIN'}`);
+   if(state.insurance==='GKV'&&state.topicMode==='pregnancy'&&pregnancyQuarterConfirmed)flags.push('GKV Schwangerschaft: keine andere gyn. Schwangerschaftsbetreuung im Quartal bestätigt');
    if(need30)flags.push('30 Min. / 2 Blöcke');
    const now=new Date().toISOString();
    function payloadFor(time,rowForTime,extra='',sendEmail=true){
