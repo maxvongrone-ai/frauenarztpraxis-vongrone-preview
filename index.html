@@ -303,6 +303,8 @@ function maySeeSlot(slot){
  // Fest reservierte Privat-/Selbstzahler-Sprechstunden werden niemals für GKV freigegeben.
  // Innerhalb des Blocks dürfen Privat/Selbstzahler nur bis 16:30 bzw. 10:30 starten;
  // 16:45 bzw. 10:45 bleiben ausschließlich als zweiter 15-Minuten-Block nutzbar.
+ // Ab 17:00 Uhr bzw. ab 11:00 Uhr ist dieses Privatfenster beendet. Danach greifen
+ // für weitere Sprechstunden desselben Tages wieder die normalen PKV-/GKV-Regeln.
  if(isPrivateOnlyWindow(slot)){
    return (state.insurance==='PKV'||state.insurance==='SELF') && isPrivateWindowStart(slot);
  }
@@ -909,6 +911,9 @@ function buildAvailableDays(raw){
  const now=new Date(),candidateSlots=[];
  for(const item of raw){
    const r=item.row,day=(r.dateTimeStart||'').slice(0,10);
+   // An gesetzlichen Feiertagen in Hamburg werden grundsätzlich keine
+   // Online-Termine angezeigt – unabhängig von Versicherung, Leistung oder Kontingent.
+   if(isHamburgPublicHolidayISO(day))continue;
    if(day<rule.earliest && day!==SPECIAL_OPEN_DATE)continue;
    for(const tv of (r.times||[])){
      const t=typeof tv==='string'?tv:String(tv?.time||'');
@@ -1389,6 +1394,9 @@ async function bookNow(){
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patient.email)){st.className='status bad';st.textContent='Bitte eine gültige E-Mail-Adresse eingeben.';return}
 
  const rule=currentRule(),specialOverride=specialOpenBookingAllowed(state.selectedSlot);
+ if(isHamburgPublicHolidayISO(state.selectedSlot?.date)){
+   st.className='status bad';st.textContent='An gesetzlichen Feiertagen in Hamburg sind keine Online-Termine buchbar.';return
+ }
  if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
  if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return}
  if(isMenopauseMode()&&String(state.selectedSlot?.doctorId)!==MENOPAUSE_DOCTOR_KEY){
