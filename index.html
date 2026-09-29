@@ -352,8 +352,9 @@ function add15DotTime(t){
  return `${String(Math.floor(mins/60)).padStart(2,'0')}.${String(mins%60).padStart(2,'0')}`;
 }
 function needs30MinuteBlock(){
- // 30-Minuten-Termine werden technisch als zwei direkt aufeinanderfolgende
- // 15-Minuten-Blöcke gebucht. Schwangerschaft bleibt ein 15-Minuten-Termin.
+ // Schwangerschaft bleibt unabhängig vom Versicherungs-/Neupatientinnenstatus 15 Minuten.
+ // Alle übrigen hier definierten 30-Minuten-Termine werden als zwei 15-Minuten-Blöcke gebucht.
+ if(state.topicMode==='pregnancy')return false;
  return isMenopauseMode() ||
         state.insurance==='SELF' ||
         (state.insurance==='PKV'&&state.patientType==='new');
