@@ -109,7 +109,7 @@ assert(index.includes("if(isHamburgPublicHolidayISO(day))continue;"),'All Hambur
 assert(index.includes("if(isHamburgPublicHolidayISO(state.selectedSlot?.date))"),'Final booking guard must reject Hamburg public holidays');
 assert(index.includes("mins<17*60"),'Afternoon private-only protection must end before 17:00');
 assert(index.includes("mins<11*60"),'Morning private-only protection must end before 11:00');
-assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.8'),'Staff booking assets must be external and versioned');
+assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.9'),'Staff booking assets must be external and versioned');
 assert(!staff.includes('<style>')&&!staff.includes('<script>'),'Staff booking page must not contain inline style/script blocks');
 assert(staffAuthLib.includes('HttpOnly')&&staffAuthLib.includes('SameSite=Strict')&&staffAuthLib.includes('Secure'),'Staff auth cookie must be HttpOnly, Secure and SameSite Strict');
 assert(staffSession.includes('isAuthenticated(req)'),'Staff mediDate session must require staff authentication');
@@ -125,13 +125,14 @@ assert(staffJs.includes('1. Trimestertest 199,11 €'),'Optional first-trimester
 assert(staffJs.includes('const chosen=regular.length?regular:eligible.filter(is45);'),':45 starts must be fallback-only within a pregnancy SSW');
 assert(staffJs.includes("route==='PKV'&&pat==='new'&&i===firstFuture"),'First future pregnancy appointment for a PKV new patient must reserve 30 minutes');
 assert(staffJs.includes("payload(second,live.second,p,comment+' [Block 2/2]',false)"),'Second 15-minute staff booking block must suppress the second patient email');
-assert(staff.includes('id="chainConfirm"')&&staffJs.includes('data-chain-book'),'Staff pregnancy chain must require explicit review confirmation and per-row booking checkmarks');
+assert(staff.includes('id="chainConfirm"')&&!staffJs.includes('data-chain-book'),'Staff pregnancy chain must use one explicit review confirmation without per-row booking checkboxes');
 assert(staff.includes('<th>SSW</th><th>Zielzeitraum</th><th>Dauer / Besonderheit</th><th>Termin</th>'),'Pregnancy chain table must retain the requested four-column structure');
-assert(staffJs.includes("detail+=' · derzeit nicht automatisch buchbar'"),'Unavailable SSW rows must state non-bookability in Dauer / Besonderheit');
+assert(staffJs.includes("detail+=' · derzeit nicht buchbar'"),'Unavailable SSW rows must state non-bookability in Dauer / Besonderheit');
 assert(staffJs.includes("terminHtml='<span class=\"missing\">Manuell zu buchen</span>'"),'Unavailable SSW rows must remain visible and show manual booking in Termin');
 assert(staffJs.includes("return '<tr data-chain-row=\"'+i+'>'"),'Every calculated SSW must render as a complete table row');
 assert(staffJs.includes("r.booked=true")&&staffJs.includes("✓ Gebucht"),'Successfully booked chain appointments must be persistently marked in the current session');
-assert(staffJs.includes("if(!check.checked||check.disabled||row?.booked)continue;"),'Already booked or unchecked chain appointments must never be rebooked');
+assert(staffJs.includes("if(row?.past||row?.booked||!row?.candidates?.length)continue;"),'Past, already booked, or manually-booked chain rows must never be automatically rebooked');
+assert(staffJs.includes("const openAuto=chainRowsState.some(r=>!r.past&&r.candidates.length>0&&!r.booked);"),'Global chain confirmation may enable booking only when an unbooked automatic appointment remains');
 assert(staffJs.includes("$('#chainConfirm').checked=false"),'Chain confirmation must reset after booking/review');
 assert(staffJs.includes("Für jeden gebuchten SSW-Termin erhält die Patientin eine eigene E-Mailbestätigung."),'Staff UI must state one patient email confirmation per booked SSW appointment');
 assert(staffJs.includes("payload(slot,live.first,p,firstComment,true)"),'Every logical appointment must send the patient email on its first 15-minute block');
