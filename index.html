@@ -1459,7 +1459,7 @@ async function bookNow(){
    if(state.insurance==='GKV'&&state.patientType==='new'&&state.topicMode==='pregnancy'&&pregnancyOtherPractice)flags.push(`Andere gyn. Schwangerschaftsvorsorge/-betreuung lfd. Quartal: ${pregnancyOtherPractice==='yes'?'JA':'NEIN'}`);
    if(need30)flags.push('30 Min. / 2 Blöcke');
    const now=new Date().toISOString();
-   function payloadFor(time,rowForTime,extra=''){
+   function payloadFor(time,rowForTime,extra='',sendEmail=true){
      return {
        id:0,appointmentCode:'',mediSoftId:0,
        clientId:Number(s.clientId),locationId:Number(s.locationId),
@@ -1469,7 +1469,7 @@ async function bookNow(){
        duration:Number(rowForTime?.duration||tech.duration||state.selectedSlot.duration||15),dayOfYear:0,
        calenderWeek:Number(rowForTime?.calendarWeek||rowForTime?.calenderWeek||tech.calendarWeek||0),
        birthDate:patient.birthDate,firstName:patient.firstName,lastName:patient.lastName,
-       ticketid:'',sex:'Frau',mobilePhone:'',eMailAddress:patient.email,
+       ticketid:'',sex:'Frau',mobilePhone:'',eMailAddress:sendEmail?patient.email:'',
        comment:[flags.length?`[${flags.join(' | ')}]`:'',extra].filter(Boolean).join(' '),
        createdOn:now,changedOn:now
      };
@@ -1481,7 +1481,7 @@ async function bookNow(){
    if(need30){
      try{
        st.textContent='Erster 15-Minuten-Block bestätigt. Zweiter Block wird direkt bei mediDate gebucht …';
-       result2=await directMediDateRequest('appointments',{method:'POST',body:payloadFor(nextTime,nextRow,'[Block 2/2]')});
+       result2=await directMediDateRequest('appointments',{method:'POST',body:payloadFor(nextTime,nextRow,'[Block 2/2]',false)});
      }catch(e){
        const partial=new Error(e?.code==='BOOKING_STATUS_UNCLEAR'
          ?'Der erste 15-Minuten-Block wurde gebucht. Beim zweiten Block ist der Buchungsstatus nicht eindeutig. Bitte nicht erneut buchen und die Praxis unter 040 / 603 81 41 kontaktieren.'
