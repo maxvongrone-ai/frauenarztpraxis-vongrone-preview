@@ -336,7 +336,8 @@ async function buildChain(){
      const special30=r.ssw===22||r.ssw===26||(r.ssw===14&&test)||(route==='PKV'&&pat==='new'&&i===firstFuture);
      const duration=special30?30:15,morning=r.ssw===26;
      const candidates=chainCandidates(all,{route,doctor,range:r,duration,morning});
-     return {...r,duration,morning,candidates,test:r.ssw===14&&test,past:r.end<today,booked:false};
+     const plannedSlot=candidates[0]||null;
+     return {...r,duration,morning,candidates,plannedSlot,test:r.ssw===14&&test,past:r.end<today,booked:false};
    });
    $('#chainRows').innerHTML=chainRowsState.map((r,i)=>{
      let detail=r.duration+' Min.';
@@ -345,26 +346,29 @@ async function buildChain(){
      if(r.ssw===26)detail+=' · morgens · Zuckertest';
      if(route==='PKV'&&pat==='new'&&i===firstFuture)detail+=' · PKV-Ersttermin';
 
-     const fallback=r.candidates.length&&r.candidates.every(is45);
-     const canBook=!r.past&&r.candidates.length>0;
-     if(!r.past&&!r.candidates.length)detail+=' · Termin muss manuell gebucht werden';
+     const hasSlot=!r.past&&Boolean(r.plannedSlot);
+     const fallback=hasSlot&&is45(r.plannedSlot);
+
+     let detailHtml='<div>'+esc(detail)+'</div>';
+     if(!r.past&&!r.plannedSlot){
+       detailHtml+='<div class="missing">Termin muss manuell gebucht werden</div>';
+     }
 
      let terminHtml='';
      if(r.past){
        terminHtml='<span class="muted">Bereits vergangen</span>';
-     }else if(canBook){
-       const options=r.candidates.map((x,j)=>'<option value="'+j+'">'+esc(chainOptionText(x))+(is45(x)?' · Ausnahme :45':'')+'</option>').join('');
-       terminHtml='<select data-chain-index="'+i+'">'+options+'</select>'+
-         (fallback?'<div class="fallback">Nur :45-Ausnahmetermine verfügbar</div>':'')+
+     }else if(hasSlot){
+       terminHtml='<span data-chain-time="'+i+'">'+esc(chainOptionText(r.plannedSlot))+'</span>'+
+         (fallback?'<div class="fallback">Ausnahme :45</div>':'')+
          '<div data-chain-status="'+i+'"></div>';
      }else{
-       terminHtml='<span class="muted">—</span>';
+       terminHtml='';
      }
 
      return '<tr data-chain-row="'+i+'>'+
        '<td><strong>'+r.ssw+'. SSW</strong></td>'+
        '<td>'+deDate(r.start)+' – '+deDate(r.end)+'</td>'+
-       '<td>'+esc(detail)+'</td>'+
+       '<td>'+detailHtml+'</td>'+
        '<td>'+terminHtml+'</td>'+
      '</tr>';
    }).join('');
@@ -383,11 +387,8 @@ async function bookChain(){
    const selected=[];
    for(let idx=0;idx<chainRowsState.length;idx++){
      const row=chainRowsState[idx];
-     if(row?.past||row?.booked||!row?.candidates?.length)continue;
-     const sel=$('[data-chain-index="'+idx+'"]');
-     if(!sel||sel.disabled||sel.value==='')continue;
-     const slot=row.candidates[Number(sel.value)];
-     if(slot)selected.push({idx,row,slot});
+     if(row?.past||row?.booked||!row?.plannedSlot)continue;
+     selected.push({idx,row,slot:row.plannedSlot});
    }
    if(!selected.length)throw new Error('Es sind keine noch offenen automatisch geplanten Schwangerschaftstermine vorhanden.');
 
@@ -406,8 +407,7 @@ async function bookChain(){
        // eine Patientenbestätigung pro SSW-Termin ausgelöst wird.
        await bookAppointment(slot,r.duration,p,'['+flags.join(' | ')+']');
        r.booked=true;bookedNow.push(r.ssw);
-       const sel=$('[data-chain-index="'+idx+'"]'),cell=$('[data-chain-status="'+idx+'"]');
-       if(sel)sel.disabled=true;
+       const cell=$('[data-chain-status="'+idx+'"]');
        if(cell)cell.innerHTML='<span class="booked">✓ Gebucht</span>';
      }catch(e){
        const cell=$('[data-chain-status="'+idx+'"]');
