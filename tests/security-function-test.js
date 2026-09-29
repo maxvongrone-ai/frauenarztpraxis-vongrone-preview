@@ -19,7 +19,7 @@ const pkg=JSON.parse(read('package.json'));
 
 assert(booking.includes('res.statusCode=410'),'Legacy /api/booking must stay disabled');
 assert(!index.includes("fetch('/api/booking'"),'Frontend must not send patient booking data to Vercel');
-assert(index.includes("directMediDateRequest('appointments',{method:'POST',body:payload})"),'Patient booking must remain browser-direct to mediDate');
+assert(index.includes("directMediDateRequest('appointments',{method:'POST',body:payloadFor("),'Patient booking must remain browser-direct to mediDate');
 
 assert(index.includes("alg:'ECDH-P256+A256GCM'"),'Tracking must be encrypted in the browser');
 assert(index.includes('trackingNonce')&&index.includes('trackingProof'),'Opaque tracking proof must be present');
@@ -85,10 +85,14 @@ assert(index.includes("const MENOPAUSE_DOCTOR_KEY='vongrone'"),'Menopause doctor
 assert(index.includes("if(isMenopauseMode()&&String(r.doctorKey)!==MENOPAUSE_DOCTOR_KEY)continue"),'Menopause availability must exclude other doctors');
 assert(index.includes("Die Wechseljahressprechstunde ist ausschließlich bei Dr. med. Friederike von Grone buchbar."),'Final menopause booking guard must reject other doctors');
 assert(index.includes("Wechseljahressprechstunde ausschließlich bei dieser Ärztin"),'Menopause doctor UI must expose only the dedicated doctor path');
-assert(index.includes("Eine zusätzliche Bindung an Privatsprechstundenfenster"),'Menopause availability must document removal of private-window restriction');
-assert(!index.includes("normal=allSlots.filter(x=>maySeeSlot(x)&&isPrivateOnlyWindow(x))"),'Menopause visibility must not be restricted to private-only windows');
-assert(!index.includes("!isPrivateOnlyWindow(state.selectedSlot)||!isPrivateOnlyWindow(nextSlot)"),'Final menopause booking check must not require private-only windows');
+assert(index.includes("Wechseljahressprechstunde: nur in den festgelegten Privatsprechstunden"),'Menopause availability must be restricted to private consultation windows');
+assert(index.includes("normal=allSlots.filter(isPrivateWindowStart)"),'Menopause visibility must stay inside private consultation start windows');
+assert(index.includes("if(isMenopauseMode()&&!isPrivateWindowStart(state.selectedSlot))"),'Final menopause booking guard must enforce private consultation windows');
 assert(index.includes("return Boolean(byKey.get("),'Menopause booking starts must still require the following 15-minute slot');
+assert(index.includes("state.insurance==='SELF' ||")&&index.includes("(state.insurance==='PKV'&&state.patientType==='new')"),'Self-pay and private new patients must reserve 30 minutes');
+assert(index.includes("payloadFor(nextTime,nextRow,'[Block 2/2]')"),'30-minute bookings must reserve the second 15-minute mediDate block');
+assert(index.includes("String(slot?.date||'')>='2026-11-05'")&&index.includes("String(slot?.date||'')>='2026-11-12'"),'Thursday private consultation start dates must be fixed');
+assert(index.includes("isHamburgPublicHolidayISO(slot?.date)"),'Thursday private consultation windows must exclude Hamburg public holidays');
 assert(dashboardJs.length>1000&&adminJs.length>100,'External internal-page scripts must be present');
 
 for(const source of ['/tracking.js','/botid-client.js']){
