@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>MA-Terminbuchung – Frauenarztpraxis von Grone</title>
+<link rel="stylesheet" href="/staff-booking.css">
+</head>
+<body>
+<div class="wrap">
+  <section class="panel" id="loginPanel">
+    <div class="eyebrow">Interner Bereich</div>
+    <h1>MA-Terminbuchung</h1>
+    <p class="muted">Nur für Mitarbeitende der Praxis. Patientendaten werden beim Buchen direkt aus diesem Browser an mediDate übertragen.</p>
+    <div class="loginrow">
+      <input id="password" type="password" autocomplete="current-password" placeholder="MA-Passwort">
+      <button id="login" class="primary">Anmelden</button>
+    </div>
+    <div id="loginStatus" class="status"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <section class="panel topbar">
+      <div><div class="eyebrow">Interner Bereich</div><h1>MA-Terminbuchung</h1></div>
+      <button id="logout">Abmelden</button>
+    </section>
+
+    <section class="panel">
+      <div class="tabs">
+        <button class="tab active" data-tab="single">Einzeltermin</button>
+        <button class="tab" data-tab="pregnancy">Schwangerschaftskette</button>
+      </div>
+
+      <div id="singleTab">
+        <h2>Einzeltermin nach den bestehenden Online-Regeln</h2>
+        <div class="grid">
+          <label>Versicherung<select id="singleRoute"></select></label>
+          <label>Patientin<select id="singlePatient"><option value="existing">Bestandspatientin</option><option value="new">Neupatientin</option></select></label>
+          <label>Terminart<select id="singleService"></select></label>
+          <label>Ärztin<select id="singleDoctor"><option value="0">beliebig</option><option value="moxter">Dr. med. Christina Moxter</option><option value="vongrone">Dr. med. Friederike von Grone</option></select></label>
+        </div>
+        <div class="actions"><button id="loadSingle" class="primary">Freie Termine laden</button></div>
+        <div id="singleNote" class="note hidden"></div>
+        <label class="wide">Termin<select id="singleSlot"><option value="">Bitte zuerst Termine laden</option></select></label>
+        <div class="patientbox">
+          <h3>Patientin</h3>
+          <div class="grid">
+            <label>Vorname<input id="singleFirst" autocomplete="given-name"></label>
+            <label>Nachname<input id="singleLast" autocomplete="family-name"></label>
+            <label>Geburtsdatum<input id="singleBirth" type="date" autocomplete="bday"></label>
+            <label>E-Mail<input id="singleEmail" type="email" autocomplete="email"></label>
+          </div>
+        </div>
+        <div class="actions"><button id="bookSingle" class="primary">Termin buchen</button></div>
+        <div id="singleStatus" class="status"></div>
+      </div>
+
+      <div id="pregnancyTab" class="hidden">
+        <h2>Durchgehende Schwangerschafts-Terminplanung</h2>
+        <p class="muted">Aus dem errechneten Empfängnisdatum werden die Zielwochen 7, 10, 14, 18, 22, 26, 30, 32, 34, 36, 38 und 40 berechnet. :45-Uhr-Termine werden nur als Ausnahme angeboten, wenn in der jeweiligen SSW kein anderer geeigneter Start frei ist.</p>
+        <div class="grid">
+          <label>Versicherung<select id="pregRoute"><option value="GKV">GKV</option><option value="PKV">PKV</option></select></label>
+          <label>Patientin<select id="pregPatient"><option value="existing">Bestandspatientin</option><option value="new">Neupatientin</option></select></label>
+          <label>Ärztin<select id="pregDoctor"><option value="0">beliebig</option><option value="moxter">Dr. med. Christina Moxter</option><option value="vongrone">Dr. med. Friederike von Grone</option></select></label>
+          <label>Errechnetes Empfängnisdatum<input id="conceptionDate" type="date"></label>
+        </div>
+        <label class="check"><input id="firstTrimester" type="checkbox"> 14. SSW: zusätzlich 15 Min. für <strong>1. Trimestertest</strong> als Selbstzahlerleistung · <strong>199,11 €</strong></label>
+        <div class="patientbox">
+          <h3>Patientin</h3>
+          <div class="grid">
+            <label>Vorname<input id="pregFirst" autocomplete="given-name"></label>
+            <label>Nachname<input id="pregLast" autocomplete="family-name"></label>
+            <label>Geburtsdatum<input id="pregBirth" type="date" autocomplete="bday"></label>
+            <label>E-Mail<input id="pregEmail" type="email" autocomplete="email"></label>
+          </div>
+        </div>
+        <div class="actions"><button id="buildChain" class="primary">Terminkette berechnen</button></div>
+        <div id="chainStatus" class="status"></div>
+        <div id="chainTable" class="tablewrap hidden">
+          <table>
+            <thead><tr><th>SSW</th><th>Zielzeitraum</th><th>Dauer / Besonderheit</th><th>Termin</th></tr></thead>
+            <tbody id="chainRows"></tbody>
+          </table>
+        </div>
+        <div id="chainBookActions" class="actions hidden"><button id="bookChain" class="primary">Ausgewählte Termine buchen</button></div>
+        <div id="chainBookStatus" class="status"></div>
+      </div>
+    </section>
+  </div>
+</div>
+<script src="/botid-client.js?v=60.10.7"></script>
+<script src="/staff-booking.js?v=60.10.7" defer></script>
+</body>
+</html>
