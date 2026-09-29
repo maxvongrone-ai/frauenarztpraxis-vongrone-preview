@@ -339,39 +339,62 @@ async function buildChain(){
      const plannedSlot=candidates[0]||null;
      return {...r,duration,morning,candidates,plannedSlot,test:r.ssw===14&&test,past:r.end<today,booked:false};
    });
-   $('#chainRows').innerHTML=chainRowsState.map((r,i)=>{
+   const chainBody=$('#chainRows');
+   chainBody.replaceChildren();
+   chainRowsState.forEach((r,i)=>{
      let detail=r.duration+' Min.';
      if(r.test)detail+=' · 1. Trimestertest 199,11 €';
      if(r.ssw===22)detail+=' · 30-Min.-Termin';
      if(r.ssw===26)detail+=' · morgens · Zuckertest';
      if(route==='PKV'&&pat==='new'&&i===firstFuture)detail+=' · PKV-Ersttermin';
 
-     const hasSlot=!r.past&&Boolean(r.plannedSlot);
-     const fallback=hasSlot&&is45(r.plannedSlot);
+     const tr=document.createElement('tr');
+     tr.dataset.chainRow=String(i);
 
-     let detailHtml='<div>'+esc(detail)+'</div>';
+     const sswTd=document.createElement('td');
+     const sswStrong=document.createElement('strong');
+     sswStrong.textContent=r.ssw+'. SSW';
+     sswTd.appendChild(sswStrong);
+
+     const rangeTd=document.createElement('td');
+     rangeTd.textContent=deDate(r.start)+' – '+deDate(r.end);
+
+     const detailTd=document.createElement('td');
+     const detailLine=document.createElement('div');
+     detailLine.textContent=detail;
+     detailTd.appendChild(detailLine);
      if(!r.past&&!r.plannedSlot){
-       detailHtml+='<div class="missing">Termin muss manuell gebucht werden</div>';
+       const manual=document.createElement('div');
+       manual.className='missing';
+       manual.textContent='Termin muss manuell gebucht werden';
+       detailTd.appendChild(manual);
      }
 
-     let terminHtml='';
+     const terminTd=document.createElement('td');
      if(r.past){
-       terminHtml='<span class="muted">Bereits vergangen</span>';
-     }else if(hasSlot){
-       terminHtml='<span data-chain-time="'+i+'">'+esc(chainOptionText(r.plannedSlot))+'</span>'+
-         (fallback?'<div class="fallback">Ausnahme :45</div>':'')+
-         '<div data-chain-status="'+i+'"></div>';
-     }else{
-       terminHtml='';
+       const past=document.createElement('span');
+       past.className='muted';
+       past.textContent='Bereits vergangen';
+       terminTd.appendChild(past);
+     }else if(r.plannedSlot){
+       const time=document.createElement('span');
+       time.dataset.chainTime=String(i);
+       time.textContent=chainOptionText(r.plannedSlot);
+       terminTd.appendChild(time);
+       if(is45(r.plannedSlot)){
+         const fallback=document.createElement('div');
+         fallback.className='fallback';
+         fallback.textContent='Ausnahme :45';
+         terminTd.appendChild(fallback);
+       }
+       const bookingStatus=document.createElement('div');
+       bookingStatus.dataset.chainStatus=String(i);
+       terminTd.appendChild(bookingStatus);
      }
 
-     return '<tr data-chain-row="'+i+'>'+
-       '<td><strong>'+r.ssw+'. SSW</strong></td>'+
-       '<td>'+deDate(r.start)+' – '+deDate(r.end)+'</td>'+
-       '<td>'+detailHtml+'</td>'+
-       '<td>'+terminHtml+'</td>'+
-     '</tr>';
-   }).join('');
+     tr.append(sswTd,rangeTd,detailTd,terminTd);
+     chainBody.appendChild(tr);
+   });
    $('#chainTable').classList.remove('hidden');$('#chainBookActions').classList.remove('hidden');
    $('#chainConfirm').checked=false;
    $('#chainConfirm').onchange=updateChainBookButton;
