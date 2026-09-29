@@ -109,7 +109,7 @@ assert(index.includes("if(isHamburgPublicHolidayISO(day))continue;"),'All Hambur
 assert(index.includes("if(isHamburgPublicHolidayISO(state.selectedSlot?.date))"),'Final booking guard must reject Hamburg public holidays');
 assert(index.includes("mins<17*60"),'Afternoon private-only protection must end before 17:00');
 assert(index.includes("mins<11*60"),'Morning private-only protection must end before 11:00');
-assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.13'),'Staff booking assets must be external and versioned');
+assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.14'),'Staff booking assets must be external and versioned');
 assert(!staff.includes('<style>')&&!staff.includes('<script>'),'Staff booking page must not contain inline style/script blocks');
 assert(staffAuthLib.includes('HttpOnly')&&staffAuthLib.includes('SameSite=Strict')&&staffAuthLib.includes('Secure'),'Staff auth cookie must be HttpOnly, Secure and SameSite Strict');
 assert(staffSession.includes('isAuthenticated(req)'),'Staff mediDate session must require staff authentication');
@@ -127,13 +127,14 @@ assert(staffJs.includes("route==='PKV'&&pat==='new'&&i===firstFuture"),'First fu
 assert(staffJs.includes("payload(second,live.second,p,comment+' [Block 2/2]',false)"),'Second 15-minute staff booking block must suppress the second patient email');
 assert(staff.includes('id="chainConfirm"')&&!staffJs.includes('data-chain-book'),'Staff pregnancy chain must use one explicit review confirmation without per-row booking checkboxes');
 assert(staff.includes('<th>SSW</th><th>Zielzeitraum</th><th>Dauer / Besonderheit</th><th>Termin</th>'),'Pregnancy chain table must retain the requested four-column structure');
-assert(staffJs.includes('<div class="missing">Termin muss manuell gebucht werden</div>'),'Unavailable SSW rows must state manual booking only under Dauer / Besonderheit');
+assert(staffJs.includes("manual.textContent='Termin muss manuell gebucht werden'"),'Unavailable SSW rows must state manual booking only under Dauer / Besonderheit');
 assert(!staffJs.includes("mangels freier Zeit manuell gebucht werden"),'Pregnancy-chain summary must not duplicate manual-booking warnings above the table');
-assert(staffJs.includes("}else{\n       terminHtml='';\n     }"),'Unavailable SSW rows must keep the Termin cell empty');
-assert(staffJs.includes("return '<tr data-chain-row=\"'+i+'>'"),'Every calculated SSW must render as a complete table row');
+assert(staffJs.includes("const terminTd=document.createElement('td');"),'Pregnancy chain must create a dedicated Termin table cell');
+assert(staffJs.includes("tr.append(sswTd,rangeTd,detailTd,terminTd);"),'Every calculated SSW must render as exactly four table cells');
 assert(staffJs.includes("function chainOptionText(x){return deDate(x.date)+' · '+x.time.replace('.',':')+' Uhr'}"),'Pregnancy-chain Termin column must show only date and time');
 assert(staffJs.includes("const plannedSlot=candidates[0]||null;"),'Pregnancy chain must calculate one fixed planned appointment per SSW');
 assert(!staffJs.includes('data-chain-index'),'Pregnancy chain must not render appointment dropdowns');
+assert(staffJs.includes("chainBody.replaceChildren()")&&staffJs.includes("document.createElement('tr')"),'Pregnancy chain rows must be rendered with DOM table elements, not fragile tbody innerHTML');
 assert(staffJs.includes("selected.push({idx,row,slot:row.plannedSlot});"),'Pregnancy booking must use the reviewed fixed planned appointment');
 assert(staffJs.includes("['SPIRALE','Spirale Einlage · 216,69 €','spirale']"),'Staff self-pay booking types must include spiral insertion');
 assert(staffJs.includes("if(topic==='spirale')return false;"),'Spiral insertion must remain a 15-minute appointment');
