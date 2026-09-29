@@ -297,12 +297,33 @@ async function buildChain(){
      if(r.ssw===22)detail+=' · 30-Min.-Termin';
      if(r.ssw===26)detail+=' · morgens · Zuckertest';
      if(route==='PKV'&&pat==='new'&&i===firstFuture)detail+=' · PKV-Ersttermin';
+
      const fallback=r.candidates.length&&r.candidates.every(is45);
      const canBook=!r.past&&r.candidates.length>0;
-     const options=r.past?'<option value="">SSW bereits vergangen</option>':r.candidates.length?r.candidates.map((x,j)=>'<option value="'+j+'">'+esc(optionText(x,r.duration))+(is45(x)?' · Ausnahme :45':'')+'</option>').join(''):'<option value="">Kein geeigneter freier Termin in dieser SSW</option>';
-     const check=canBook?'<input type="checkbox" data-chain-book="'+i+'" checked aria-label="'+r.ssw+'. SSW buchen">':'';
-     const manual=!r.past&&!r.candidates.length?'<div class="missing">Kein geeigneter Termin frei – bitte manuell in mediDate buchen.</div>':'';
-     return '<tr data-chain-row="'+i+'><td>'+check+'</td><td><strong>'+r.ssw+'. SSW</strong></td><td>'+deDate(r.start)+' – '+deDate(r.end)+'</td><td>'+esc(detail)+'</td><td><select data-chain-index="'+i+'" '+(canBook?'':'disabled')+'>'+options+'</select>'+(fallback?'<div class="fallback">Nur :45-Ausnahmetermine verfügbar</div>':'')+manual+'</td><td data-chain-status="'+i+'>'+chainRowStatusHtml(r)+'</td></tr>';
+     if(!r.past&&!r.candidates.length)detail+=' · derzeit nicht automatisch buchbar';
+
+     let terminHtml='';
+     if(r.past){
+       terminHtml='<span class="muted">SSW bereits vergangen</span>';
+     }else if(canBook){
+       const options=r.candidates.map((x,j)=>'<option value="'+j+'">'+esc(optionText(x,r.duration))+(is45(x)?' · Ausnahme :45':'')+'</option>').join('');
+       terminHtml=
+         '<div class="chain-book-line">'+
+           '<label class="chain-row-check"><input type="checkbox" data-chain-book="'+i+'" checked aria-label="'+r.ssw+'. SSW buchen"> buchen</label>'+
+           '<select data-chain-index="'+i+'">'+options+'</select>'+
+         '</div>'+
+         (fallback?'<div class="fallback">Nur :45-Ausnahmetermine verfügbar</div>':'')+
+         '<div data-chain-status="'+i+'>'+chainRowStatusHtml(r)+'</div>';
+     }else{
+       terminHtml='<span class="missing">Manuell zu buchen</span>';
+     }
+
+     return '<tr data-chain-row="'+i+'>'+
+       '<td><strong>'+r.ssw+'. SSW</strong></td>'+
+       '<td>'+deDate(r.start)+' – '+deDate(r.end)+'</td>'+
+       '<td>'+esc(detail)+'</td>'+
+       '<td>'+terminHtml+'</td>'+
+     '</tr>';
    }).join('');
    $('#chainTable').classList.remove('hidden');$('#chainBookActions').classList.remove('hidden');
    $('#chainConfirm').checked=false;
