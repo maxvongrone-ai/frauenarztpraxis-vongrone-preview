@@ -352,9 +352,11 @@ function add15DotTime(t){
  return `${String(Math.floor(mins/60)).padStart(2,'0')}.${String(mins%60).padStart(2,'0')}`;
 }
 function needs30MinuteBlock(){
- // Privat-Neupatientinnen und besondere Selbstzahlerleistungen erhalten 30 Minuten.
- // Die Wechseljahressprechstunde bleibt ebenfalls ein 30-Minuten-Termin.
- return isMenopauseMode() ||
+ // 30-Minuten-Termine werden technisch als zwei direkt aufeinanderfolgende
+ // 15-Minuten-Blöcke gebucht. Dazu gehören insbesondere Schwangerschaft,
+ // Privat-Neupatientinnen, besondere Selbstzahlerleistungen und Wechseljahre.
+ return state.topicMode==='pregnancy' ||
+        isMenopauseMode() ||
         state.insurance==='SELF' ||
         (state.insurance==='PKV'&&state.patientType==='new');
 }
@@ -368,14 +370,14 @@ function onlyBookableStarts(items){
      byKey.set(`${x.date}|${x.doctorId}|${x.serviceId}|${x.time}`,x);
    }
    return items.filter(x=>{
-     if(Number(x.duration)!==15||!isPrivateWindowStart(x))return false;
+     if(Number(x.duration)!==15||!isPrivateWindowStart(x)||isQuarter45Start(x))return false;
      const nextTime=add15DotTime(x.time);
      if(!nextTime)return false;
      return Boolean(byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`));
    });
  }
 
- if(!needs30MinuteBlock())return items;
+ if(!needs30MinuteBlock())return items.filter(x=>!isQuarter45Start(x));
 
  // Für einen sichtbaren 30-Minuten-Start müssen BEIDE 15-Minuten-Slots
  // existieren, direkt aufeinander folgen, zum selben Arzt/Service gehören
@@ -387,7 +389,7 @@ function onlyBookableStarts(items){
  }
 
  return items.filter(x=>{
-   if(Number(x.duration)!==15)return false;
+   if(Number(x.duration)!==15||isQuarter45Start(x))return false;
    const nextTime=add15DotTime(x.time);
    if(!nextTime)return false;
 
@@ -404,6 +406,9 @@ function onlyBookableStarts(items){
 function minutesOf(t){
  const m=String(t||'').match(/^(\d{1,2})\.(\d{2})$/);
  return m?Number(m[1])*60+Number(m[2]):9999;
+}
+function isQuarter45Start(slot){
+ return minutesOf(slot?.time)%60===45;
 }
 function weekdayOfISO(iso){
  return new Date(iso+'T12:00:00').getDay();
@@ -1396,6 +1401,9 @@ async function bookNow(){
  const rule=currentRule(),specialOverride=specialOpenBookingAllowed(state.selectedSlot);
  if(isHamburgPublicHolidayISO(state.selectedSlot?.date)){
    st.className='status bad';st.textContent='An gesetzlichen Feiertagen in Hamburg sind keine Online-Termine buchbar.';return
+ }
+ if(isQuarter45Start(state.selectedSlot)){
+   st.className='status bad';st.textContent='Termine um :45 Uhr werden nicht als eigener Online-Starttermin angeboten. Bitte wählen Sie eine andere Uhrzeit.';return
  }
  if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
  if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return}
