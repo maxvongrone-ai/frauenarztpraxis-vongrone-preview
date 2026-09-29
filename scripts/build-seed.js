@@ -48,6 +48,7 @@ function buildStaticAssets(){
     'admin.html','admin.css','admin.js',
     'privacy-booking.html',
     'tracking.html','tracking.css','tracking.js',
+    'staff-booking.html','staff-booking.css','staff-booking.js',
     'robots.txt'
   ]){
     fs.copyFileSync(path.join(process.cwd(),file),path.join(publicDir,file));
