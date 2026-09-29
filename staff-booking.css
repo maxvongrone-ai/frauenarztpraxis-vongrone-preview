@@ -3,3 +3,12 @@
 @media(max-width:850px){.grid{grid-template-columns:1fr 1fr}}@media(max-width:560px){.grid{grid-template-columns:1fr}.panel{padding:18px}.topbar{align-items:flex-start}.tabs{overflow:auto}}
 
 .booked{color:var(--ok);font-weight:700}.confirm-chain{margin-top:16px}.tablewrap input[type="checkbox"]{width:18px;height:18px;accent-color:var(--accent)}
+
+#chainTable th:nth-child(1),#chainTable td:nth-child(1){width:10%;min-width:90px}
+#chainTable th:nth-child(2),#chainTable td:nth-child(2){width:17%;min-width:150px}
+#chainTable th:nth-child(3),#chainTable td:nth-child(3){width:25%;min-width:210px}
+#chainTable th:nth-child(4),#chainTable td:nth-child(4){width:48%}
+.chain-book-line{display:grid;grid-template-columns:auto minmax(260px,1fr);gap:10px;align-items:center}
+.chain-row-check{display:flex;align-items:center;gap:6px;white-space:nowrap;color:var(--ink);font-size:13px}
+.chain-row-check input{margin:0}
+@media(max-width:760px){.chain-book-line{grid-template-columns:1fr}.chain-row-check{margin-bottom:2px}}
