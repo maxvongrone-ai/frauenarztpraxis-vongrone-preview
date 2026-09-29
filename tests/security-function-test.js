@@ -70,6 +70,7 @@ assert(!index.includes("apiGet(force?'liveSession':'publicSession'"),'Booking fl
 assert(!dashboardJs.includes("action',force?'liveSession':'publicSession'"),'Dashboard must not use legacy token actions');
 assert(botidClient.includes("path: '/api/session'")&&botidClient.includes("method: 'GET'")&&botidClient.includes("checkLevel: 'basic'"),'BotID client must protect the session endpoint with Basic checks');
 assert(buildScript.includes("outfile:path.join(publicDir,'botid-client.js')"),'Static build must bundle the BotID client locally');
+assert(buildScript.includes("'staff-booking.html','staff-booking.css','staff-booking.js'"),'Production build must copy the staff booking assets into public');
 assert(pkg.dependencies?.botid==='1.5.11','BotID dependency must stay pinned');
 assert(pkg.dependencies?.esbuild==='0.28.2','BotID client bundler must stay pinned');
 
