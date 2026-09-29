@@ -99,6 +99,14 @@ assert(index.includes("state.insurance==='SELF' ||")&&index.includes("(state.ins
 assert(index.includes("payloadFor(nextTime,nextRow,'[Block 2/2]',false)"),'30-minute bookings must reserve the second 15-minute mediDate block without a second patient email');
 assert(index.includes("eMailAddress:sendEmail?patient.email:''"),'Only the first 15-minute block may carry the patient email address');
 assert(index.includes("if(state.topicMode==='pregnancy'){")&&index.includes("return state.insurance==='PKV'&&state.patientType==='new';"),'Pregnancy must stay 15 minutes except PKV new-patient first visit, which reserves 30 minutes');
+assert((index.match(/addPregnancyButton\(list\);/g)||[]).length>=2,'Pregnancy must be selectable for GKV as well as PKV patients');
+assert(index.includes("function pregnancyPrivateNewStartPool(items)"),'Pregnancy must have a shared private-new start-pool helper');
+assert(index.includes("(state.insurance==='PKV'&&state.patientType==='new') ||\n   state.insurance==='GKV'"),'GKV pregnancy must use the same start-pool qualification as PKV new pregnancy');
+assert(index.includes("normal=state.insurance==='GKV'\n     ?allSlots.slice()\n     :allSlots.filter(maySeeSlot);"),'GKV pregnancy must receive the qualified private-new pregnancy start pool without GKV quota filtering');
+assert(index.includes("bis spätestens zur <strong>7. SSW</strong>"),'All pregnancy booking paths must show the SSW-7 contact-practice notice');
+assert(index.includes("if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';"),'Quarter confirmation must apply to all GKV pregnancy bookings');
+assert(index.includes("bookPregOtherPracticeAck"),'GKV pregnancy booking must require an explicit quarter confirmation checkbox');
+assert(index.includes("GKV Schwangerschaft: keine andere gyn. Schwangerschaftsbetreuung im Quartal bestätigt"),'Confirmed GKV pregnancy quarter status must be recorded in the mediDate booking comment');
 assert(index.includes("function isQuarter45Start(slot)"),'Quarter-to-hour slots must have a dedicated visibility guard');
 assert(index.includes("if(!needs30MinuteBlock())return items.filter(x=>!isQuarter45Start(x));"),':45 must never be shown as a regular online start');
 assert(index.includes("if(Number(x.duration)!==15||isQuarter45Start(x))return false;"),':45 must never be shown as a 30-minute start');
