@@ -93,6 +93,10 @@ assert(index.includes("state.insurance==='SELF' ||")&&index.includes("(state.ins
 assert(index.includes("payloadFor(nextTime,nextRow,'[Block 2/2]')"),'30-minute bookings must reserve the second 15-minute mediDate block');
 assert(index.includes("String(slot?.date||'')>='2026-11-05'")&&index.includes("String(slot?.date||'')>='2026-11-12'"),'Thursday private consultation start dates must be fixed');
 assert(index.includes("isHamburgPublicHolidayISO(slot?.date)"),'Thursday private consultation windows must exclude Hamburg public holidays');
+assert(index.includes("if(isHamburgPublicHolidayISO(day))continue;"),'All Hamburg public holidays must be excluded from visible appointment candidates');
+assert(index.includes("if(isHamburgPublicHolidayISO(state.selectedSlot?.date))"),'Final booking guard must reject Hamburg public holidays');
+assert(index.includes("mins<17*60"),'Afternoon private-only protection must end before 17:00');
+assert(index.includes("mins<11*60"),'Morning private-only protection must end before 11:00');
 assert(dashboardJs.length>1000&&adminJs.length>100,'External internal-page scripts must be present');
 
 for(const source of ['/tracking.js','/botid-client.js']){
