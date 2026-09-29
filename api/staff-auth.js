@@ -34,7 +34,12 @@ module.exports=async function handler(req,res){
     if(verdict?.isBot)return send(res,403,{ok:false,error:'Automatisierte Anmeldeversuche sind nicht zugelassen.'});
 
     const body=await readBody(req);
-    if(!verifyPassword(body?.password))return send(res,401,{ok:false,error:'Passwort nicht korrekt.'});
+    if(!verifyPassword(body?.password)){
+      // Kleine konstante Verzögerung erschwert automatisiertes Durchprobieren,
+      // ohne Client-IP-Adressen zu erfassen oder zu speichern.
+      await new Promise(resolve=>setTimeout(resolve,700));
+      return send(res,401,{ok:false,error:'Passwort nicht korrekt.'});
+    }
     res.setHeader('Set-Cookie',makeSessionCookie());
     return send(res,200,{ok:true,authenticated:true});
   }catch(e){
