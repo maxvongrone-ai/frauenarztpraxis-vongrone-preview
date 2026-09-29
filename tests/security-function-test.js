@@ -127,9 +127,10 @@ assert(staffJs.includes("route==='PKV'&&pat==='new'&&i===firstFuture"),'First fu
 assert(staffJs.includes("payload(second,live.second,p,comment+' [Block 2/2]',false)"),'Second 15-minute staff booking block must suppress the second patient email');
 assert(staff.includes('id="chainConfirm"')&&!staffJs.includes('data-chain-book'),'Staff pregnancy chain must use one explicit review confirmation without per-row booking checkboxes');
 assert(staff.includes('<th>SSW</th><th>Zielzeitraum</th><th>Dauer / Besonderheit</th><th>Termin</th>'),'Pregnancy chain table must retain the requested four-column structure');
-assert(staffJs.includes("detail+=' · derzeit nicht buchbar'"),'Unavailable SSW rows must state non-bookability in Dauer / Besonderheit');
-assert(staffJs.includes("terminHtml='<span class=\"missing\">Manuell zu buchen</span>'"),'Unavailable SSW rows must remain visible and show manual booking in Termin');
+assert(staffJs.includes("detail+=' · noch kein Termin gefunden – manuell buchen'"),'Unavailable SSW rows must state the missing appointment in Dauer / Besonderheit');
+assert(staffJs.includes("terminHtml='<span class=\"muted\">—</span>'"),'Unavailable SSW rows must remain visible while Termin stays empty');
 assert(staffJs.includes("return '<tr data-chain-row=\"'+i+'>'"),'Every calculated SSW must render as a complete table row');
+assert(staffJs.includes("function chainOptionText(x){return deDate(x.date)+' · '+x.time.replace('.',':')+' Uhr'}"),'Pregnancy-chain Termin column must show only date and time');
 assert(staffJs.includes("r.booked=true")&&staffJs.includes("✓ Gebucht"),'Successfully booked chain appointments must be persistently marked in the current session');
 assert(staffJs.includes("if(row?.past||row?.booked||!row?.candidates?.length)continue;"),'Past, already booked, or manually-booked chain rows must never be automatically rebooked');
 assert(staffJs.includes("const openAuto=chainRowsState.some(r=>!r.past&&r.candidates.length>0&&!r.booked);"),'Global chain confirmation may enable booking only when an unbooked automatic appointment remains');
