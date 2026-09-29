@@ -12,6 +12,11 @@ const dashboard=read('tracking.html');
 const dashboardJs=read('tracking.js');
 const admin=read('admin.html');
 const adminJs=read('admin.js');
+const staff=read('staff-booking.html');
+const staffJs=read('staff-booking.js');
+const staffAuth=read('api/staff-auth.js');
+const staffSession=read('api/staff-session.js');
+const staffAuthLib=read('lib/staff-auth.js');
 const core=read('lib/medidate-core.js');
 const botidClient=read('botid-client-entry.js');
 const buildScript=read('scripts/build-seed.js');
@@ -92,7 +97,7 @@ assert(index.includes("return Boolean(byKey.get("),'Menopause booking starts mus
 assert(index.includes("state.insurance==='SELF' ||")&&index.includes("(state.insurance==='PKV'&&state.patientType==='new')"),'Self-pay and private new patients must reserve 30 minutes');
 assert(index.includes("payloadFor(nextTime,nextRow,'[Block 2/2]',false)"),'30-minute bookings must reserve the second 15-minute mediDate block without a second patient email');
 assert(index.includes("eMailAddress:sendEmail?patient.email:''"),'Only the first 15-minute block may carry the patient email address');
-assert(index.includes("Schwangerschaft bleibt ein 15-Minuten-Termin."),'Pregnancy appointments must remain 15 minutes');
+assert(index.includes("if(state.topicMode==='pregnancy'){")&&index.includes("return state.insurance==='PKV'&&state.patientType==='new';"),'Pregnancy must stay 15 minutes except PKV new-patient first visit, which reserves 30 minutes');
 assert(index.includes("function isQuarter45Start(slot)"),'Quarter-to-hour slots must have a dedicated visibility guard');
 assert(index.includes("if(!needs30MinuteBlock())return items.filter(x=>!isQuarter45Start(x));"),':45 must never be shown as a regular online start');
 assert(index.includes("if(Number(x.duration)!==15||isQuarter45Start(x))return false;"),':45 must never be shown as a 30-minute start');
@@ -103,6 +108,27 @@ assert(index.includes("if(isHamburgPublicHolidayISO(day))continue;"),'All Hambur
 assert(index.includes("if(isHamburgPublicHolidayISO(state.selectedSlot?.date))"),'Final booking guard must reject Hamburg public holidays');
 assert(index.includes("mins<17*60"),'Afternoon private-only protection must end before 17:00');
 assert(index.includes("mins<11*60"),'Morning private-only protection must end before 11:00');
+assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.7'),'Staff booking assets must be external and versioned');
+assert(!staff.includes('<style>')&&!staff.includes('<script>'),'Staff booking page must not contain inline style/script blocks');
+assert(staffAuthLib.includes('HttpOnly')&&staffAuthLib.includes('SameSite=Strict')&&staffAuthLib.includes('Secure'),'Staff auth cookie must be HttpOnly, Secure and SameSite Strict');
+assert(staffSession.includes('isAuthenticated(req)'),'Staff mediDate session must require staff authentication');
+assert(staffSession.includes("checkLevel:'basic'"),'Staff mediDate session must retain BotID Basic checks');
+assert(staffJs.includes("new URL('/api/staff-session',location.origin)"),'Staff browser must use the staff-only mediDate session endpoint');
+assert(staffJs.includes("medidate('appointments',{method:'POST'"),'Staff patient bookings must be browser-direct to mediDate');
+assert(!staffJs.includes("fetch('/api/booking'")&&!staffJs.includes("fetch('/api/staff-booking'"),'Staff patient identity must not be posted to a Vercel booking endpoint');
+assert(staffJs.includes('const CHAIN_WEEKS=[7,10,14,18,22,26,30,32,34,36,38,40]'),'Pregnancy chain SSW schedule must match the practice specification');
+assert(staffJs.includes('(ssw-2)*7'),'Pregnancy chain must calculate SSW from the entered conception date');
+assert(staffJs.includes("r.ssw===22||r.ssw===26||(r.ssw===14&&test)"),'22nd and 26th SSW and optional 14th SSW first-trimester test must reserve 30 minutes');
+assert(staffJs.includes("r.ssw===26")&&staffJs.includes("minutesOf(x.time)>=12*60"),'26th SSW glucose-test appointment must be morning-only');
+assert(staffJs.includes('1. Trimestertest 199,11 €'),'Optional first-trimester self-pay price must be shown');
+assert(staffJs.includes('const chosen=regular.length?regular:eligible.filter(is45);'),':45 starts must be fallback-only within a pregnancy SSW');
+assert(staffJs.includes("route==='PKV'&&pat==='new'&&i===firstFuture"),'First future pregnancy appointment for a PKV new patient must reserve 30 minutes');
+assert(staffJs.includes("payload(second,live.second,p,comment+' [Block 2/2]',false)"),'Second 15-minute staff booking block must suppress the second patient email');
+assert(botidClient.includes("path: '/api/staff-session'")&&botidClient.includes("path: '/api/staff-auth'"),'BotID client must protect staff login/session endpoints');
+new Function(staffJs);
+new Function(staffAuth);
+new Function(staffSession);
+new Function(staffAuthLib);
 assert(dashboardJs.length>1000&&adminJs.length>100,'External internal-page scripts must be present');
 
 for(const source of ['/tracking.js','/botid-client.js']){
@@ -112,7 +138,7 @@ for(const source of ['/tracking.js','/botid-client.js']){
   assert(cc.includes('no-store'),source+' must not be cached');
 }
 
-for(const source of ['/admin.html','/praxis','/tracking.html','/praxis-auswertung']){
+for(const source of ['/admin.html','/praxis','/tracking.html','/praxis-auswertung','/staff-booking.html','/ma-buchung']){
   const entry=(cfg.headers||[]).find(x=>x.source===source);
   assert(entry,source+' strict header rule missing');
   const csp=(entry.headers||[]).find(x=>x.key==='Content-Security-Policy')?.value||'';
