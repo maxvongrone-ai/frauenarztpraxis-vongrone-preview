@@ -366,10 +366,11 @@ async function bookChain(){
    if(manual)msg+=' '+manual+' Termin'+(manual===1?' muss':'e müssen')+' weiterhin manuell gebucht werden.';
    status(st,msg,remaining||manual?'warn':'ok');
  }catch(e){
+   if($('#chainConfirm'))$('#chainConfirm').checked=false;
    status(st,e.message,'bad');
    updateChainBookButton();
  }finally{
-   if($('#chainConfirm')?.checked)updateChainBookButton();
+   updateChainBookButton();
  }
 }
 
