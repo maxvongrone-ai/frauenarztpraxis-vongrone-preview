@@ -5,9 +5,17 @@ initBotId({
     {
       path: '/api/session',
       method: 'GET',
-      advancedOptions: {
-        checkLevel: 'basic'
-      }
+      advancedOptions: { checkLevel: 'basic' }
+    },
+    {
+      path: '/api/staff-session',
+      method: 'GET',
+      advancedOptions: { checkLevel: 'basic' }
+    },
+    {
+      path: '/api/staff-auth',
+      method: 'POST',
+      advancedOptions: { checkLevel: 'basic' }
     }
   ]
 });
