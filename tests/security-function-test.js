@@ -109,7 +109,7 @@ assert(index.includes("if(isHamburgPublicHolidayISO(day))continue;"),'All Hambur
 assert(index.includes("if(isHamburgPublicHolidayISO(state.selectedSlot?.date))"),'Final booking guard must reject Hamburg public holidays');
 assert(index.includes("mins<17*60"),'Afternoon private-only protection must end before 17:00');
 assert(index.includes("mins<11*60"),'Morning private-only protection must end before 11:00');
-assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.9'),'Staff booking assets must be external and versioned');
+assert(staff.includes('/staff-booking.css')&&staff.includes('/staff-booking.js?v=60.10.10'),'Staff booking assets must be external and versioned');
 assert(!staff.includes('<style>')&&!staff.includes('<script>'),'Staff booking page must not contain inline style/script blocks');
 assert(staffAuthLib.includes('HttpOnly')&&staffAuthLib.includes('SameSite=Strict')&&staffAuthLib.includes('Secure'),'Staff auth cookie must be HttpOnly, Secure and SameSite Strict');
 assert(staffSession.includes('isAuthenticated(req)'),'Staff mediDate session must require staff authentication');
@@ -131,6 +131,12 @@ assert(staffJs.includes("detail+=' · noch kein Termin gefunden – manuell buch
 assert(staffJs.includes("terminHtml='<span class=\"muted\">—</span>'"),'Unavailable SSW rows must remain visible while Termin stays empty');
 assert(staffJs.includes("return '<tr data-chain-row=\"'+i+'>'"),'Every calculated SSW must render as a complete table row');
 assert(staffJs.includes("function chainOptionText(x){return deDate(x.date)+' · '+x.time.replace('.',':')+' Uhr'}"),'Pregnancy-chain Termin column must show only date and time');
+assert(staffJs.includes("['SPIRALE','Spirale Einlage · 216,69 €','spirale']"),'Staff self-pay booking types must include spiral insertion');
+assert(staffJs.includes("if(topic==='spirale')return false;"),'Spiral insertion must remain a 15-minute appointment');
+assert(staffJs.includes("if(topic!=='spirale'&&is45(x))return false;"),'Spiral insertion may use a :45 edge slot while other single bookings keep the :45 restriction');
+assert(staffJs.includes("if(!prev||minutesOf(x.time)>minutesOf(prev.time))byDay.set(x.date,x);"),'Spiral insertion must expose only the latest free slot per day');
+assert(staffJs.includes("servicePattern:/spiral|intrauterin|iud/i"),'Spiral insertion must use its dedicated mediDate service when configured');
+assert(staffJs.includes("Spirale Einlage: Es wird pro Tag ausschließlich der späteste freie Randtermin angezeigt."),'Staff UI must explain the spiral edge-slot rule');
 assert(staffJs.includes("r.booked=true")&&staffJs.includes("✓ Gebucht"),'Successfully booked chain appointments must be persistently marked in the current session');
 assert(staffJs.includes("if(row?.past||row?.booked||!row?.candidates?.length)continue;"),'Past, already booked, or manually-booked chain rows must never be automatically rebooked');
 assert(staffJs.includes("const openAuto=chainRowsState.some(r=>!r.past&&r.candidates.length>0&&!r.booked);"),'Global chain confirmation may enable booking only when an unbooked automatic appointment remains');
