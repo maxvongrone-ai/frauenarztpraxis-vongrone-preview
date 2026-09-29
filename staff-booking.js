@@ -347,7 +347,7 @@ async function buildChain(){
 
      const fallback=r.candidates.length&&r.candidates.every(is45);
      const canBook=!r.past&&r.candidates.length>0;
-     if(!r.past&&!r.candidates.length)detail+=' · noch kein Termin gefunden – manuell buchen';
+     if(!r.past&&!r.candidates.length)detail+=' · Termin muss manuell gebucht werden';
 
      let terminHtml='';
      if(r.past){
