@@ -226,7 +226,7 @@ function fillSingleServices(){
  const list=route==='SELF'
    ?[['MENOPAUSE','Wechseljahressprechstunde','menopause'],['breast','Brustultraschall','regular'],['SPIRALE','Spirale Einlage · 216,69 €','spirale']]
    :route==='GKV'
-     ?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular']]
+     ?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular'],['vorsorge','Schwangerschaft','pregnancy']]
      :[['vorsorge','Vorsorge','regular'],['contraception','Verhütung – Kontrolltermin','regular'],['followup','Tumornachsorge','regular'],['breast','Brustultraschall','regular'],['vorsorge','Schwangerschaft','pregnancy']];
  sel.innerHTML=list.map((x,i)=>'<option value="'+x[0]+'|'+x[2]+'"'+((x[0]+'|'+x[2])===current?' selected':'')+'>'+esc(x[1])+'</option>').join('');
 }
