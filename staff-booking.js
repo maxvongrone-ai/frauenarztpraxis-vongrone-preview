@@ -266,6 +266,17 @@ function chainCandidates(all,{route,doctor,range,duration,morning}){
  const chosen=regular.length?regular:eligible.filter(is45);
  return chosen.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time)||a.doctorKey.localeCompare(b.doctorKey));
 }
+function updateChainBookButton(){
+ const confirm=$('#chainConfirm'),btn=$('#bookChain');
+ const openChecked=$$('[data-chain-book]').some(x=>x.checked&&!x.disabled);
+ btn.disabled=!(confirm?.checked&&openChecked);
+}
+function chainRowStatusHtml(row){
+ if(row.past)return '<span class="muted">bereits vergangen</span>';
+ if(row.booked)return '<span class="booked">✓ Gebucht</span>';
+ if(!row.candidates.length)return '<span class="missing">Manuell zu buchen</span>';
+ return '<span class="muted">noch nicht gebucht</span>';
+}
 async function buildChain(){
  const st=$('#chainStatus');status(st,'Schwangerschaftstermine werden berechnet …');
  try{
@@ -278,7 +289,7 @@ async function buildChain(){
      const special30=r.ssw===22||r.ssw===26||(r.ssw===14&&test)||(route==='PKV'&&pat==='new'&&i===firstFuture);
      const duration=special30?30:15,morning=r.ssw===26;
      const candidates=chainCandidates(all,{route,doctor,range:r,duration,morning});
-     return {...r,duration,morning,candidates,test:r.ssw===14&&test,past:r.end<today};
+     return {...r,duration,morning,candidates,test:r.ssw===14&&test,past:r.end<today,booked:false};
    });
    $('#chainRows').innerHTML=chainRowsState.map((r,i)=>{
      let detail=r.duration+' Min.';
@@ -287,37 +298,79 @@ async function buildChain(){
      if(r.ssw===26)detail+=' · morgens · Zuckertest';
      if(route==='PKV'&&pat==='new'&&i===firstFuture)detail+=' · PKV-Ersttermin';
      const fallback=r.candidates.length&&r.candidates.every(is45);
+     const canBook=!r.past&&r.candidates.length>0;
      const options=r.past?'<option value="">SSW bereits vergangen</option>':r.candidates.length?r.candidates.map((x,j)=>'<option value="'+j+'">'+esc(optionText(x,r.duration))+(is45(x)?' · Ausnahme :45':'')+'</option>').join(''):'<option value="">Kein geeigneter freier Termin in dieser SSW</option>';
-     return '<tr><td><strong>'+r.ssw+'. SSW</strong></td><td>'+deDate(r.start)+' – '+deDate(r.end)+'</td><td>'+esc(detail)+'</td><td><select data-chain-index="'+i+'" '+(r.past||!r.candidates.length?'disabled':'')+'>'+options+'</select>'+(fallback?'<div class="fallback">Nur :45-Ausnahmetermine verfügbar</div>':(!r.past&&!r.candidates.length?'<div class="missing">Keine freie passende Zeit</div>':'') )+'</td></tr>';
+     const check=canBook?'<input type="checkbox" data-chain-book="'+i+'" checked aria-label="'+r.ssw+'. SSW buchen">':'';
+     const manual=!r.past&&!r.candidates.length?'<div class="missing">Kein geeigneter Termin frei – bitte manuell in mediDate buchen.</div>':'';
+     return '<tr data-chain-row="'+i+'><td>'+check+'</td><td><strong>'+r.ssw+'. SSW</strong></td><td>'+deDate(r.start)+' – '+deDate(r.end)+'</td><td>'+esc(detail)+'</td><td><select data-chain-index="'+i+'" '+(canBook?'':'disabled')+'>'+options+'</select>'+(fallback?'<div class="fallback">Nur :45-Ausnahmetermine verfügbar</div>':'')+manual+'</td><td data-chain-status="'+i+'>'+chainRowStatusHtml(r)+'</td></tr>';
    }).join('');
    $('#chainTable').classList.remove('hidden');$('#chainBookActions').classList.remove('hidden');
+   $('#chainConfirm').checked=false;
+   $$('[data-chain-book]').forEach(x=>x.onchange=updateChainBookButton);
+   $('#chainConfirm').onchange=updateChainBookButton;
+   updateChainBookButton();
    const missing=chainRowsState.filter(r=>!r.past&&!r.candidates.length).length;
-   status(st,missing?('Kette berechnet; in '+missing+' zukünftigen SSW fehlt derzeit ein geeigneter freier Termin.'):'Kette vollständig mit derzeit freien Terminen berechnet.',missing?'warn':'ok');
+   status(st,missing?('Terminkette berechnet. '+missing+' Termin'+(missing===1?' muss':'e müssen')+' mangels freier Zeit manuell gebucht werden. Bitte die übrigen Termine prüfen und anschließend bestätigen.'):'Terminkette berechnet. Bitte alle Termine prüfen und anschließend die angehakten Termine bestätigen.',missing?'warn':'ok');
  }catch(e){status(st,e.message,'bad')}
 }
 async function bookChain(){
  const st=$('#chainBookStatus');
  try{
+   if(!$('#chainConfirm')?.checked)throw new Error('Bitte die Prüfung der Terminkette mit dem Häkchen bestätigen.');
    const p=patient('#preg'),route=$('#pregRoute').value,pat=$('#pregPatient').value;
    const selected=[];
-   for(const el of $$('[data-chain-index]')){
-     if(el.disabled||el.value==='')continue;
-     const row=chainRowsState[Number(el.dataset.chainIndex)],slot=row?.candidates?.[Number(el.value)];if(slot)selected.push({row,slot});
+   for(const check of $$('[data-chain-book]')){
+     const idx=Number(check.dataset.chainBook),row=chainRowsState[idx];
+     if(!check.checked||check.disabled||row?.booked)continue;
+     const sel=$('[data-chain-index="'+idx+'"]');
+     if(!sel||sel.disabled||sel.value==='')continue;
+     const slot=row?.candidates?.[Number(sel.value)];
+     if(slot)selected.push({idx,row,slot});
    }
-   if(!selected.length)throw new Error('Es sind keine buchbaren Schwangerschaftstermine ausgewählt.');
-   $('#bookChain').disabled=true;status(st,'Die Terminkette wird in mediDate gebucht. Bitte nicht erneut klicken …');
-   const booked=[];
+   if(!selected.length)throw new Error('Es sind keine noch offenen, angehakten Schwangerschaftstermine ausgewählt.');
+
+   $('#bookChain').disabled=true;
+   status(st,'Die bestätigten Termine werden jetzt einzeln in mediDate gebucht. Für jeden gebuchten SSW-Termin erhält die Patientin eine eigene E-Mailbestätigung.','');
+   const bookedNow=[];
    for(const item of selected){
-     const r=item.row,slot=item.slot,flags=['MA Schwangerschaft',r.ssw+'. SSW'];
+     const {idx,row:r,slot}=item,flags=['MA Schwangerschaft',r.ssw+'. SSW'];
      if(r.test)flags.push('Selbstzahler: 1. Trimestertest 199,11 EUR');
      if(r.ssw===26)flags.push('Zuckertest');
-     if(route==='PKV'&&pat==='new'&&booked.length===0)flags.push('PKV-Ersttermin');
+     if(route==='PKV'&&pat==='new'&&!chainRowsState.some(x=>x.booked))flags.push('PKV-Ersttermin');
      if(r.duration===30)flags.push('30 Min.');
-     try{await bookAppointment(slot,r.duration,p,'['+flags.join(' | ')+']');booked.push(r.ssw)}
-     catch(e){const done=booked.length?' Bereits gebucht: '+booked.join(', ')+'. SSW.':'';throw new Error(e.message+done)}
+     try{
+       // Pro SSW-Termin wird die E-Mail-Adresse im ersten 15-Minuten-Block übermittelt.
+       // Bei 30 Minuten bleibt der zweite technische Block ohne E-Mail, damit genau
+       // eine Patientenbestätigung pro SSW-Termin ausgelöst wird.
+       await bookAppointment(slot,r.duration,p,'['+flags.join(' | ')+']');
+       r.booked=true;bookedNow.push(r.ssw);
+       const check=$('[data-chain-book="'+idx+'"]'),sel=$('[data-chain-index="'+idx+'"]'),cell=$('[data-chain-status="'+idx+'"]');
+       if(check){check.checked=true;check.disabled=true}
+       if(sel)sel.disabled=true;
+       if(cell)cell.innerHTML=chainRowStatusHtml(r);
+     }catch(e){
+       const cell=$('[data-chain-status="'+idx+'"]');
+       if(cell)cell.innerHTML='<span class="missing">Nicht gebucht – bitte prüfen</span>';
+       const done=bookedNow.length?' Bereits erfolgreich gebucht: '+bookedNow.join(', ')+'. SSW.':'';
+       throw new Error(e.message+done);
+     }
    }
-   status(st,'Terminkette erfolgreich gebucht: '+booked.join(', ')+'. SSW.','ok');bundle=null;
- }catch(e){status(st,e.message,'bad')}finally{$('#bookChain').disabled=false}
+
+   $('#chainConfirm').checked=false;
+   updateChainBookButton();
+   bundle=null;
+   const remaining=chainRowsState.filter(r=>!r.past&&r.candidates.length&&!r.booked).length;
+   const manual=chainRowsState.filter(r=>!r.past&&!r.candidates.length).length;
+   let msg='Erfolgreich gebucht: '+bookedNow.join(', ')+'. SSW.';
+   if(remaining)msg+=' '+remaining+' automatisch buchbare Termin'+(remaining===1?' ist':'e sind')+' noch offen.';
+   if(manual)msg+=' '+manual+' Termin'+(manual===1?' muss':'e müssen')+' weiterhin manuell gebucht werden.';
+   status(st,msg,remaining||manual?'warn':'ok');
+ }catch(e){
+   status(st,e.message,'bad');
+   updateChainBookButton();
+ }finally{
+   if($('#chainConfirm')?.checked)updateChainBookButton();
+ }
 }
 
 function switchTab(name){
@@ -330,6 +383,9 @@ function initControls(){
  $('#singlePatient').onchange=()=>{singleSlots=[]};$('#singleService').onchange=()=>{singleSlots=[]};
  $$('[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
  $('#loadSingle').onclick=loadSingle;$('#bookSingle').onclick=bookSingle;$('#buildChain').onclick=buildChain;$('#bookChain').onclick=bookChain;
+ for(const id of ['pregRoute','pregPatient','pregDoctor','conceptionDate','firstTrimester']){
+   $('#'+id).onchange=()=>{chainRowsState=[];$('#chainTable').classList.add('hidden');$('#chainBookActions').classList.add('hidden');$('#chainBookStatus').textContent='';};
+ }
  $('#login').onclick=login;$('#password').onkeydown=e=>{if(e.key==='Enter')login()};$('#logout').onclick=logout;
 }
 
