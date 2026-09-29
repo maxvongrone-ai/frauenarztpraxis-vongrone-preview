@@ -231,26 +231,40 @@ async function dynamicServiceSlots({servicePattern,serviceLabel,serviceKey,docto
  const s=await staffSession(false);
  const services=await medidate('clients/'+s.clientId+'/services',{query:{location:s.locationId,KV:'all'}});
  const matches=(Array.isArray(services)?services:[]).filter(x=>servicePattern.test(String(x?.name||''))&&String(x?.state||'active').toLowerCase()!=='inactive');
- if(matches.length!==1)throw new Error(serviceLabel+' ist in mediDate derzeit nicht eindeutig konfiguriert.');
- const svc=matches[0],serviceId=Number(svc.id);
- const doctors=await medidate('clients/'+s.clientId+'/doctors',{query:{location:s.locationId,service:serviceId}});
- const allowed=(Array.isArray(doctors)?doctors:[]).filter(x=>{
-   if(String(x?.state||'active').toLowerCase()==='inactive')return false;
-   if(!doctorPattern)return true;
-   return doctorPattern.test(String(x?.displayName||x?.fullName||[x?.firstName,x?.lastName].filter(Boolean).join(' ')));
- });
- if(!allowed.length)throw new Error('Für '+serviceLabel+' ist derzeit keine Ärztin freigegeben.');
+ if(!matches.length)return [];
+
  const out=[];
- for(const doc of allowed){
-   const doctorId=Number(doc.id);
-   const doctorKey=Number(doc?.mediSoftId)===1?'moxter':Number(doc?.mediSoftId)===2?'vongrone':(/moxter/i.test(String(doc?.displayName||doc?.fullName||''))?'moxter':(/von grone/i.test(String(doc?.displayName||doc?.fullName||''))?'vongrone':''));
-   if(!doctorId||!doctorKey)continue;
-   const rows=await medidate('appointments/appointmenttimes',{query:{clientid:s.clientId,locationId:s.locationId,serviceId,doctorId}});
-   for(const row of (rows?.appointmentTimes||[])){
-     const date=String(row?.dateTimeStart||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number(row?.duration)!==15)continue;
-     for(const raw of (row?.times||[])){
-       const time=String(raw||'');if(!/^\d{1,2}\.\d{2}$/.test(time))continue;
-       out.push({date,time,doctorKey,serviceKey,serviceName:serviceLabel,duration:15,calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),direct:{clientId:s.clientId,locationId:s.locationId,serviceId,doctorId,listReferenzId:Number(row?.listReferenzId||0),calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),duration:15}});
+ for(const svc of matches){
+   const serviceId=Number(svc.id);
+   if(!serviceId)continue;
+   const doctors=await medidate('clients/'+s.clientId+'/doctors',{query:{location:s.locationId,service:serviceId}});
+   const allowed=(Array.isArray(doctors)?doctors:[]).filter(x=>{
+     if(String(x?.state||'active').toLowerCase()==='inactive')return false;
+     if(!doctorPattern)return true;
+     return doctorPattern.test(String(x?.displayName||x?.fullName||[x?.firstName,x?.lastName].filter(Boolean).join(' ')));
+   });
+
+   for(const doc of allowed){
+     const doctorId=Number(doc.id);
+     const doctorKey=Number(doc?.mediSoftId)===1?'moxter':Number(doc?.mediSoftId)===2?'vongrone':(/moxter/i.test(String(doc?.displayName||doc?.fullName||''))?'moxter':(/von grone/i.test(String(doc?.displayName||doc?.fullName||''))?'vongrone':''));
+     if(!doctorId||!doctorKey)continue;
+     const rows=await medidate('appointments/appointmenttimes',{query:{clientid:s.clientId,locationId:s.locationId,serviceId,doctorId}});
+     for(const row of (rows?.appointmentTimes||[])){
+       const date=String(row?.dateTimeStart||'').slice(0,10);
+       if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number(row?.duration)!==15)continue;
+       for(const raw of (row?.times||[])){
+         const time=String(raw||'');
+         if(!/^\d{1,2}\.\d{2}$/.test(time))continue;
+         out.push({
+           date,time,doctorKey,serviceKey:serviceKey+':'+serviceId,serviceName:serviceLabel,duration:15,
+           calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),
+           direct:{
+             clientId:s.clientId,locationId:s.locationId,serviceId,doctorId,
+             listReferenzId:Number(row?.listReferenzId||0),
+             calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),duration:15
+           }
+         });
+       }
      }
    }
  }
@@ -258,12 +272,19 @@ async function dynamicServiceSlots({servicePattern,serviceLabel,serviceKey,docto
 }
 
 async function menopauseSlots(){
- return dynamicServiceSlots({
-   servicePattern:/wechseljahr/i,
-   serviceLabel:'Wechseljahressprechstunde',
-   serviceKey:'MENOPAUSE',
-   doctorPattern:/friederike.*von grone|von grone/i
- });
+ const out=[];
+ for(const g of (bundle?.groups||[])){
+   for(const x of flattenGroup(g)){
+     if(x.doctorKey!=='vongrone')continue;
+     out.push({...x,serviceName:'Wechseljahressprechstunde'});
+   }
+ }
+ const seen=new Set();
+ return out.filter(x=>{
+   const key=x.date+'|'+x.time+'|'+x.doctorKey+'|'+x.serviceKey;
+   if(seen.has(key))return false;
+   seen.add(key);return true;
+ }).sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 async function spiraleSlots(){
  return dynamicServiceSlots({
@@ -287,7 +308,11 @@ async function loadSingle(){
    }else if(topic==='spirale'){
      note.classList.remove('hidden');note.textContent='Spirale Einlage: Es wird pro Tag ausschließlich der späteste freie Randtermin angezeigt. Optimaler Zyklustag 2–7.';
    }else note.classList.add('hidden');
-   status(st,xs.length+' geeignete freie Termine gefunden.','ok');
+   if(topic==='spirale'&&!all.length){
+     status(st,'Spirale Einlage ist in mediDate derzeit nicht als buchbarer Termin freigeschaltet.','');
+   }else{
+     status(st,xs.length+' geeignete freie Termine gefunden.',xs.length?'ok':'');
+   }
  }catch(e){status(st,e.message,'bad')}
 }
 async function bookSingle(){
