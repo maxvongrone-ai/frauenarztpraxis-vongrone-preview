@@ -91,7 +91,7 @@ assert(index.includes("if(isMenopauseMode()&&!isPrivateWindowStart(state.selecte
 assert(index.includes("return Boolean(byKey.get("),'Menopause booking starts must still require the following 15-minute slot');
 assert(index.includes("state.insurance==='SELF' ||")&&index.includes("(state.insurance==='PKV'&&state.patientType==='new')"),'Self-pay and private new patients must reserve 30 minutes');
 assert(index.includes("payloadFor(nextTime,nextRow,'[Block 2/2]')"),'30-minute bookings must reserve the second 15-minute mediDate block');
-assert(index.includes("state.topicMode==='pregnancy' ||"),'Pregnancy appointments must reserve 30 minutes');
+assert(index.includes("Schwangerschaft bleibt ein 15-Minuten-Termin."),'Pregnancy appointments must remain 15 minutes');
 assert(index.includes("function isQuarter45Start(slot)"),'Quarter-to-hour slots must have a dedicated visibility guard');
 assert(index.includes("if(!needs30MinuteBlock())return items.filter(x=>!isQuarter45Start(x));"),':45 must never be shown as a regular online start');
 assert(index.includes("if(Number(x.duration)!==15||isQuarter45Start(x))return false;"),':45 must never be shown as a 30-minute start');
