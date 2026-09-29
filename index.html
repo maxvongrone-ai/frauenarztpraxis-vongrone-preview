@@ -777,6 +777,12 @@ function addSelfPayServices(){
 function chooseService(s,b,mode){
  state.service=s;state.topicMode=mode;state.availabilityKey=null;state.availabilityPromise=null;select('[data-service]',b);
 
+ // Telefonhinweise gelten nur für die konkret gewählte Leistung (z. B. Spirale Einlage).
+ // Beim Wechsel auf eine regulär online buchbare Leistung den vorherigen Hinweis sofort entfernen.
+ const serviceStatus=$('#servicesStatus');
+ serviceStatus.className='status';
+ serviceStatus.textContent='';
+
  const pregInfo=$('#pregnancyGkvInfo');
  if(state.insurance==='GKV'&&state.patientType==='new'&&mode==='pregnancy'){
    pregInfo.classList.remove('hidden');
