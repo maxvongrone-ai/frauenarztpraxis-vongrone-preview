@@ -108,11 +108,24 @@ function fractionPerDay(slots,share,reference){
  for(const xs of byDay.values()){const n=Math.max(0,Math.min(xs.length,Math.round(xs.length*share)));out.push(...xs.slice().sort((a,b)=>(scores.get(weekday(b.date)+'|'+b.time)||0)-(scores.get(weekday(a.date)+'|'+a.time)||0)||minutesOf(a.time)-minutesOf(b.time)).slice(0,n))}
  return out;
 }
-function need30Single(route,patient,topic){if(topic==='pregnancy')return route==='PKV'&&patient==='new';if(topic==='menopause')return true;return route==='SELF'||(route==='PKV'&&patient==='new')}
+function need30Single(route,patient,topic){
+ if(topic==='pregnancy')return route==='PKV'&&patient==='new';
+ if(topic==='spirale')return false;
+ if(topic==='menopause')return true;
+ return route==='SELF'||(route==='PKV'&&patient==='new');
+}
 function filterSingle(all,{route,patient,topic,doctor}){
  let xs=all.filter(x=>x.date>=berlinToday()&&routeAllows(x,route)&&(doctor==='0'||x.doctorKey===doctor));
  if(topic==='pregnancy'){
    // Schwangerschaft ist ein eigener Freigabekanal: keine GKV-2/5-Quote und kein PKV-Tageslimit.
+ }else if(topic==='spirale'){
+   // Spirale Einlage: nur der späteste freie Randtermin je Tag.
+   const byDay=new Map();
+   for(const x of xs){
+     const prev=byDay.get(x.date);
+     if(!prev||minutesOf(x.time)>minutesOf(prev.time))byDay.set(x.date,x);
+   }
+   xs=[...byDay.values()].sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
  }else if(topic==='menopause'){
    // Wechseljahressprechstunde: nur Dr. von Grone und nur Privatsprechstunden.
    xs=xs.filter(x=>x.doctorKey==='vongrone'&&privateStart(x));
@@ -125,7 +138,7 @@ function filterSingle(all,{route,patient,topic,doctor}){
  }
  const n30=need30Single(route,patient,topic);
  return xs.filter(x=>{
-   if(is45(x))return false;
+   if(topic!=='spirale'&&is45(x))return false;
    if(!n30)return true;
    const next=following(x,all);return !!next&&!isHoliday(next.date);
  }).sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
@@ -210,37 +223,70 @@ async function bookAppointment(slot,duration,p,comment){
 
 function fillSingleServices(){
  const route=$('#singleRoute').value,sel=$('#singleService'),current=sel.value;
- const list=route==='SELF'?[['MENOPAUSE','Wechseljahressprechstunde','menopause'],['breast','Brustultraschall','regular']]:route==='GKV'?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular'],['vorsorge','Schwangerschaft','pregnancy']]:[['vorsorge','Vorsorge','regular'],['contraception','Verhütung – Kontrolltermin','regular'],['followup','Tumornachsorge','regular'],['breast','Brustultraschall','regular'],['vorsorge','Schwangerschaft','pregnancy']];
+ const list=route==='SELF'?[['MENOPAUSE','Wechseljahressprechstunde','menopause'],['breast','Brustultraschall','regular'],['SPIRALE','Spirale Einlage · 216,69 €','spirale']]:route==='GKV'?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular'],['vorsorge','Schwangerschaft','pregnancy']]:[['vorsorge','Vorsorge','regular'],['contraception','Verhütung – Kontrolltermin','regular'],['followup','Tumornachsorge','regular'],['breast','Brustultraschall','regular'],['vorsorge','Schwangerschaft','pregnancy']];
  sel.innerHTML=list.map((x,i)=>'<option value="'+x[0]+'|'+x[2]+'"'+((x[0]+'|'+x[2])===current?' selected':'')+'>'+esc(x[1])+'</option>').join('');
 }
 function selectedSingleMeta(){const [key,topic]=$('#singleService').value.split('|');return {key,topic}}
-async function menopauseSlots(){
+async function dynamicServiceSlots({servicePattern,serviceLabel,serviceKey,doctorPattern=null}){
  const s=await staffSession(false);
  const services=await medidate('clients/'+s.clientId+'/services',{query:{location:s.locationId,KV:'all'}});
- const service=(Array.isArray(services)?services:[]).filter(x=>/wechseljahr/i.test(String(x?.name||''))&&String(x?.state||'active').toLowerCase()!=='inactive');
- if(service.length!==1)throw new Error('Die Wechseljahressprechstunde ist in mediDate derzeit nicht eindeutig konfiguriert.');
- const svc=service[0],serviceId=Number(svc.id);
+ const matches=(Array.isArray(services)?services:[]).filter(x=>servicePattern.test(String(x?.name||''))&&String(x?.state||'active').toLowerCase()!=='inactive');
+ if(matches.length!==1)throw new Error(serviceLabel+' ist in mediDate derzeit nicht eindeutig konfiguriert.');
+ const svc=matches[0],serviceId=Number(svc.id);
  const doctors=await medidate('clients/'+s.clientId+'/doctors',{query:{location:s.locationId,service:serviceId}});
- const vg=(Array.isArray(doctors)?doctors:[]).find(x=>Number(x?.mediSoftId)===2||/friederike.*von grone|von grone/i.test(String(x?.displayName||x?.fullName||'')));
- if(!vg)throw new Error('Dr. med. Friederike von Grone ist für die Wechseljahressprechstunde derzeit nicht freigegeben.');
- const rows=await medidate('appointments/appointmenttimes',{query:{clientid:s.clientId,locationId:s.locationId,serviceId,doctorId:Number(vg.id)}});
+ const allowed=(Array.isArray(doctors)?doctors:[]).filter(x=>{
+   if(String(x?.state||'active').toLowerCase()==='inactive')return false;
+   if(!doctorPattern)return true;
+   return doctorPattern.test(String(x?.displayName||x?.fullName||[x?.firstName,x?.lastName].filter(Boolean).join(' ')));
+ });
+ if(!allowed.length)throw new Error('Für '+serviceLabel+' ist derzeit keine Ärztin freigegeben.');
  const out=[];
- for(const row of (rows?.appointmentTimes||[])){
-   const date=String(row?.dateTimeStart||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number(row?.duration)!==15)continue;
-   for(const raw of (row?.times||[])){const time=String(raw||'');if(!/^\d{1,2}\.\d{2}$/.test(time))continue;out.push({date,time,doctorKey:'vongrone',serviceKey:'MENOPAUSE',serviceName:'Wechseljahressprechstunde',duration:15,calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),direct:{clientId:s.clientId,locationId:s.locationId,serviceId,doctorId:Number(vg.id),listReferenzId:Number(row?.listReferenzId||0),calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),duration:15}})}
+ for(const doc of allowed){
+   const doctorId=Number(doc.id);
+   const doctorKey=Number(doc?.mediSoftId)===1?'moxter':Number(doc?.mediSoftId)===2?'vongrone':(/moxter/i.test(String(doc?.displayName||doc?.fullName||''))?'moxter':(/von grone/i.test(String(doc?.displayName||doc?.fullName||''))?'vongrone':''));
+   if(!doctorId||!doctorKey)continue;
+   const rows=await medidate('appointments/appointmenttimes',{query:{clientid:s.clientId,locationId:s.locationId,serviceId,doctorId}});
+   for(const row of (rows?.appointmentTimes||[])){
+     const date=String(row?.dateTimeStart||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number(row?.duration)!==15)continue;
+     for(const raw of (row?.times||[])){
+       const time=String(raw||'');if(!/^\d{1,2}\.\d{2}$/.test(time))continue;
+       out.push({date,time,doctorKey,serviceKey,serviceName:serviceLabel,duration:15,calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),direct:{clientId:s.clientId,locationId:s.locationId,serviceId,doctorId,listReferenzId:Number(row?.listReferenzId||0),calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),duration:15}});
+     }
+   }
  }
- return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time)||a.doctorKey.localeCompare(b.doctorKey));
+}
+
+async function menopauseSlots(){
+ return dynamicServiceSlots({
+   servicePattern:/wechseljahr/i,
+   serviceLabel:'Wechseljahressprechstunde',
+   serviceKey:'MENOPAUSE',
+   doctorPattern:/friederike.*von grone|von grone/i
+ });
+}
+async function spiraleSlots(){
+ return dynamicServiceSlots({
+   servicePattern:/spiral|intrauterin|iud/i,
+   serviceLabel:'Spirale Einlage',
+   serviceKey:'SPIRALE'
+ });
 }
 
 async function loadSingle(){
  const st=$('#singleStatus');status(st,'Freie Termine werden geladen …');
  try{
    await loadBundle();const route=$('#singleRoute').value,pat=$('#singlePatient').value,doctor=$('#singleDoctor').value,{key,topic}=selectedSingleMeta(),g=serviceGroup(key);
-   const all=topic==='menopause'?await menopauseSlots():(g?flattenGroup(g):null);
+   const all=topic==='menopause'?await menopauseSlots():topic==='spirale'?await spiraleSlots():(g?flattenGroup(g):null);
    if(!all)throw new Error('Diese Terminart ist in der aktuellen mediDate-Konfiguration nicht verfügbar.');
    const xs=filterSingle(all,{route,patient:pat,topic,doctor}),n30=need30Single(route,pat,topic);
    singleSlots=xs;$('#singleSlot').innerHTML=xs.length?xs.map((x,i)=>'<option value="'+i+'">'+esc(optionText(x,n30?30:15))+'</option>').join(''):'<option value="">Kein geeigneter freier Termin</option>';
-   const note=$('#singleNote');if(topic==='pregnancy'&&route==='PKV'&&pat==='new'){note.classList.remove('hidden');note.textContent='PKV-Neupatientin + Schwangerschaft: der erste Termin wird 30 Minuten reserviert.'}else note.classList.add('hidden');
+   const note=$('#singleNote');
+   if(topic==='pregnancy'&&route==='PKV'&&pat==='new'){
+     note.classList.remove('hidden');note.textContent='PKV-Neupatientin + Schwangerschaft: der erste Termin wird 30 Minuten reserviert.';
+   }else if(topic==='spirale'){
+     note.classList.remove('hidden');note.textContent='Spirale Einlage: Es wird pro Tag ausschließlich der späteste freie Randtermin angezeigt. Optimaler Zyklustag 2–7.';
+   }else note.classList.add('hidden');
    status(st,xs.length+' geeignete freie Termine gefunden.','ok');
  }catch(e){status(st,e.message,'bad')}
 }
@@ -249,7 +295,7 @@ async function bookSingle(){
  try{
    const p=patient('#single'),route=$('#singleRoute').value,pat=$('#singlePatient').value,{topic}=selectedSingleMeta(),duration=need30Single(route,pat,topic)?30:15,slot=singleSlots[idx];
    $('#bookSingle').disabled=true;status(st,'Termin wird direkt in mediDate gebucht …');
-   await bookAppointment(slot,duration,p,'[MA-Buchung | '+(topic==='pregnancy'?'Schwangerschaft':slot.serviceName)+(duration===30?' | 30 Min.':'')+']');
+   await bookAppointment(slot,duration,p,'[MA-Buchung | '+(topic==='pregnancy'?'Schwangerschaft':topic==='spirale'?'Spirale Einlage':slot.serviceName)+(duration===30?' | 30 Min.':'')+']');
    status(st,'Termin erfolgreich gebucht: '+deDate(slot.date)+' · '+slot.time.replace('.',':')+' Uhr'+(duration===30?' · 30 Min.':'')+'.','ok');
    bundle=null;singleSlots=[];
  }catch(e){status(st,e.message,e.partial?'warn':'bad')}finally{$('#bookSingle').disabled=false}
