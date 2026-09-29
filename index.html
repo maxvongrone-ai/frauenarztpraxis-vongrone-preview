@@ -353,10 +353,8 @@ function add15DotTime(t){
 }
 function needs30MinuteBlock(){
  // 30-Minuten-Termine werden technisch als zwei direkt aufeinanderfolgende
- // 15-Minuten-Blöcke gebucht. Dazu gehören insbesondere Schwangerschaft,
- // Privat-Neupatientinnen, besondere Selbstzahlerleistungen und Wechseljahre.
- return state.topicMode==='pregnancy' ||
-        isMenopauseMode() ||
+ // 15-Minuten-Blöcke gebucht. Schwangerschaft bleibt ein 15-Minuten-Termin.
+ return isMenopauseMode() ||
         state.insurance==='SELF' ||
         (state.insurance==='PKV'&&state.patientType==='new');
 }
