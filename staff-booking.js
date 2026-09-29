@@ -108,11 +108,14 @@ function fractionPerDay(slots,share,reference){
  for(const xs of byDay.values()){const n=Math.max(0,Math.min(xs.length,Math.round(xs.length*share)));out.push(...xs.slice().sort((a,b)=>(scores.get(weekday(b.date)+'|'+b.time)||0)-(scores.get(weekday(a.date)+'|'+a.time)||0)||minutesOf(a.time)-minutesOf(b.time)).slice(0,n))}
  return out;
 }
-function need30Single(route,patient,topic){if(topic==='pregnancy')return route==='PKV'&&patient==='new';return route==='SELF'||(route==='PKV'&&patient==='new')}
+function need30Single(route,patient,topic){if(topic==='pregnancy')return route==='PKV'&&patient==='new';if(topic==='menopause')return true;return route==='SELF'||(route==='PKV'&&patient==='new')}
 function filterSingle(all,{route,patient,topic,doctor}){
  let xs=all.filter(x=>x.date>=berlinToday()&&routeAllows(x,route)&&(doctor==='0'||x.doctorKey===doctor));
  if(topic==='pregnancy'){
    // Schwangerschaft ist ein eigener Freigabekanal: keine GKV-2/5-Quote und kein PKV-Tageslimit.
+ }else if(topic==='menopause'){
+   // Wechseljahressprechstunde: nur Dr. von Grone und nur Privatsprechstunden.
+   xs=xs.filter(x=>x.doctorKey==='vongrone'&&privateStart(x));
  }else if(route==='PKV'){
    const pool=privatePool(xs);xs=patient==='new'?fractionPerDay(pool,POLICY.privateNewShare,all):pool;
  }else if(route==='SELF'){
@@ -206,16 +209,35 @@ async function bookAppointment(slot,duration,p,comment){
 
 function fillSingleServices(){
  const route=$('#singleRoute').value,sel=$('#singleService'),current=sel.value;
- const list=route==='SELF'?[['breast','Brustultraschall','regular']]:route==='GKV'?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular'],['vorsorge','Schwangerschaft','pregnancy']]:[['vorsorge','Vorsorge','regular'],['contraception','Verhütung – Kontrolltermin','regular'],['followup','Tumornachsorge','regular'],['vorsorge','Schwangerschaft','pregnancy']];
+ const list=route==='SELF'?[['MENOPAUSE','Wechseljahressprechstunde','menopause'],['breast','Brustultraschall','regular']]:route==='GKV'?[['vorsorge','Vorsorge','regular'],['followup','Tumornachsorge','regular'],['vorsorge','Schwangerschaft','pregnancy']]:[['vorsorge','Vorsorge','regular'],['contraception','Verhütung – Kontrolltermin','regular'],['followup','Tumornachsorge','regular'],['breast','Brustultraschall','regular'],['vorsorge','Schwangerschaft','pregnancy']];
  sel.innerHTML=list.map((x,i)=>'<option value="'+x[0]+'|'+x[2]+'"'+((x[0]+'|'+x[2])===current?' selected':'')+'>'+esc(x[1])+'</option>').join('');
 }
 function selectedSingleMeta(){const [key,topic]=$('#singleService').value.split('|');return {key,topic}}
+async function menopauseSlots(){
+ const s=await staffSession(false);
+ const services=await medidate('clients/'+s.clientId+'/services',{query:{location:s.locationId,KV:'all'}});
+ const service=(Array.isArray(services)?services:[]).filter(x=>/wechseljahr/i.test(String(x?.name||''))&&String(x?.state||'active').toLowerCase()!=='inactive');
+ if(service.length!==1)throw new Error('Die Wechseljahressprechstunde ist in mediDate derzeit nicht eindeutig konfiguriert.');
+ const svc=service[0],serviceId=Number(svc.id);
+ const doctors=await medidate('clients/'+s.clientId+'/doctors',{query:{location:s.locationId,service:serviceId}});
+ const vg=(Array.isArray(doctors)?doctors:[]).find(x=>Number(x?.mediSoftId)===2||/friederike.*von grone|von grone/i.test(String(x?.displayName||x?.fullName||'')));
+ if(!vg)throw new Error('Dr. med. Friederike von Grone ist für die Wechseljahressprechstunde derzeit nicht freigegeben.');
+ const rows=await medidate('appointments/appointmenttimes',{query:{clientid:s.clientId,locationId:s.locationId,serviceId,doctorId:Number(vg.id)}});
+ const out=[];
+ for(const row of (rows?.appointmentTimes||[])){
+   const date=String(row?.dateTimeStart||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number(row?.duration)!==15)continue;
+   for(const raw of (row?.times||[])){const time=String(raw||'');if(!/^\d{1,2}\.\d{2}$/.test(time))continue;out.push({date,time,doctorKey:'vongrone',serviceKey:'MENOPAUSE',serviceName:'Wechseljahressprechstunde',duration:15,calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),direct:{clientId:s.clientId,locationId:s.locationId,serviceId,doctorId:Number(vg.id),listReferenzId:Number(row?.listReferenzId||0),calendarWeek:Number(row?.calendarWeek||row?.calenderWeek||0),duration:15}})}
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+}
+
 async function loadSingle(){
  const st=$('#singleStatus');status(st,'Freie Termine werden geladen …');
  try{
    await loadBundle();const route=$('#singleRoute').value,pat=$('#singlePatient').value,doctor=$('#singleDoctor').value,{key,topic}=selectedSingleMeta(),g=serviceGroup(key);
-   if(!g)throw new Error('Diese Terminart ist in der aktuellen mediDate-Konfiguration nicht verfügbar.');
-   const all=flattenGroup(g),xs=filterSingle(all,{route,patient:pat,topic,doctor}),n30=need30Single(route,pat,topic);
+   const all=topic==='menopause'?await menopauseSlots():(g?flattenGroup(g):null);
+   if(!all)throw new Error('Diese Terminart ist in der aktuellen mediDate-Konfiguration nicht verfügbar.');
+   const xs=filterSingle(all,{route,patient:pat,topic,doctor}),n30=need30Single(route,pat,topic);
    singleSlots=xs;$('#singleSlot').innerHTML=xs.length?xs.map((x,i)=>'<option value="'+i+'">'+esc(optionText(x,n30?30:15))+'</option>').join(''):'<option value="">Kein geeigneter freier Termin</option>';
    const note=$('#singleNote');if(topic==='pregnancy'&&route==='PKV'&&pat==='new'){note.classList.remove('hidden');note.textContent='PKV-Neupatientin + Schwangerschaft: der erste Termin wird 30 Minuten reserviert.'}else note.classList.add('hidden');
    status(st,xs.length+' geeignete freie Termine gefunden.','ok');
