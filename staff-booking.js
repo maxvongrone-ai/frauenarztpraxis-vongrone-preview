@@ -7,7 +7,7 @@ const DOCTORS={moxter:'Dr. med. Christina Moxter',vongrone:'Dr. med. Friederike 
 const GKV_BUCKET={moxter:2,vongrone:3};
 const POLICY={privateDailyMax:10,privateNewShare:2/3,selfPayShare:2/3,gkvNum:2,gkvDen:5};
 const CHAIN_WEEKS=[7,10,14,18,22,26,30,32,34,36,38,40];
-let bundle=null,sessionCache=null,singleSlots=[],chainRowsState=[];
+let bundle=null,sessionCache=null,singleSlots=[],chainRowsState=[],chainContext=null;
 
 function status(el,msg,kind=''){el.className='status'+(kind?' '+kind:'');el.textContent=msg}
 function pad(n){return String(n).padStart(2,'0')}
@@ -165,9 +165,11 @@ async function showApp(){
  $('#loginPanel').classList.add('hidden');$('#app').classList.remove('hidden');
  await loadBundle();
 }
-async function loadBundle(){
- if(bundle)return bundle;
- const r=await fetch('/api/medidate?action=liveBundle',{cache:'no-store',credentials:'same-origin'}),j=await r.json().catch(()=>null);
+async function loadBundle(force=false){
+ if(bundle&&!force)return bundle;
+ if(force)bundle=null;
+ const url='/api/medidate?action=liveBundle'+(force?'&fresh='+encodeURIComponent(Date.now()):'');
+ const r=await fetch(url,{cache:'no-store',credentials:'same-origin'}),j=await r.json().catch(()=>null);
  if(r.status===401){await logout();throw new Error('MA-Anmeldung abgelaufen.')}
  if(!r.ok||!j?.ok)throw new Error(j?.error||'Terminverfügbarkeit konnte nicht geladen werden.');
  bundle=j;return bundle;
@@ -342,25 +344,172 @@ function chainCandidates(all,{route,doctor,range,duration,morning}){
  const chosen=regular.length?regular:eligible.filter(is45);
  return chosen.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time)||a.doctorKey.localeCompare(b.doctorKey));
 }
+function chainSlotKey(x){
+ if(!x)return '';
+ return [x.date,x.time,x.doctorKey,x.serviceKey,Number(x.direct?.doctorId||0),Number(x.direct?.serviceId||0)].join('|');
+}
+function chainOptionLabel(x){
+ const doctor=chainContext?.doctor==='0'?' · '+(DOCTORS[x.doctorKey]||x.doctorKey):'';
+ return chainOptionText(x)+doctor+(is45(x)?' · Ausnahme :45':'');
+}
 function updateChainBookButton(){
  const confirm=$('#chainConfirm'),btn=$('#bookChain');
  const openAuto=chainRowsState.some(r=>!r.past&&r.plannedSlot&&!r.booked);
  btn.disabled=!(confirm?.checked&&openAuto);
 }
-function chainRowStatusHtml(row){
- if(row.past)return '<span class="muted">bereits vergangen</span>';
- if(row.booked)return '<span class="booked">✓ Gebucht</span>';
- if(!row.candidates.length)return '<span class="missing">Manuell zu buchen</span>';
- return '<span class="muted">noch nicht gebucht</span>';
+function updateChainRowCandidates(all,row,{preserve=true}={}){
+ if(row.past||row.booked)return;
+ const old=preserve?row.plannedSlot:null;
+ const candidates=chainCandidates(all,{
+   route:chainContext.route,
+   doctor:chainContext.doctor,
+   range:row,
+   duration:row.duration,
+   morning:row.morning
+ });
+ row.candidates=candidates;
+ const kept=old?candidates.find(x=>chainSlotKey(x)===chainSlotKey(old)):null;
+ row.plannedSlot=kept||candidates[0]||null;
+}
+function renderChainRows(){
+ const chainBody=$('#chainRows');
+ chainBody.replaceChildren();
+ const route=chainContext?.route||'',pat=chainContext?.pat||'',firstFuture=Number(chainContext?.firstFuture??-1);
+
+ chainRowsState.forEach((r,i)=>{
+   let detail=r.duration+' Min.';
+   if(r.test)detail+=' · 1. Trimestertest 199,11 €';
+   if(r.ssw===22)detail+=' · 30-Min.-Termin';
+   if(r.ssw===26)detail+=' · morgens · Zuckertest';
+   if(route==='PKV'&&pat==='new'&&i===firstFuture)detail+=' · PKV-Ersttermin';
+
+   const tr=document.createElement('tr');
+   tr.dataset.chainRow=String(i);
+
+   const sswTd=document.createElement('td');
+   const sswStrong=document.createElement('strong');
+   sswStrong.textContent=r.ssw+'. SSW';
+   sswTd.appendChild(sswStrong);
+
+   const rangeTd=document.createElement('td');
+   rangeTd.textContent=deDate(r.start)+' – '+deDate(r.end);
+
+   const detailTd=document.createElement('td');
+   const detailLine=document.createElement('div');
+   detailLine.textContent=detail;
+   detailTd.appendChild(detailLine);
+   if(!r.past&&!r.candidates.length){
+     const manual=document.createElement('div');
+     manual.className='missing';
+     manual.textContent='Termin muss manuell gebucht werden';
+     detailTd.appendChild(manual);
+   }
+
+   const terminTd=document.createElement('td');
+   if(r.past){
+     const past=document.createElement('span');
+     past.className='muted';
+     past.textContent='Bereits vergangen';
+     terminTd.appendChild(past);
+   }else{
+     const select=document.createElement('select');
+     select.dataset.chainIndex=String(i);
+
+     if(r.candidates.length){
+       for(let j=0;j<r.candidates.length;j++){
+         const option=document.createElement('option');
+         option.value=String(j);
+         option.textContent=chainOptionLabel(r.candidates[j]);
+         select.appendChild(option);
+       }
+       let selectedIndex=r.plannedSlot?r.candidates.findIndex(x=>chainSlotKey(x)===chainSlotKey(r.plannedSlot)):0;
+       if(selectedIndex<0)selectedIndex=0;
+       select.value=String(selectedIndex);
+       r.plannedSlot=r.candidates[selectedIndex]||null;
+       select.onchange=()=>{
+         r.plannedSlot=r.candidates[Number(select.value)]||null;
+         $('#chainConfirm').checked=false;
+         const oldStatus=$('[data-chain-status="'+i+'"]');
+         if(oldStatus&&!r.booked)oldStatus.textContent='';
+         updateChainBookButton();
+       };
+     }else{
+       const option=document.createElement('option');
+       option.value='';
+       option.textContent='Kein Termin verfügbar';
+       select.appendChild(option);
+       select.disabled=true;
+       r.plannedSlot=null;
+     }
+
+     if(r.booked)select.disabled=true;
+     terminTd.appendChild(select);
+
+     if(r.plannedSlot&&is45(r.plannedSlot)){
+       const fallback=document.createElement('div');
+       fallback.className='fallback';
+       fallback.textContent='Nur :45-Ausnahmetermine verfügbar';
+       terminTd.appendChild(fallback);
+     }
+
+     const bookingStatus=document.createElement('div');
+     bookingStatus.dataset.chainStatus=String(i);
+     if(r.booked)bookingStatus.innerHTML='<span class="booked">✓ Gebucht</span>';
+     terminTd.appendChild(bookingStatus);
+   }
+
+   tr.append(sswTd,rangeTd,detailTd,terminTd);
+   chainBody.appendChild(tr);
+ });
+}
+async function refreshChainAvailability(){
+ const st=$('#chainStatus'),btn=$('#refreshChain');
+ if(!chainRowsState.length||!chainContext){
+   status(st,'Bitte zunächst die Terminkette berechnen.','bad');return;
+ }
+ try{
+   btn.disabled=true;
+   status(st,'Verfügbarkeit wird direkt aus mediDate/PVS neu geladen …');
+   const before=chainRowsState.map(r=>chainSlotKey(r.plannedSlot));
+   await loadBundle(true);
+   const g=serviceGroup('vorsorge');
+   if(!g)throw new Error('Vorsorge/Schwangerschaft ist in mediDate nicht verfügbar.');
+   const all=flattenGroup(g);
+   let newlyAvailable=0,replaced=0,lost=0;
+   chainRowsState.forEach((r,i)=>{
+     if(r.past||r.booked)return;
+     const had=before[i];
+     updateChainRowCandidates(all,r,{preserve:true});
+     const now=chainSlotKey(r.plannedSlot);
+     if(!had&&now)newlyAvailable++;
+     else if(had&&!now)lost++;
+     else if(had&&now&&had!==now)replaced++;
+   });
+   renderChainRows();
+   $('#chainConfirm').checked=false;
+   updateChainBookButton();
+   let msg='Verfügbarkeit aktualisiert. Die Dropdowns zeigen jetzt den aktuellen mediDate/PVS-Stand.';
+   if(newlyAvailable)msg+=' '+newlyAvailable+' zuvor fehlende'+(newlyAvailable===1?'r Termin ist':' Termine sind')+' jetzt verfügbar.';
+   if(replaced)msg+=' '+replaced+' bisher gewählte'+(replaced===1?'r Termin wurde':' Termine wurden')+' durch die nächste freie Alternative ersetzt.';
+   if(lost)msg+=' '+lost+' zuvor gewählte'+(lost===1?'r Termin ist':' Termine sind')+' nicht mehr frei.';
+   status(st,msg,lost?'warn':'ok');
+ }catch(e){
+   status(st,e.message,'bad');
+ }finally{
+   btn.disabled=false;
+ }
 }
 async function buildChain(){
  const st=$('#chainStatus');status(st,'Schwangerschaftstermine werden berechnet …');
  try{
-   await loadBundle();const conception=$('#conceptionDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(conception))throw new Error('Bitte das errechnete Empfängnisdatum eingeben.');
+   await loadBundle(true);
+   const conception=$('#conceptionDate').value;
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(conception))throw new Error('Bitte das errechnete Empfängnisdatum eingeben.');
    const route=$('#pregRoute').value,pat=$('#pregPatient').value,doctor=$('#pregDoctor').value,test=$('#firstTrimester').checked,g=serviceGroup('vorsorge');
    if(!g)throw new Error('Vorsorge/Schwangerschaft ist in mediDate nicht verfügbar.');
    const all=flattenGroup(g),today=berlinToday(),ranges=CHAIN_WEEKS.map(ssw=>({ssw,...weekRange(conception,ssw)}));
    const firstFuture=ranges.findIndex(r=>r.end>=today);
+   chainContext={route,pat,doctor,test,firstFuture};
    chainRowsState=ranges.map((r,i)=>{
      const special30=r.ssw===22||r.ssw===26||(r.ssw===14&&test)||(route==='PKV'&&pat==='new'&&i===firstFuture);
      const duration=special30?30:15,morning=r.ssw===26;
@@ -368,67 +517,12 @@ async function buildChain(){
      const plannedSlot=candidates[0]||null;
      return {...r,duration,morning,candidates,plannedSlot,test:r.ssw===14&&test,past:r.end<today,booked:false};
    });
-   const chainBody=$('#chainRows');
-   chainBody.replaceChildren();
-   chainRowsState.forEach((r,i)=>{
-     let detail=r.duration+' Min.';
-     if(r.test)detail+=' · 1. Trimestertest 199,11 €';
-     if(r.ssw===22)detail+=' · 30-Min.-Termin';
-     if(r.ssw===26)detail+=' · morgens · Zuckertest';
-     if(route==='PKV'&&pat==='new'&&i===firstFuture)detail+=' · PKV-Ersttermin';
-
-     const tr=document.createElement('tr');
-     tr.dataset.chainRow=String(i);
-
-     const sswTd=document.createElement('td');
-     const sswStrong=document.createElement('strong');
-     sswStrong.textContent=r.ssw+'. SSW';
-     sswTd.appendChild(sswStrong);
-
-     const rangeTd=document.createElement('td');
-     rangeTd.textContent=deDate(r.start)+' – '+deDate(r.end);
-
-     const detailTd=document.createElement('td');
-     const detailLine=document.createElement('div');
-     detailLine.textContent=detail;
-     detailTd.appendChild(detailLine);
-     if(!r.past&&!r.plannedSlot){
-       const manual=document.createElement('div');
-       manual.className='missing';
-       manual.textContent='Termin muss manuell gebucht werden';
-       detailTd.appendChild(manual);
-     }
-
-     const terminTd=document.createElement('td');
-     if(r.past){
-       const past=document.createElement('span');
-       past.className='muted';
-       past.textContent='Bereits vergangen';
-       terminTd.appendChild(past);
-     }else if(r.plannedSlot){
-       const time=document.createElement('span');
-       time.dataset.chainTime=String(i);
-       time.textContent=chainOptionText(r.plannedSlot);
-       terminTd.appendChild(time);
-       if(is45(r.plannedSlot)){
-         const fallback=document.createElement('div');
-         fallback.className='fallback';
-         fallback.textContent='Ausnahme :45';
-         terminTd.appendChild(fallback);
-       }
-       const bookingStatus=document.createElement('div');
-       bookingStatus.dataset.chainStatus=String(i);
-       terminTd.appendChild(bookingStatus);
-     }
-
-     tr.append(sswTd,rangeTd,detailTd,terminTd);
-     chainBody.appendChild(tr);
-   });
+   renderChainRows();
    $('#chainTable').classList.remove('hidden');$('#chainBookActions').classList.remove('hidden');
    $('#chainConfirm').checked=false;
    $('#chainConfirm').onchange=updateChainBookButton;
    updateChainBookButton();
-   status(st,'Terminkette berechnet. Bitte alle Termine prüfen und anschließend bestätigen.','ok');
+   status(st,'Terminkette berechnet. Pro SSW können Sie im Dropdown einen Alternativtermin wählen. Nach Änderungen im PVS bitte „Verfügbarkeit aus PVS aktualisieren“ verwenden.','ok');
  }catch(e){status(st,e.message,'bad')}
 }
 async function bookChain(){
@@ -496,9 +590,9 @@ function initControls(){
  $('#singleRoute').onchange=()=>{fillSingleServices();singleSlots=[];$('#singleSlot').innerHTML='<option value="">Bitte zuerst Termine laden</option>'};
  $('#singlePatient').onchange=()=>{singleSlots=[]};$('#singleService').onchange=()=>{singleSlots=[]};
  $$('[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
- $('#loadSingle').onclick=loadSingle;$('#bookSingle').onclick=bookSingle;$('#buildChain').onclick=buildChain;$('#bookChain').onclick=bookChain;
+ $('#loadSingle').onclick=loadSingle;$('#bookSingle').onclick=bookSingle;$('#buildChain').onclick=buildChain;$('#refreshChain').onclick=refreshChainAvailability;$('#bookChain').onclick=bookChain;
  for(const id of ['pregRoute','pregPatient','pregDoctor','conceptionDate','firstTrimester']){
-   $('#'+id).onchange=()=>{chainRowsState=[];$('#chainTable').classList.add('hidden');$('#chainBookActions').classList.add('hidden');$('#chainBookStatus').textContent='';};
+   $('#'+id).onchange=()=>{chainRowsState=[];chainContext=null;$('#chainTable').classList.add('hidden');$('#chainBookActions').classList.add('hidden');$('#chainBookStatus').textContent='';};
  }
  $('#login').onclick=login;$('#password').onkeydown=e=>{if(e.key==='Enter')login()};$('#logout').onclick=logout;
 }
