@@ -586,6 +586,26 @@ function mergeVisibleSlots(...lists){
  return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 
+function isGkvExistingVorsorgeSelection(){
+ return state.insurance==='GKV' &&
+        state.patientType==='existing' &&
+        state.topicMode==='regular' &&
+        String(state.service?.id||'')==='vorsorge';
+}
+function leadDaysToDate(iso){
+ if(!iso)return Number.POSITIVE_INFINITY;
+ return daysBetween(new Date(),new Date(String(iso)+'T12:00:00'));
+}
+function isGkvVorsorgeShortTermDay(iso){
+ const lead=leadDaysToDate(iso);
+ return isGkvExistingVorsorgeSelection() && lead>=0 && lead<=7;
+}
+function isGkvVorsorgePrivateShortTerm(slot){
+ return isGkvVorsorgeShortTermDay(slot?.date) &&
+        isPrivateOnlyWindow(slot) &&
+        isPrivateWindowStart(slot);
+}
+
 function selectGkvContingent(allSlots){
  // Privatsprechstunden bleiben vollständig außerhalb des GKV-Pools.
  const regular=allSlots.filter(x=>!isPrivateOnlyWindow(x));
@@ -686,7 +706,16 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  }else if(state.insurance==='GKV'){
    // Reguläre GKV-Neupatientinnen sehen keine Online-Termine. Akut und
    // Schwangerschaft werden bewusst separat behandelt.
-   normal=state.patientType==='new'?[]:selectGkvContingent(allSlots);
+   if(state.patientType==='new'){
+     normal=[];
+   }else{
+     const regular=selectGkvContingent(allSlots);
+     // Vorsorge bei GKV-Bestand: Innerhalb von sieben Tagen vor dem Termin
+     // werden zusätzlich alle noch freien Startzeiten der Privatsprechstunde
+     // freigegeben. Die übrige GKV-Kontingentlogik bleibt unverändert.
+     const shortTermPrivate=allSlots.filter(isGkvVorsorgePrivateShortTerm);
+     normal=mergeVisibleSlots(regular,shortTermPrivate);
+   }
  }else{
    normal=allSlots.filter(maySeeSlot);
  }
@@ -998,7 +1027,7 @@ function buildAvailableDays(raw){
    // An gesetzlichen Feiertagen in Hamburg werden grundsätzlich keine
    // Online-Termine angezeigt – unabhängig von Versicherung, Leistung oder Kontingent.
    if(isHamburgPublicHolidayISO(day))continue;
-   if(day<rule.earliest && day!==SPECIAL_OPEN_DATE)continue;
+   if(day<rule.earliest && day!==SPECIAL_OPEN_DATE && !isGkvVorsorgeShortTermDay(day))continue;
    for(const tv of (r.times||[])){
      const t=typeof tv==='string'?tv:String(tv?.time||'');
      const trackingNonce=typeof tv==='object'?String(tv?.trackingNonce||''):'';
@@ -1009,7 +1038,10 @@ function buildAvailableDays(raw){
      const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,trackingNonce,trackingExp,trackingProof,direct:(typeof tv==='object'&&tv?.direct)?tv.direct:null};
      // Liegt der Sondertag vor der regulären Freigabegrenze (insb. GKV-Bestand),
      // werden Starts 12:00–12:45 sowie 13:00 nur als technischer Folgeslot berücksichtigt.
-     if(day<rule.earliest && !isSpecialOpenWindow(candidate) && !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60))continue;
+     if(day<rule.earliest &&
+        !isSpecialOpenWindow(candidate) &&
+        !(candidate.date===SPECIAL_OPEN_DATE&&minutesOf(candidate.time)===13*60) &&
+        !isGkvVorsorgePrivateShortTerm(candidate))continue;
      candidateSlots.push(candidate);
    }
  }
@@ -1025,7 +1057,7 @@ function buildAvailableDays(raw){
  }
 
  const allVisible=audienceVisibleSlots(allBookable,candidateSlots)
-   .filter(x=>x.date>=rule.earliest||specialOpenBookingAllowed(x));
+   .filter(x=>x.date>=rule.earliest||specialOpenBookingAllowed(x)||isGkvVorsorgePrivateShortTerm(x));
  const days=new Map();
  for(const x of allVisible){
    if(!days.has(x.date))days.set(x.date,[]);
@@ -1217,9 +1249,10 @@ function renderMonthCalendar(loading=false){
    const available=(state.availableDays?.get(iso)||[]).length>0;
    const earliest=currentRule()?.earliest||todayISO;
    const specialDateAvailable=iso===SPECIAL_OPEN_DATE&&available&&specialOpenAudienceAllowed();
+   const gkvVorsorgeShortTermAvailable=available&&isGkvVorsorgeShortTermDay(iso);
    if(iso<todayISO){
      btn.classList.add('past');btn.disabled=true;btn.title='Vergangen';
-   }else if(iso<earliest&&!specialDateAvailable){
+   }else if(iso<earliest&&!specialDateAvailable&&!gkvVorsorgeShortTermAvailable){
      btn.classList.add('unavailable');btn.disabled=true;btn.title='Noch nicht buchbar';
    }else if(available){
      btn.classList.add('available');
@@ -1464,13 +1497,17 @@ async function bookNow(){
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patient.email)){st.className='status bad';st.textContent='Bitte eine gültige E-Mail-Adresse eingeben.';return}
 
  const rule=currentRule(),specialOverride=specialOpenBookingAllowed(state.selectedSlot);
+ const gkvVorsorgeShortTermOverride=isGkvVorsorgePrivateShortTerm(state.selectedSlot);
  if(isHamburgPublicHolidayISO(state.selectedSlot?.date)){
    st.className='status bad';st.textContent='An gesetzlichen Feiertagen in Hamburg sind keine Online-Termine buchbar.';return
  }
  if(isQuarter45Start(state.selectedSlot)){
    st.className='status bad';st.textContent='Termine um :45 Uhr werden nicht als eigener Online-Starttermin angeboten. Bitte wählen Sie eine andere Uhrzeit.';return
  }
- if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
+ if(state.selectedSlot.date<rule.earliest&&!specialOverride&&!gkvVorsorgeShortTermOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
+ if(isGkvExistingVorsorgeSelection()&&isPrivateOnlyWindow(state.selectedSlot)&&!gkvVorsorgeShortTermOverride){
+   st.className='status bad';st.textContent='Freie Vorsorgetermine in der Privatsprechstunde werden für GKV-Bestandspatientinnen erst innerhalb von sieben Tagen vor dem Termin freigegeben.';return
+ }
  if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return}
  if(isMenopauseMode()&&String(state.selectedSlot?.doctorId)!==MENOPAUSE_DOCTOR_KEY){
    st.className='status bad';st.textContent='Die Wechseljahressprechstunde ist ausschließlich bei Dr. med. Friederike von Grone buchbar.';return

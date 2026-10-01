@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.7",
+  "version": "60.10.8",
   "private": true,
-  "description": "mediDate V60.10.7: staged private-consultation release for pregnancy and self-pay breast ultrasound; 15-minute existing-patient and 30-minute new-patient booking rules.",
+  "description": "mediDate V60.10.8: GKV existing-patient preventive care can use free private-consultation slots within 7 days; staged pregnancy and self-pay breast-ultrasound release retained.",
   "engines": {
     "node": "22.x"
   },
