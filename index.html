@@ -351,12 +351,16 @@ function add15DotTime(t){
  let mins=Number(m[1])*60+Number(m[2])+15;if(mins>=1440)return null;
  return `${String(Math.floor(mins/60)).padStart(2,'0')}.${String(mins%60).padStart(2,'0')}`;
 }
+function isSelfPayBreast(){
+ return state.insurance==='SELF'&&String(state.service?.id||'')==='breast';
+}
 function needs30MinuteBlock(){
- // Schwangerschaft bleibt grundsätzlich 15 Minuten. Ausnahme: Bei einer
- // PKV-Neupatientin wird der erste online gebuchte Schwangerschaftstermin
- // als 30-Minuten-Ersttermin mit zwei 15-Minuten-Blöcken reserviert.
- if(state.topicMode==='pregnancy'){
-   return state.insurance==='PKV'&&state.patientType==='new';
+ // Schwangerschaft und Brustultraschall (Selbstzahler) sind bei Bestand
+ // 15-Minuten-Termine. Neupatientinnen erhalten nur Starts mit zwei direkt
+ // aufeinanderfolgenden freien 15-Minuten-Blöcken; technisch werden dann
+ // 30 Minuten reserviert, die Patienten-E-Mail bleibt am ersten 15-Minuten-Block.
+ if(state.topicMode==='pregnancy'||isSelfPayBreast()){
+   return state.patientType==='new';
  }
  return isMenopauseMode() ||
         state.insurance==='SELF' ||
@@ -386,10 +390,7 @@ function pregnancyPrivateNewStartPool(items){
 }
 
 function onlyBookableStarts(items){
- if(state.topicMode==='pregnancy'&&(
-   (state.insurance==='PKV'&&state.patientType==='new') ||
-   state.insurance==='GKV'
- )){
+ if(state.topicMode==='pregnancy'&&state.patientType==='new'){
    return pregnancyPrivateNewStartPool(items);
  }
 
@@ -553,6 +554,38 @@ function keepPopularFractionPerDay(slots,share,referenceSlots=slots){
  return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 
+function privateWindowReleaseShare(slot){
+ const lead=Math.max(0,daysBetween(new Date(),new Date(String(slot?.date||'')+'T12:00:00')));
+ if(lead<=2)return 1;
+ if(lead<7)return 2/3;
+ return 1/2;
+}
+
+function keepReleasedPrivateWindowFraction(slots,referenceSlots=slots){
+ const byDay=new Map(),out=[];
+ for(const x of slots){
+   if(!byDay.has(x.date))byDay.set(x.date,[]);
+   byDay.get(x.date).push(x);
+ }
+ for(const daySlots of byDay.values()){
+   const share=privateWindowReleaseShare(daySlots[0]);
+   out.push(...keepPopularFractionPerDay(daySlots,share,referenceSlots));
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+}
+
+function mergeVisibleSlots(...lists){
+ const out=[],seen=new Set();
+ for(const list of lists){
+   for(const x of (list||[])){
+     const k=`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`;
+     if(seen.has(k))continue;
+     seen.add(k);out.push(x);
+   }
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+}
+
 function selectGkvContingent(allSlots){
  // Privatsprechstunden bleiben vollständig außerhalb des GKV-Pools.
  const regular=allSlots.filter(x=>!isPrivateOnlyWindow(x));
@@ -618,9 +651,16 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  if(state.topicMode==='acute'){
    normal=allSlots.filter(maySeeSlot);
  }else if(state.topicMode==='pregnancy'){
-   normal=state.insurance==='GKV'
+   // Reguläre Schwangerschaftstermine bleiben wie bisher sichtbar.
+   // Aus den reservierten Privatsprechstunden wird abhängig vom Vorlauf
+   // 1/2, unter 7 Tagen 2/3 und ab 2 Tagen vor dem Termin 100 % freigegeben.
+   const base=state.insurance==='GKV'
      ?allSlots.slice()
      :allSlots.filter(maySeeSlot);
+   const regular=base.filter(x=>!isPrivateOnlyWindow(x));
+   const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x));
+   const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);
+   normal=mergeVisibleSlots(regular,privateReleased);
  }else if(isMenopauseMode()){
    // Bereits auf Dr. von Grone, Privatsprechstunden und zusammenhängende
    // 30-Minuten-Blöcke gefiltert.
@@ -632,7 +672,17 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
      :pool;
  }else if(state.insurance==='SELF'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
-   normal=keepPopularFractionPerDay(pool,BOOKING_POLICY.selfPayShare,allSlots);
+   const base=keepPopularFractionPerDay(pool,BOOKING_POLICY.selfPayShare,allSlots);
+   if(isSelfPayBreast()){
+     // Beim Brustultraschall bleibt die bisherige Selbstzahler-Freigabe
+     // außerhalb der Privatsprechstunde unverändert. Zusätzlich werden aus
+     // der Privatsprechstunde 1/2, <7 Tage 2/3 und <=2 Tage 100 % gezeigt.
+     const regular=base.filter(x=>!isPrivateOnlyWindow(x));
+     const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));
+     normal=mergeVisibleSlots(regular,keepReleasedPrivateWindowFraction(privateCandidates,allSlots));
+   }else{
+     normal=base;
+   }
  }else if(state.insurance==='GKV'){
    // Reguläre GKV-Neupatientinnen sehen keine Online-Termine. Akut und
    // Schwangerschaft werden bewusst separat behandelt.

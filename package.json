@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.6",
+  "version": "60.10.7",
   "private": true,
-  "description": "mediDate V60.10.6: BotID-protected session flow retained; tracking assets are versioned and no-store to prevent stale cancellation-check code.",
+  "description": "mediDate V60.10.7: staged private-consultation release for pregnancy and self-pay breast ultrasound; 15-minute existing-patient and 30-minute new-patient booking rules.",
   "engines": {
     "node": "22.x"
   },
