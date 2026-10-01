@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.8",
+  "version": "60.10.9",
   "private": true,
-  "description": "mediDate V60.10.8: GKV existing-patient preventive care can use free private-consultation slots within 7 days; staged pregnancy and self-pay breast-ultrasound release retained.",
+  "description": "mediDate V60.10.9: GKV existing-patient preventive care releases half of free private-consultation slots within 7 days, rounded up and least-popular times first; prior staged releases retained.",
   "engines": {
     "node": "22.x"
   },
