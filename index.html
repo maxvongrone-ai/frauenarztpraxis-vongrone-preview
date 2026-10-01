@@ -605,6 +605,24 @@ function isGkvVorsorgePrivateShortTerm(slot){
         isPrivateOnlyWindow(slot) &&
         isPrivateWindowStart(slot);
 }
+function selectGkvVorsorgePrivateShortTerm(slots,referenceSlots=slots){
+ const scores=popularityScores(referenceSlots);
+ const byDay=new Map(),out=[];
+ for(const x of slots.filter(isGkvVorsorgePrivateShortTerm)){
+   if(!byDay.has(x.date))byDay.set(x.date,[]);
+   byDay.get(x.date).push(x);
+ }
+ for(const daySlots of byDay.values()){
+   const keep=Math.ceil(daySlots.length/2);
+   const ranked=daySlots.slice().sort((a,b)=>{
+     const sa=scores.get(weekdayOfISO(a.date)+'|'+a.time)||0;
+     const sb=scores.get(weekdayOfISO(b.date)+'|'+b.time)||0;
+     return (sa-sb)||(minutesOf(a.time)-minutesOf(b.time));
+   });
+   out.push(...ranked.slice(0,keep));
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+}
 
 function selectGkvContingent(allSlots){
  // Privatsprechstunden bleiben vollständig außerhalb des GKV-Pools.
@@ -711,9 +729,10 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
    }else{
      const regular=selectGkvContingent(allSlots);
      // Vorsorge bei GKV-Bestand: Innerhalb von sieben Tagen vor dem Termin
-     // werden zusätzlich alle noch freien Startzeiten der Privatsprechstunde
-     // freigegeben. Die übrige GKV-Kontingentlogik bleibt unverändert.
-     const shortTermPrivate=allSlots.filter(isGkvVorsorgePrivateShortTerm);
+     // wird zunächst die Hälfte der noch freien Startzeiten der Privatsprechstunde
+     // freigegeben (aufgerundet), bevorzugt die zeitlich weniger nachgefragten.
+     // Die übrige GKV-Kontingentlogik bleibt unverändert.
+     const shortTermPrivate=selectGkvVorsorgePrivateShortTerm(allSlots,allSlots);
      normal=mergeVisibleSlots(regular,shortTermPrivate);
    }
  }else{
