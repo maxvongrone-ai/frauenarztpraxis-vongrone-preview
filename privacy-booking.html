@@ -8,25 +8,25 @@
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.55;color:#303536;background:#f6f3ef;margin:0}
 main{max-width:860px;margin:30px auto;background:white;padding:28px;border-radius:16px;border:1px solid #ded8d2}
-h1{font-size:28px}h2{margin-top:26px;font-size:20px}.note{background:#f4efeb;border:1px solid #ddd1ca;padding:13px;border-radius:10px}
+h1{font-size:28px}h2{margin-top:26px;font-size:20px}
 </style>
 </head><body><main>
 <h1>Datenschutzhinweise zur Online-Terminbuchung</h1>
 <p><strong>Verantwortliche:</strong> Frauenarztpraxis Dr. med. Friederike von Grone, Im Alten Dorfe 23, 22359 Hamburg, E-Mail: kontakt@frauenarztpraxis-vongrone.de, Telefon: 040 / 603 81 41.</p>
 
 <h2>Technische Architektur</h2>
-<p>Die öffentliche Terminanzeige wird über die Website bereitgestellt. Für die Kommunikation mit mediDate erhält der Browser ausschließlich die technisch notwendigen öffentlichen Sitzungs- und Termininformationen.</p>
-<p>Vorname, Nachname, Geburtsdatum und E-Mail-Adresse bleiben bis zum verbindlichen Absenden im Browser der Patientin. Beim Absenden werden diese Angaben <strong>direkt vom Browser an mediDate/MediSoftware übertragen</strong>. Sie werden nicht an eine Vercel-Serverfunktion der Praxis übermittelt und dort nicht gespeichert.</p>
-<p>Der Website-Host verarbeitet beim normalen Seitenaufruf technisch notwendige Verbindungsdaten wie insbesondere IP-Adresse, Zeitpunkt und Browser-/Geräteinformationen. Diese technischen Hostingdaten sind von den im Buchungsformular eingegebenen Identitätsdaten zu unterscheiden.</p>
+<p>Die allgemeine Praxis-Website wird bei United Domains gehostet. Die separate Online-Terminbuchung wird als eigenständiges Buchungs-Frontend über Vercel bereitgestellt und nutzt für die eigentliche Terminvereinbarung das Terminbuchungssystem von medisoftware (mediDate).</p>
+<p>Für die Kommunikation mit mediDate erhält der Browser ausschließlich die technisch notwendigen öffentlichen Sitzungs- und Termininformationen. Vorname, Nachname, Geburtsdatum und E-Mail-Adresse bleiben bis zum verbindlichen Absenden im Browser der Patientin. Beim Absenden werden diese Angaben <strong>direkt vom Browser an mediDate/medisoftware übertragen</strong>. Sie werden nicht an eine Vercel-Serverfunktion der Praxis übermittelt und dort nicht gespeichert.</p>
+<p>Beim Aufruf des Buchungs-Frontends verarbeitet Vercel technisch notwendige Verbindungsdaten wie insbesondere IP-Adresse, Zeitpunkt und Browser-/Geräteinformationen. Diese technischen Hostingdaten sind von den im Buchungsformular eingegebenen Identitätsdaten zu unterscheiden.</p>
 
 <h2>Sicherheitsprüfung des gewählten Termins</h2>
-<p>Die Website stellt nur freigegebene Terminarten und Ärztinnen dar. Unmittelbar vor dem verbindlichen Absenden prüft der Browser die aktuelle freie Verfügbarkeit nochmals direkt bei mediDate. Die eigentliche Buchung wird anschließend unmittelbar an die mediDate-API gesendet.</p>
+<p>Das Buchungs-Frontend stellt nur freigegebene Terminarten und Ärztinnen dar. Unmittelbar vor dem verbindlichen Absenden prüft der Browser die aktuelle freie Verfügbarkeit nochmals direkt bei mediDate. Die eigentliche Buchung wird anschließend unmittelbar an die mediDate-API gesendet.</p>
 
-<h2>Öffentliche Website</h2>
-<p>Beim Aufruf der Website verarbeitet der jeweilige Website-Host technisch notwendige Verbindungsdaten wie insbesondere IP-Adresse, Zeitpunkt, Browser-/Geräteinformationen und aufgerufene Seiten. Die öffentliche Verfügbarkeitsansicht enthält keine Patientennamen und keine belegten MEDISOFT-Termine.</p>
+<h2>Öffentliche Verfügbarkeitsansicht</h2>
+<p>Die öffentliche Verfügbarkeitsansicht enthält keine Patientennamen und keine belegten MEDISOFT-Termine. Die allgemeine Praxis-Website und das separate Buchungs-Frontend sind technisch getrennt: Die Praxis-Website wird bei United Domains gehostet, das Buchungs-Frontend bei Vercel.</p>
 
 <h2>Patienten- und Gesundheitsdaten bei der Buchung</h2>
-<p>Die eigentliche Terminbuchung erfolgt technisch durch eine direkte Verbindung des Browsers zu mediDate/MediSoftware. Rechtsgrundlagen für die Terminorganisation und die medizinisch erforderliche Verarbeitung sind – soweit einschlägig – insbesondere Art. 6 Abs. 1 lit. b DSGVO sowie Art. 9 Abs. 2 lit. h DSGVO in Verbindung mit § 22 Abs. 1 Nr. 1 lit. b BDSG.</p>
+<p>Die eigentliche Terminbuchung erfolgt technisch durch eine direkte Verbindung des Browsers zu mediDate/medisoftware. Rechtsgrundlagen für die Terminorganisation und die medizinisch erforderliche Verarbeitung sind – soweit einschlägig – insbesondere Art. 6 Abs. 1 lit. b DSGVO sowie Art. 9 Abs. 2 lit. h DSGVO in Verbindung mit § 22 Abs. 1 Nr. 1 lit. b BDSG.</p>
 <p>Die Terminbuchung ist <strong>keine Einwilligung in eine medizinische Maßnahme</strong>. Medizinische Aufklärung und Einwilligung erfolgen – soweit erforderlich – gesondert vor der Behandlung.</p>
 
 <h2>Datenminimierung</h2>
@@ -34,18 +34,16 @@ h1{font-size:28px}h2{margin-top:26px;font-size:20px}.note{background:#f4efeb;bor
 
 <h2>Interne Buchungsstatistik</h2>
 <p>Nach einer erfolgreich abgeschlossenen Buchung erzeugt der Browser für die interne Kapazitäts- und Angebotsauswertung einen Datensatz mit Buchungspfad, Neu-/Bestandspatientin, Terminart, Termin-Datum und -Uhrzeit, Ärztin, Termindauer und technischem Erfassungszeitpunkt. Name, Geburtsdatum, E-Mail-Adresse, Telefonnummer und Freitext gehören nicht zu diesem Statistikdatensatz.</p>
-<p><strong>Dieser Statistikdatensatz wird bereits im Browser Ende-zu-Ende verschlüsselt, bevor er an den Website-Host übertragen wird.</strong> Im privaten Vercel-Blob-Store wird ausschließlich der verschlüsselte Datensatz gespeichert. Der zur Entschlüsselung erforderliche private Schlüssel liegt nicht auf dem Website-Server; entschlüsselt wird erst im geschützten Auswertungsbereich im Browser der Praxis.</p>
+<p><strong>Dieser Statistikdatensatz wird bereits im Browser Ende-zu-Ende verschlüsselt, bevor er an Vercel übertragen wird.</strong> Im privaten Vercel-Blob-Store wird ausschließlich der verschlüsselte Datensatz gespeichert. Der zur Entschlüsselung erforderliche private Schlüssel liegt nicht auf dem Vercel-Server; entschlüsselt wird erst im geschützten Auswertungsbereich im Browser der Praxis.</p>
 <p>Zur internen Storno-Erkennung kann der geschützte Auswertungsbereich nach der lokalen Entschlüsselung zukünftige getrackte Termine direkt aus dem Praxis-Browser mit der aktuellen öffentlichen mediDate-Verfügbarkeit vergleichen. Wird ein zuvor belegter Slot dort wieder frei oder später erneut über die Online-Buchung belegt, kann er in der Auswertung als „storniert / wieder freigegeben“ gekennzeichnet werden. Der erkannte Status wird erneut Ende-zu-Ende verschlüsselt gespeichert; die entschlüsselten Termindaten werden hierfür nicht an die Vercel-Trackingfunktion übermittelt.</p>
-<p>Die Anwendung begrenzt den verschlüsselten Statistik-Speicher standardmäßig auf 180 Tage. Technisch notwendige Verbindungsdaten des Website-Hostings, insbesondere die IP-Adresse beim HTTPS-Aufruf, sind hiervon zu unterscheiden.</p>
+<p>Die Anwendung begrenzt den verschlüsselten Statistik-Speicher standardmäßig auf 180 Tage. Technisch notwendige Verbindungsdaten des Vercel-Hostings, insbesondere die IP-Adresse beim HTTPS-Aufruf, sind hiervon zu unterscheiden.</p>
 
 <h2>Kein Website-Patientenpostfach</h2>
 <p>Diese Version führt kein eigenes cloudbasiertes Patientenpostfach. Wenn kurzfristig kein geeigneter Schwangerschaftstermin verfügbar ist, erfolgt die Kontaktaufnahme mit der Praxis telefonisch.</p>
 
 <h2>Speicherung und Dokumentation</h2>
-<p>Für die über mediDate/MediSoftware angelegte Terminbuchung und eine daraus entstehende Behandlungsdokumentation gelten die hierfür maßgeblichen datenschutz-, berufs- und patientenrechtlichen Vorgaben. Das Website-Frontend selbst führt keine Patientenakte.</p>
+<p>Für die über mediDate/medisoftware angelegte Terminbuchung und eine daraus entstehende Behandlungsdokumentation gelten die hierfür maßgeblichen datenschutz-, berufs- und patientenrechtlichen Vorgaben. Das Buchungs-Frontend selbst führt keine Patientenakte.</p>
 
 <h2>Ihre Rechte</h2>
 <p>Sie haben im Rahmen der gesetzlichen Voraussetzungen insbesondere Rechte auf Auskunft, Berichtigung, Löschung bzw. Einschränkung der Verarbeitung und Beschwerde bei einer Datenschutzaufsichtsbehörde. Soweit Daten Bestandteil der Behandlungsakte sind, gelten zusätzlich die Patientenrechte, insbesondere § 630g BGB.</p>
-
-<div class="note"><strong>Hinweis:</strong> Diese Hinweise müssen mit der allgemeinen Datenschutzerklärung der Praxis sowie den tatsächlich mit MediSoftware und dem Website-Host bestehenden Verträgen, Auftragsverarbeitungsvereinbarungen und technischen Einstellungen übereinstimmen.</div>
 </main></body></html>
