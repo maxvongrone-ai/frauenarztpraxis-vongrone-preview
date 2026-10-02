@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-let current=[],currentRetention=180,currentStorage='vercel-blob-private-e2ee',currentMigration=null,lastCancellationCheck=0,checking=false;
+let current=[],currentRetention=180,currentStorage='vercel-blob-private-e2ee',currentMigration=null,lastStatusCheck=0,checking=false,pvsChecking=false;
 const WRAPPED_PRIVATE=Object.freeze({
  v:3,kdf:'PBKDF2-SHA256',iterations:310000,
  salt:'8FRW7TuDk1dcegVpoRbEWQ',
@@ -10,9 +10,13 @@ const WRAPPED_PRIVATE=Object.freeze({
 const TRACKING_PUBLIC_KEY_SPKI_B64='MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAErHJvD6uRk7+vGJePnhFJgkoMiyLv+5c4PhyW2D1o+hPFVRQj6qTZslPtqWhY0xE7kMZDuALT8d6gLhBvg95vpQ==';
 const SERVICE_FALLBACK=Object.freeze({vorsorge:1950,contraception:1952,followup:1973,breast:1974,pregnancy:1950,'1950':1950,'1952':1952,'1973':1973,'1974':1974});
 const DOCTOR_FALLBACK=Object.freeze({moxter:512,vongrone:513,'512':512,'513':513});
+const PVS_SNAPSHOT_KEY='medidate-pvs-free-slots-v1';
+const PVS_MONITOR_SERVICE_IDS=Object.freeze([1950,1952,1973,1974]);
+const PVS_MONITOR_DOCTOR_IDS=Object.freeze([512,513]);
+const PVS_DOCTOR_NAMES=Object.freeze({512:'Dr. Christina Moxter',513:'Dr. med. Friederike von Grone'});
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
 const deDate=iso=>String(iso||'').split('-').reverse().join('.');
-const routeName=r=>r==='PKV'?'Privatversicherte / Selbstzahler':r==='GKV'?'Gesetzlich Versicherte':r==='SELF'?'Besondere Selbstzahlerleistungen':r;
+const routeName=r=>r==='PKV'?'Privatversicherte / Selbstzahler':r==='GKV'?'Gesetzlich Versicherte':r==='SELF'?'Besondere Selbstzahlerleistungen':r==='PVS'?'Praxisprogramm / PVS':r;
 const patientName=p=>p==='existing'?'Bestandspatientin':p==='new'?'Neupatientin':'';
 
 function b64urlToBytes(s){
@@ -100,6 +104,7 @@ function slotKey(e){
 }
 function bookingStatus(e){
  if(e?.bookingStatus==='released')return 'Storniert / wieder freigegeben';
+ if(e?.eventType==='pvs_booking_detected'||e?.bookingStatus==='pvs')return 'Praxis/PVS: nicht mehr frei';
  if(!isFuture(e))return 'Termin vorbei';
  return 'Gebucht';
 }
@@ -112,6 +117,10 @@ function statusDetail(e){
    const w=e.releaseDetectedAt?new Date(e.releaseDetectedAt).toLocaleString('de-DE'):'';
    return 'Slot in mediDate wieder frei'+(w?' · '+w:'');
  }
+ if(e?.eventType==='pvs_booking_detected'){
+   const w=e.pvsDetectedAt?new Date(e.pvsDetectedAt).toLocaleString('de-DE'):'';
+   return 'Zuvor frei; bei der nächsten Prüfung nicht mehr in mediDate/PVS verfügbar'+(w?' · erkannt '+w:'');
+ }
  return '';
 }
 function render(events=current,retention=currentRetention,storage=currentStorage,migration=currentMigration,extra=''){
@@ -122,14 +131,16 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  $('#nGkv').textContent=current.filter(x=>x.route==='GKV').length;
  $('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;
  $('#nReleased').textContent=current.filter(x=>x.bookingStatus==='released').length;
+ $('#nPvs').textContent=current.filter(x=>x?.eventType==='pvs_booking_detected').length;
  $('#rows').innerHTML=current.map(x=>{
-   const bs=bookingStatus(x),detail=statusDetail(x),released=x.bookingStatus==='released';
-   return `<tr><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType))}</td><td class="${released?'released':''}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td>${esc(x.serviceName)}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`;
+   const bs=bookingStatus(x),detail=statusDetail(x),released=x.bookingStatus==='released',pvs=x?.eventType==='pvs_booking_detected';
+   const rowClass=pvs&&!released?' class="pvs-row"':'';
+   return `<tr${rowClass}><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType)||'—')}</td><td class="${released?'released':(pvs?'pvs':'')}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td>${esc(x.serviceName||'—')}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`;
  }).join('')||'<tr><td colspan="8" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
  $('#summaryPanel').classList.remove('hidden');$('#tablePanel').classList.remove('hidden');$('#csv').classList.remove('hidden');
  const storageName=storage==='vercel-blob-private-e2ee'?'privater Vercel Blob · Ende-zu-Ende verschlüsselt':storage||'Speicher';
  const mig=Number(migration?.migrated||0)>0?` · ${migration.migrated} Alt-Datensätze verschlüsselt migriert`:'';
- const chk=lastCancellationCheck?` · Storno-Prüfung: ${new Date(lastCancellationCheck).toLocaleString('de-DE')}`:'';
+ const chk=lastStatusCheck?` · Status-Prüfung: ${new Date(lastStatusCheck).toLocaleString('de-DE')}`:'';
  $('#status').className='muted';$('#status').textContent=`${current.length} Datensätze geladen · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}${chk}${extra}`;
 }
 let sessionCache=null;
@@ -173,6 +184,123 @@ function slotAvailableAgain(rows,event){
  }
  return false;
 }
+
+function pvsSnapshotRead(){
+ try{
+   const raw=localStorage.getItem(PVS_SNAPSHOT_KEY),x=raw?JSON.parse(raw):null;
+   if(x&&x.v===1&&Array.isArray(x.slots)&&x.capturedAt)return x;
+ }catch{}
+ return null;
+}
+function pvsSnapshotWrite(slots){
+ try{
+   localStorage.setItem(PVS_SNAPSHOT_KEY,JSON.stringify({
+     v:1,capturedAt:new Date().toISOString(),
+     slots:(slots||[]).map(x=>({key:x.key,date:x.date,time:x.time,doctorId:Number(x.doctorId)}))
+   }));
+ }catch{}
+}
+function pvsDoctorName(id){return PVS_DOCTOR_NAMES[Number(id)]||'Ärztin'}
+function snapshotSlotFuture(slot){
+ const n=berlinNow(),date=String(slot?.date||'');
+ if(date>n.date)return true;
+ if(date<n.date)return false;
+ const m=timeMinutes(slot?.time);
+ return Number.isFinite(m)&&m>n.minutes;
+}
+function rowsToPvsSlots(rows,doctorId,map){
+ for(const row of rows||[]){
+   const date=String(row?.dateTimeStart||'').slice(0,10);
+   if(!date)continue;
+   const rowDoctor=Number(row?.doctorId||doctorId||0);
+   if(rowDoctor!==Number(doctorId))continue;
+   for(const raw of Array.isArray(row?.times)?row.times:[]){
+     const time=typeof raw==='string'?raw:String(raw?.time||'');
+     const mins=timeMinutes(time);
+     if(!Number.isFinite(mins))continue;
+     const normalized=time.includes(':')?time.replace(':','.'):time;
+     const slot={date,time:normalized,doctorId:Number(doctorId),key:date+'|'+Number(doctorId)+'|'+mins};
+     if(snapshotSlotFuture(slot)&&!map.has(slot.key))map.set(slot.key,slot);
+   }
+ }
+}
+async function fetchPvsFreeSlots(){
+ const out=new Map();
+ for(const doctorId of PVS_MONITOR_DOCTOR_IDS){
+   for(const serviceId of PVS_MONITOR_SERVICE_IDS){
+     const rows=await fetchAvailability(serviceId,doctorId);
+     rowsToPvsSlots(rows,doctorId,out);
+   }
+ }
+ return out;
+}
+function pvsDisappearanceExplained(key,capturedAt){
+ return current.some(e=>{
+   if(slotKey(e)!==key)return false;
+   if(e?.eventType==='pvs_booking_detected'&&e.bookingStatus!=='released')return true;
+   if(e?.eventType==='booking_completed'&&String(e.recordedAt||'')>=String(capturedAt||''))return true;
+   return false;
+ });
+}
+async function appendEncryptedAdminEvent(event,auth){
+ const envelope=await encryptEvent(event);
+ const u=new URL('/api/tracking',location.origin);u.searchParams.set('action','append');
+ const r=await fetch(u,{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/json','X-MediDate-Tracking-Key':auth},body:JSON.stringify({envelope})});
+ const j=await r.json().catch(()=>null);
+ if(!r.ok||!j?.ok)throw new Error(j?.error||'Praxis/PVS-Status konnte nicht gespeichert werden.');
+ if(j.storageRef)Object.defineProperty(event,'_storageRef',{value:String(j.storageRef),writable:true,enumerable:false});
+ return event;
+}
+async function reconcilePvsBookings(){
+ if(pvsChecking)return;
+ const secret=secretParts();if(!secret.auth)return;
+ pvsChecking=true;
+ try{
+   const freeNow=await fetchPvsFreeSlots();
+   const previous=pvsSnapshotRead();
+   let detected=0,released=0;
+   if(previous){
+     for(const prev of previous.slots){
+       if(!snapshotSlotFuture(prev)||freeNow.has(String(prev.key||'')))continue;
+       const key=String(prev.key||'');
+       if(!key||pvsDisappearanceExplained(key,previous.capturedAt))continue;
+       const detectedAt=new Date().toISOString();
+       const event={
+         schemaVersion:7,eventId:crypto.randomUUID(),eventType:'pvs_booking_detected',
+         route:'PVS',patientType:'',serviceId:'PVS',serviceName:'—',
+         appointmentDate:String(prev.date||''),appointmentTime:String(prev.time||''),
+         doctorId:String(Number(prev.doctorId)||''),doctorName:pvsDoctorName(prev.doctorId),
+         duration:15,bookingStatus:'pvs',
+         detectionEvidence:'slot_disappeared_from_medidate',
+         previouslyFreeAt:String(previous.capturedAt||''),pvsDetectedAt:detectedAt,recordedAt:detectedAt
+       };
+       await appendEncryptedAdminEvent(event,secret.auth);
+       current.push(event);detected++;
+     }
+   }
+   for(const e of current.filter(x=>x?.eventType==='pvs_booking_detected'&&x.bookingStatus!=='released'&&isFuture(x))){
+     if(freeNow.has(slotKey(e))){
+       e.bookingStatus='released';
+       e.releaseDetectedAt=new Date().toISOString();
+       e.releaseEvidence='slot_reappeared_in_medidate';
+       await persistEvent(e,secret.auth);
+       released++;
+     }
+   }
+   pvsSnapshotWrite([...freeNow.values()]);
+   lastStatusCheck=Date.now();
+   const first=previous?'':' · Praxis/PVS-Monitor initialisiert: '+freeNow.size+' freie Slots gemerkt';
+   const change=detected||released?' · Praxis/PVS: '+detected+' neu nicht mehr frei'+(released?' · '+released+' wieder frei':''):'';
+   render(current,currentRetention,currentStorage,currentMigration,first+change);
+ }catch(e){
+   render(current,currentRetention,currentStorage,currentMigration);
+   $('#status').className='muted bad';
+   $('#status').textContent='Buchungen geladen; Praxis/PVS-Prüfung derzeit nicht vollständig möglich: '+(e?.message||'unbekannter Fehler');
+ }finally{
+   pvsChecking=false;
+ }
+}
+
 async function persistEvent(event,auth){
  if(!event?._storageRef||!/^[0-9a-f-]{36}$/i.test(String(event.eventId||'')))return false;
  const envelope=await encryptEvent(event);
@@ -233,7 +361,7 @@ async function reconcileCancellations({manual=false}={}){
      }
    }
    for(const e of changed)await persistEvent(e,secret.auth);
-   lastCancellationCheck=Date.now();
+   lastStatusCheck=Date.now();
    render(current,currentRetention,currentStorage,currentMigration,` · geprüft: ${checked}${released?` · neu wieder frei: ${released}`:''}`);
  }catch(e){
    render(current,currentRetention,currentStorage,currentMigration);
@@ -242,6 +370,10 @@ async function reconcileCancellations({manual=false}={}){
  }finally{
    checking=false;$('#reconcile').disabled=false;
  }
+}
+async function reconcileAll(opts={}){
+ await reconcileCancellations(opts);
+ await reconcilePvsBookings(opts);
 }
 async function load(){
  const secret=secretParts();$('#status').className='muted';$('#status').textContent='Lädt und entschlüsselt …';
@@ -258,7 +390,7 @@ async function load(){
   }
   current=events;currentRetention=j.retentionDays;currentStorage=j.storage;currentMigration=j.migration;
   render(current,currentRetention,currentStorage,currentMigration);
-  await reconcileCancellations();
+  await reconcileAll();
  }catch(e){
   $('#status').className='muted bad';
   $('#status').textContent='Auswertung konnte nicht entschlüsselt werden. Prüfen Sie, ob Sie die neue geheime Auswertungs-URL verwenden.';
@@ -274,7 +406,7 @@ function csv(){
 }
 $('#currentUrl').textContent=location.href;
 $('#copyUrl').onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$('#copyUrl').textContent='Kopiert';setTimeout(()=>$('#copyUrl').textContent='URL kopieren',1200)}catch{}};
-$('#reload').onclick=load;$('#reconcile').onclick=()=>reconcileCancellations({manual:true});$('#csv').onclick=csv;
-setInterval(()=>{if(!document.hidden&&current.length)reconcileCancellations()},60*60*1000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&current.length&&Date.now()-lastCancellationCheck>60*60*1000)reconcileCancellations()});
+$('#reload').onclick=load;$('#reconcile').onclick=()=>reconcileAll({manual:true});$('#csv').onclick=csv;
+setInterval(()=>{if(!document.hidden)reconcileAll()},60*60*1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-lastStatusCheck>60*60*1000)reconcileAll()});
 load();

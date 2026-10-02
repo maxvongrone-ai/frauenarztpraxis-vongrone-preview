@@ -232,6 +232,13 @@ module.exports=async function handler(req,res){
         return send(res,200,{ok:true,storage:'vercel-blob-private-e2ee'});
       }
 
+      if(String(req.query?.action||'')==='append'){
+        if(!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});
+        const envelope=validateEnvelope(body?.envelope);
+        const stored=await saveEnvelope(envelope);
+        return send(res,200,{ok:true,storage:'vercel-blob-private-e2ee',storageRef:envelopePath(envelope),duplicate:!stored});
+      }
+
       if(body?.encrypted!==true) return send(res,426,{ok:false,error:'Für die Buchungsauswertung werden nur noch Ende-zu-Ende-verschlüsselte Datensätze akzeptiert.'});
       if(!trackingProofValid(body?.trackingNonce,body?.trackingExp,body?.trackingProof))return send(res,403,{ok:false,error:'Ungültiger oder abgelaufener Tracking-Nachweis.'});
       const envelope=validateEnvelope(body?.envelope);
