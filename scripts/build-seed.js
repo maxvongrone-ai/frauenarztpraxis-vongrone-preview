@@ -47,7 +47,7 @@ function buildStaticAssets(){
   for(const file of [
     'admin.html','admin.css','admin.js',
     'privacy-booking.html',
-    'tracking.html','tracking.css','tracking.js','tracking-summary.js',
+    'tracking.html','tracking.css','tracking.js',
     'staff-booking.html','staff-booking.css','staff-booking.js',
     'robots.txt'
   ]){
