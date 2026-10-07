@@ -102,12 +102,42 @@ function slotKey(e){
  const t=timeMinutes(e?.appointmentTime);
  return `${String(e?.appointmentDate||'')}|${doc}|${Number.isFinite(t)?t:String(e?.appointmentTime||'')}`;
 }
+function hamburgEasterSundayUTC(year){
+ const a=year%19,b=Math.floor(year/100),cc=year%100,d=Math.floor(b/4),e=b%4;
+ const f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3);
+ const h=(19*a+b-d-g+15)%30,i=Math.floor(cc/4),k=cc%4;
+ const l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+ const month=Math.floor((h+l-7*m+114)/31);
+ const day=((h+l-7*m+114)%31)+1;
+ return new Date(Date.UTC(year,month-1,day));
+}
+function utcISO(d){return d.toISOString().slice(0,10)}
+function isHamburgPublicHolidayISO(iso){
+ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+ if(!m)return false;
+ const year=Number(m[1]),md=`${m[2]}-${m[3]}`;
+ if(new Set(['01-01','05-01','10-03','10-31','12-25','12-26']).has(md))return true;
+ const easter=hamburgEasterSundayUTC(year);
+ const movable=new Set([-2,1,39,50].map(offset=>{
+   const d=new Date(easter.getTime());d.setUTCDate(d.getUTCDate()+offset);return utcISO(d);
+ }));
+ return movable.has(iso);
+}
 function isPrivateConsultation(e){
- const d=String(e?.appointmentDate||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+ const iso=String(e?.appointmentDate||'');
+ const d=iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
  if(!d)return false;
  const weekday=new Date(Date.UTC(Number(d[1]),Number(d[2])-1,Number(d[3]))).getUTCDay();
- const m=timeMinutes(e?.appointmentTime);
- return weekday===3&&Number.isFinite(m)&&m>=14*60+30&&m<17*60;
+ const mins=timeMinutes(e?.appointmentTime);
+ if(!Number.isFinite(mins))return false;
+ if(weekday===3)return mins>=14*60+30&&mins<17*60;
+ if(weekday===4){
+   if(isHamburgPublicHolidayISO(iso))return false;
+   const afternoon=iso>='2026-11-05'&&mins>=14*60+30&&mins<17*60;
+   const morning=iso>='2026-11-12'&&mins>=8*60+30&&mins<11*60;
+   return morning||afternoon;
+ }
+ return false;
 }
 function bookingStatus(e){
  if(e?.bookingStatus==='released')return 'Storniert / wieder freigegeben';
@@ -117,7 +147,7 @@ function bookingStatus(e){
 }
 function statusDetail(e){
  const details=[];
- if(isPrivateConsultation(e))details.push('Privatsprechstunde (Mi. 14:30–17:00 Uhr)');
+ if(isPrivateConsultation(e))details.push('Privatsprechstunde');
  if(e?.releaseEvidence==='slot_rebooked'){
    const w=e.releaseConfirmedByRebookingAt?new Date(e.releaseConfirmedByRebookingAt).toLocaleString('de-DE'):'';
    details.push('Durch spätere Wiederbuchung desselben Slots bestätigt'+(w?' · '+w:''));
@@ -139,6 +169,7 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  $('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;
  $('#nReleased').textContent=current.filter(x=>x.bookingStatus==='released').length;
  $('#nPvs').textContent=current.filter(x=>x?.eventType==='pvs_booking_detected').length;
+ $('#nPrivateConsultation').textContent=current.filter(isPrivateConsultation).length;
  $('#rows').innerHTML=current.map(x=>{
    const bs=bookingStatus(x),detail=statusDetail(x),released=x.bookingStatus==='released',pvs=x?.eventType==='pvs_booking_detected';
    const rowClass=pvs&&!released?' class="pvs-row"':'';
