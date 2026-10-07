@@ -74,6 +74,7 @@ assert(!dashboardJs.includes("action',force?'liveSession':'publicSession'"),'Das
 assert(botidClient.includes("path: '/api/session'")&&botidClient.includes("method: 'GET'")&&botidClient.includes("checkLevel: 'basic'"),'BotID client must protect the session endpoint with Basic checks');
 assert(buildScript.includes("outfile:path.join(publicDir,'botid-client.js')"),'Static build must bundle the BotID client locally');
 assert(buildScript.includes("'staff-booking.html','staff-booking.css','staff-booking.js'"),'Production build must copy the staff booking assets into public');
+assert(buildScript.includes("'tracking.html','tracking.css','tracking.js','tracking-summary.js'"),'Production build must copy the tracking summary asset into public');
 assert(pkg.dependencies?.botid==='1.5.11','BotID dependency must stay pinned');
 assert(pkg.dependencies?.esbuild==='0.28.2','BotID client bundler must stay pinned');
 
@@ -87,8 +88,9 @@ assert(!dashboard.includes('<style>')&&!dashboard.includes('<script>'),'Tracking
 assert(!admin.includes('<style>')&&!admin.includes('<script>'),'Admin page must not contain inline style/script blocks');
 assert(!dashboard.includes('style=')&&!admin.includes('style='),'Strict-CSP internal pages must not use inline style attributes');
 assert(dashboard.includes('/tracking.css')&&dashboard.includes('/tracking.js'),'Tracking page assets must be external');
-assert(dashboard.includes('/tracking.js?v=60.10.10'),'Tracking dashboard must cache-bust tracking.js');
+assert(dashboard.includes('/tracking.js?v=60.10.11'),'Tracking dashboard must cache-bust tracking.js');
 assert(dashboard.includes('/botid-client.js?v=60.10.10'),'Tracking dashboard must cache-bust BotID client');
+assert(dashboard.includes('/tracking-summary.js?v=60.10.11'),'Tracking dashboard must load the Privatsprechstunde summary counter');
 assert(admin.includes('/admin.css')&&admin.includes('/admin.js'),'Admin page assets must be external');
 assert(index.includes("const MENOPAUSE_DOCTOR_KEY='vongrone'"),'Menopause doctor must be fixed to Dr. von Grone');
 assert(index.includes("if(isMenopauseMode()&&String(r.doctorKey)!==MENOPAUSE_DOCTOR_KEY)continue"),'Menopause availability must exclude other doctors');
