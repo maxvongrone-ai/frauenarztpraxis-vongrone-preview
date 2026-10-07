@@ -102,6 +102,13 @@ function slotKey(e){
  const t=timeMinutes(e?.appointmentTime);
  return `${String(e?.appointmentDate||'')}|${doc}|${Number.isFinite(t)?t:String(e?.appointmentTime||'')}`;
 }
+function isPrivateConsultation(e){
+ const d=String(e?.appointmentDate||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+ if(!d)return false;
+ const weekday=new Date(Date.UTC(Number(d[1]),Number(d[2])-1,Number(d[3]))).getUTCDay();
+ const m=timeMinutes(e?.appointmentTime);
+ return weekday===3&&Number.isFinite(m)&&m>=14*60+30&&m<17*60;
+}
 function bookingStatus(e){
  if(e?.bookingStatus==='released')return 'Storniert / wieder freigegeben';
  if(e?.eventType==='pvs_booking_detected'||e?.bookingStatus==='pvs')return 'Praxis/PVS: nicht mehr frei';
@@ -109,19 +116,19 @@ function bookingStatus(e){
  return 'Gebucht';
 }
 function statusDetail(e){
+ const details=[];
+ if(isPrivateConsultation(e))details.push('Privatsprechstunde (Mi. 14:30–17:00 Uhr)');
  if(e?.releaseEvidence==='slot_rebooked'){
    const w=e.releaseConfirmedByRebookingAt?new Date(e.releaseConfirmedByRebookingAt).toLocaleString('de-DE'):'';
-   return 'Durch spätere Wiederbuchung desselben Slots bestätigt'+(w?' · '+w:'');
- }
- if(e?.releaseEvidence==='slot_reappeared_in_medidate'){
+   details.push('Durch spätere Wiederbuchung desselben Slots bestätigt'+(w?' · '+w:''));
+ }else if(e?.releaseEvidence==='slot_reappeared_in_medidate'){
    const w=e.releaseDetectedAt?new Date(e.releaseDetectedAt).toLocaleString('de-DE'):'';
-   return 'Slot in mediDate wieder frei'+(w?' · '+w:'');
- }
- if(e?.eventType==='pvs_booking_detected'){
+   details.push('Slot in mediDate wieder frei'+(w?' · '+w:''));
+ }else if(e?.eventType==='pvs_booking_detected'){
    const w=e.pvsDetectedAt?new Date(e.pvsDetectedAt).toLocaleString('de-DE'):'';
-   return 'Zuvor frei; bei der nächsten Prüfung nicht mehr in mediDate/PVS verfügbar'+(w?' · erkannt '+w:'');
+   details.push('Zuvor frei; bei der nächsten Prüfung nicht mehr in mediDate/PVS verfügbar'+(w?' · erkannt '+w:''));
  }
- return '';
+ return details.join(' · ');
 }
 function render(events=current,retention=currentRetention,storage=currentStorage,migration=currentMigration,extra=''){
  current=(events||[]).slice().sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
