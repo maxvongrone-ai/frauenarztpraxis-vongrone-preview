@@ -110,7 +110,7 @@ window.__MEDIDATE_SEED__=null;
 </script>
 <script src="/botid-client.js"></script>
 <script>
-const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0};
+const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0,privateNewBlockedDates:new Set(),privateNewQuotaLoading:null};
 // Im Browser werden nur lokale, nicht-mediDate-interne Bezeichner verwendet.
 // Die echten mediDate-IDs bleiben ausschließlich serverseitig.
 const PRACTICE_DOCTORS=[
@@ -739,15 +739,78 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
    normal=allSlots.filter(maySeeSlot);
  }
 
- if(!special.length)return normal;
+ const applyPrivateNewDailyLimit=list=>isPrivateNewDailyLimited()?list.filter(x=>!state.privateNewBlockedDates.has(String(x.date||''))):list;
+ if(!special.length)return applyPrivateNewDailyLimit(normal);
  const out=normal.slice(),seen=new Set(out.map(x=>`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`));
  for(const x of special){
    const k=`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`;
    if(!seen.has(k)){seen.add(k);out.push(x)}
  }
- return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+ return applyPrivateNewDailyLimit(out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time)));
 }
 
+
+
+function isPrivateNewDailyLimited(){
+ return state.insurance==='PKV'&&state.patientType==='new';
+}
+async function privateNewQuotaFetch(action,{method='GET',body=null}={}){
+ const u=new URL('/api/private-new-quota',location.origin);u.searchParams.set('action',action);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),65000);
+ try{
+   const r=await fetch(u,{
+     method,cache:'no-store',credentials:'same-origin',signal:controller.signal,
+     headers:body?{'Content-Type':'application/json'}:undefined,
+     body:body?JSON.stringify(body):undefined
+   });
+   const j=await r.json().catch(()=>null);
+   if(!r.ok||!j?.ok){
+     const e=new Error(j?.error||('HTTP '+r.status));
+     e.status=r.status;e.code=j?.code||'';throw e;
+   }
+   return j;
+ }finally{clearTimeout(timer)}
+}
+async function refreshPrivateNewBlockedDates(reconcile=true){
+ if(!isPrivateNewDailyLimited()){
+   state.privateNewBlockedDates=new Set();return state.privateNewBlockedDates;
+ }
+ if(state.privateNewQuotaLoading)return state.privateNewQuotaLoading;
+ const p=privateNewQuotaFetch(reconcile?'status':'status-fast').then(j=>{
+   state.privateNewBlockedDates=new Set(Array.isArray(j.blockedDates)?j.blockedDates.map(String):[]);
+   return state.privateNewBlockedDates;
+ }).finally(()=>{state.privateNewQuotaLoading=null});
+ state.privateNewQuotaLoading=p;return p;
+}
+function privateNewQuotaPayload(slot){
+ return {
+   date:String(slot?.date||''),time:String(slot?.time||''),
+   doctorKey:String(slot?.doctorId||''),serviceKey:String(slot?.serviceId||''),
+   duration:needs30MinuteBlock()?30:Number(slot?.duration||15),
+   mediDateDoctorId:Number(slot?.direct?.doctorId||0)||0,
+   mediDateServiceId:Number(slot?.direct?.serviceId||0)||0,
+   trackingNonce:String(slot?.trackingNonce||''),
+   trackingExp:Number(slot?.trackingExp||0),
+   trackingProof:String(slot?.trackingProof||'')
+ };
+}
+async function reservePrivateNewDay(slot){
+ if(!isPrivateNewDailyLimited())return null;
+ const j=await privateNewQuotaFetch('reserve',{method:'POST',body:privateNewQuotaPayload(slot)});
+ state.privateNewBlockedDates.add(String(slot.date||''));
+ return {date:String(slot.date||''),reservationId:String(j.reservationId||'')};
+}
+async function confirmPrivateNewDay(reservation){
+ if(!reservation?.date||!reservation?.reservationId)return;
+ try{await privateNewQuotaFetch('confirm',{method:'POST',body:reservation})}catch{}
+}
+async function releasePrivateNewDay(reservation){
+ if(!reservation?.date||!reservation?.reservationId)return;
+ try{
+   await privateNewQuotaFetch('release',{method:'POST',body:reservation});
+   state.privateNewBlockedDates.delete(String(reservation.date));
+ }catch{}
+}
 
 async function apiGet(action,params={},timeoutMs=8000){
  const u=new URL('/api/medidate',location.origin);u.searchParams.set('action',action);Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
@@ -865,6 +928,7 @@ $$('[data-insurance]').forEach(b=>b.onclick=()=>{
 $$('[data-patient]').forEach(b=>b.onclick=()=>{
  state.patientType=b.dataset.patient;select('[data-patient]',b);
  $('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
+ if(isPrivateNewDailyLimited())refreshPrivateNewBlockedDates(true).catch(()=>{});else state.privateNewBlockedDates=new Set();
  loadServices();
 });
 
@@ -1156,6 +1220,18 @@ async function loadSlots(){
  renderMonthCalendar(true);
  $('#step5').scrollIntoView({behavior:'smooth',block:'start'});
  st.className='status';st.textContent='Verfügbarkeit wird geladen …';
+
+ if(isPrivateNewDailyLimited()){
+   st.textContent='Verfügbarkeit und Tageskontingent werden geprüft …';
+   try{await refreshPrivateNewBlockedDates(true)}catch(e){
+     if(state.slotLoadId!==loadId)return;
+     st.className='status bad';
+     st.innerHTML='Das Tageskontingent für private Neupatientinnen konnte gerade nicht sicher geprüft werden. Bitte versuchen Sie es erneut. <button type="button" class="linkbtn" id="retryPrivateNewQuota">Erneut laden</button>';
+     renderMonthCalendar(false);
+     $('#retryPrivateNewQuota').onclick=()=>loadSlots();
+     return;
+   }
+ }
 
  try{
    if(isIgelMode()){
@@ -1537,8 +1613,14 @@ async function bookNow(){
  const tech=state.selectedSlot?.direct;
  if(!tech||!Number(tech.clientId)||!Number(tech.locationId)||!Number(tech.serviceId)||!Number(tech.doctorId)){st.className='status bad';st.textContent='Die technischen Termindaten fehlen. Bitte Terminansicht neu laden.';return}
 
+ let privateNewReservation=null,privateNewBookingStarted=false;
  btn.disabled=true;st.className='status';st.textContent='Termin wird direkt bei mediDate geprüft und gebucht …';
  try{
+   if(isPrivateNewDailyLimited()){
+     st.textContent='Tageskontingent wird geprüft und für Ihre Buchung reserviert …';
+     privateNewReservation=await reservePrivateNewDay(state.selectedSlot);
+     st.textContent='Termin wird direkt bei mediDate geprüft und gebucht …';
+   }
    const s=await getDirectMediDateSession(false);
    if(Number(s.clientId)!==Number(tech.clientId)||Number(s.locationId)!==Number(tech.locationId))throw new Error('Die mediDate-Praxiskonfiguration hat sich geändert. Bitte Seite neu laden.');
 
@@ -1600,6 +1682,8 @@ async function bookNow(){
 
    // Entscheidend: diese POSTs gehen direkt vom Browser zu mediDate.
    const result1=await directMediDateRequest('appointments',{method:'POST',body:payloadFor(state.selectedSlot.time,row,need30?'[Block 1/2]':'')});
+   privateNewBookingStarted=true;
+   if(privateNewReservation)void confirmPrivateNewDay(privateNewReservation);
    let result2=null;
    if(need30){
      try{
@@ -1631,6 +1715,7 @@ async function bookNow(){
    </div>`;
    $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:state.selectedSlot.date,time:state.selectedSlot.time,duration:need30?30:Number(tech.duration||15),doctorName});
  }catch(e){
+   if(privateNewReservation&&!privateNewBookingStarted&&e?.code!=='BOOKING_STATUS_UNCLEAR')void releasePrivateNewDay(privateNewReservation);
    if(e?.code==='PARTIAL_30_MIN_BOOKING'){
      st.className='status bad';
      st.innerHTML=`${esc(e.message)} <strong>Bitte klicken Sie nicht erneut auf „Termin verbindlich buchen“.</strong>`;

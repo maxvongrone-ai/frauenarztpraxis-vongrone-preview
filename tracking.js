@@ -409,9 +409,34 @@ async function reconcileCancellations({manual=false}={}){
    checking=false;$('#reconcile').disabled=false;
  }
 }
+
+async function syncPrivateNewDailyQuota(){
+ const secret=secretParts();if(!secret.auth)return;
+ const active=current.filter(e=>
+   e?.eventType==='booking_completed'&&
+   e?.route==='PKV'&&
+   e?.patientType==='new'&&
+   e?.bookingStatus!=='released'&&
+   isFuture(e)
+ ).map(e=>({
+   eventId:String(e.eventId||''),date:String(e.appointmentDate||''),time:String(e.appointmentTime||''),
+   doctorKey:String(e.doctorId||''),serviceKey:String(e.serviceId||''),
+   mediDateDoctorId:effectiveDoctorId(e),mediDateServiceId:effectiveServiceId(e),
+   duration:Number(e.duration||30),recordedAt:String(e.recordedAt||'')
+ }));
+ const u=new URL('/api/private-new-quota',location.origin);u.searchParams.set('action','admin-sync');
+ const r=await fetch(u,{
+   method:'POST',cache:'no-store',credentials:'same-origin',
+   headers:{'Content-Type':'application/json','X-MediDate-Tracking-Key':secret.auth},
+   body:JSON.stringify({active})
+ });
+ if(!r.ok)throw new Error('Tageskontingent konnte nicht mit der Auswertung synchronisiert werden.');
+}
+
 async function reconcileAll(opts={}){
  await reconcileCancellations(opts);
  await reconcilePvsBookings(opts);
+ try{await syncPrivateNewDailyQuota()}catch{}
 }
 async function load(){
  const secret=secretParts();$('#status').className='muted';$('#status').textContent='Lädt und entschlüsselt …';

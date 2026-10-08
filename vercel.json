@@ -10,6 +10,9 @@
     "api/tracking.js": {
       "maxDuration": 60
     },
+    "api/private-new-quota.js": {
+      "maxDuration": 60
+    },
     "api/booking.js": {
       "maxDuration": 60
     },

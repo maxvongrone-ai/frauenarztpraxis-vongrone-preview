@@ -1,8 +1,8 @@
 {
   "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.10.9",
+  "version": "60.11.0",
   "private": true,
-  "description": "mediDate V60.10.9: GKV existing-patient preventive care releases half of free private-consultation slots within 7 days, rounded up and least-popular times first; prior staged releases retained.",
+  "description": "mediDate V60.11.0: private new patients are limited to one active online booking per calendar day; daily quota reservations reconcile released slots against mediDate.",
   "engines": {
     "node": "22.x"
   },
