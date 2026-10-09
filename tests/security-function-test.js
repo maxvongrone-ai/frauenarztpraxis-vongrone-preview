@@ -118,9 +118,9 @@ assert(index.includes("function pregnancyPrivateNewStartPool(items)"),'Pregnancy
 assert(index.includes("if(state.topicMode==='pregnancy'&&state.patientType==='new'){"),'Only pregnancy new patients may use the consecutive 30-minute start-pool qualification');
 
 assert(!index.includes('selectGkvVorsorgePrivateShortTerm')&&!index.includes('isGkvVorsorgePrivateShortTerm'),'Short-term GKV Vorsorge private consultation release must be removed');
-assert(index.includes("const permitted=state.insurance==='GKV'?list.filter(x=>!isPrivateOnlyWindow(x)):list;"),'All visible GKV routes must exclude private consultation starts');
-assert(index.includes("if(state.insurance==='GKV'&&(isPrivateOnlyWindow(x)||isPrivateOnlyWindow(next)))return false;"),'30-minute GKV pregnancy visits must not overlap the private consultation window');
-assert(index.includes("if(state.insurance==='GKV'&&(\n   isPrivateOnlyWindow(state.selectedSlot)||"),'Final GKV booking guard must reject a private consultation slot');
+assert(index.includes("const permitted=state.insurance==='GKV'&&state.topicMode!=='pregnancy'?list.filter(x=>!isPrivateOnlyWindow(x)):list;"),'GKV private-window restriction must exclude pregnancy from the ban');
+assert(!index.includes("if(state.insurance==='GKV'&&(isPrivateOnlyWindow(x)||isPrivateOnlyWindow(next)))return false;"),'GKV pregnancy new-patient 30-minute starts must not be blocked by private hours');
+assert(index.includes("if(state.insurance==='GKV'&&state.topicMode!=='pregnancy'&&(\n   isPrivateOnlyWindow(state.selectedSlot)||"),'Final GKV booking guard must apply only outside pregnancy');
 assert(index.includes("needs30MinuteBlock()&&isPrivateOnlyWindow({...state.selectedSlot,time:add15DotTime(state.selectedSlot.time)})"),'Final GKV booking guard must reject a second 15-minute block inside private consultation');
 const policyForGkv=require('../lib/booking-policy');
 for(const [date,time,expected] of [
@@ -136,9 +136,22 @@ const gkvPregnancySlots=[
 ].map(([date,time])=>({date,time,doctorId:'vongrone',serviceId:'vorsorge',duration:15}));
 const gkvPregnancyVisible=policyForGkv.visibleForContext(gkvPregnancySlots,gkvPregnancySlots,{route:'GKV',patientType:'existing',topicMode:'pregnancy'},new Date('2026-11-30T09:00:00+01:00'));
 assert(gkvPregnancyVisible.length>0,'GKV pregnancy must retain regular online slots');
-assert(gkvPregnancyVisible.every(s=>!policyForGkv.isPrivateOnlyWindow(s)),'GKV pregnancy must not expose any Wednesday/Thursday private window');
+assert(gkvPregnancyVisible.some(s=>policyForGkv.isPrivateOnlyWindow(s)),'GKV pregnancy must have private-window booking access (including existing and new patients)');
+const pregnancyNewVisible=policyForGkv.visibleForContext(gkvPregnancySlots,gkvPregnancySlots,{route:'GKV',patientType:'new',topicMode:'pregnancy'},new Date('2026-11-30T09:00:00+01:00'));
+assert(pregnancyNewVisible.some(s=>policyForGkv.isPrivateOnlyWindow(s)),'GKV pregnancy new patient must see eligible private windows');
+const regularGkvSlots=gkvPregnancySlots.map(s=>({...s,date:s.date==='2026-12-02'?'2026-12-23':'2026-12-24'}));
+const regularGkvVisible=policyForGkv.visibleForContext(regularGkvSlots,regularGkvSlots,{route:'GKV',patientType:'existing',topicMode:'regular'},new Date('2026-11-30T09:00:00+01:00'));
+assert(regularGkvVisible.every(s=>!policyForGkv.isPrivateOnlyWindow(s)),'Non-pregnant GKV patients must remain blocked from private windows');
+const privateWindowSlots=(day)=>['14.30','15.00','15.30','16.00'].map(time=>({date:day,time,doctorId:'vongrone',serviceId:'vorsorge',duration:15}));
+const futurePregContext={route:'GKV',patientType:'existing',topicMode:'pregnancy'};
+const nowForShares=new Date('2026-11-30T09:00:00+01:00');
+for(const [day,expectedPrivateCount] of [['2026-12-02',4],['2026-12-09',2]]){
+  const slots=privateWindowSlots(day);
+  const visible=policyForGkv.visibleForContext(slots,slots,futurePregContext,nowForShares);
+  assert.strictEqual(visible.length,expectedPrivateCount,'GKV pregnancy staged private release mismatch '+day);
+}
 assert(index.includes("function privateWindowReleaseShare(slot){")&&index.includes("if(lead<=2)return 1;")&&index.includes("if(lead<7)return 2/3;")&&index.includes("return 1/2;"),'Private consultation release must be 1/2 normally, 2/3 inside one week and 100 percent from two days before the appointment');
-assert(index.includes("if(state.insurance==='GKV'){\n     normal=regular;")&&index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));"),'GKV pregnancy must never gain private-window slots; PKV pregnancy staging remains available');
+assert(index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));")&&index.includes("const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);"),'GKV pregnancy must use the existing staged private-window release');
 assert(index.includes("if(isSelfPayBreast()){")&&index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));"),'Self-pay breast ultrasound must receive the same staged access to private consultation slots');
 assert(index.includes("bis spätestens zur <strong>7. SSW</strong>"),'All pregnancy booking paths must show the SSW-7 contact-practice notice');
 assert(index.includes("if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';"),'Quarter confirmation must apply to all GKV pregnancy bookings');

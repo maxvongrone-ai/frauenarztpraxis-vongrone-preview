@@ -300,13 +300,13 @@ const BOOKING_POLICY=Object.freeze({
 });
 
 function maySeeSlot(slot){
- // Fest reservierte Privat-/Selbstzahler-Sprechstunden werden niemals für GKV freigegeben.
- // Innerhalb des Blocks dürfen Privat/Selbstzahler nur bis 16:30 bzw. 10:30 starten;
+ // Privatsprechstunden: GKV nur im Buchungsweg Schwangerschaft.
+ // Privat-/Selbstzahler- und Schwangerschafts-Startzeiten enden um 16:30 bzw. 10:30;
  // 16:45 bzw. 10:45 bleiben ausschließlich als zweiter 15-Minuten-Block nutzbar.
  // Ab 17:00 Uhr bzw. ab 11:00 Uhr ist dieses Privatfenster beendet. Danach greifen
  // für weitere Sprechstunden desselben Tages wieder die normalen PKV-/GKV-Regeln.
  if(isPrivateOnlyWindow(slot)){
-   return (state.insurance==='PKV'||state.insurance==='SELF') && isPrivateWindowStart(slot);
+   return (state.insurance==='PKV'||state.insurance==='SELF'||(state.insurance==='GKV'&&state.topicMode==='pregnancy')) && isPrivateWindowStart(slot);
  }
 
  // Akut und Schwangerschaft bleiben eigene Freigabekanäle und werden von der
@@ -378,9 +378,6 @@ function pregnancyPrivateNewStartPool(items){
    if(!nextTime)return false;
    const next=byKey.get(`${x.date}|${x.doctorId}|${x.serviceId}|${nextTime}`);
    if(!next)return false;
-   // Auch der zweite 15-Minuten-Block darf bei GKV keine Privatsprechstunde belegen.
-   if(state.insurance==='GKV'&&(isPrivateOnlyWindow(x)||isPrivateOnlyWindow(next)))return false;
-
    // Sichtbarkeit exakt wie bei einer PKV-Neupatientin:
    // Privatsprechstunden dürfen als Start genutzt werden, der :45-Folgeblock
    // bleibt lediglich technischer Teil des 30-Minuten-Fensters.
@@ -653,16 +650,12 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  if(state.topicMode==='acute'){
    normal=allSlots.filter(maySeeSlot);
  }else if(state.topicMode==='pregnancy'){
-   // GKV-Schwangerschaftstermine nur außerhalb der Privatsprechstunden.
-   // Die gestaffelte Privatfenster-Freigabe bleibt ausschließlich für PKV/SELF bestehen.
+   // GKV-Schwangerschaft ist ausdrücklich von der allgemeinen GKV-Privatfenster-Sperre ausgenommen.
+   // Die gestaffelte Freigabe bleibt für alle Schwangerschafts-Buchungswege bestehen.
    const regular=allSlots.filter(x=>!isPrivateOnlyWindow(x));
-   if(state.insurance==='GKV'){
-     normal=regular;
-   }else{
-     const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));
-     const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);
-     normal=mergeVisibleSlots(regular,privateReleased);
-   }
+   const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));
+   const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);
+   normal=mergeVisibleSlots(regular,privateReleased);
  }else if(isMenopauseMode()){
    // Bereits auf Dr. von Grone, Privatsprechstunden und zusammenhängende
    // 30-Minuten-Blöcke gefiltert.
@@ -698,8 +691,8 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  }
 
  const applyPrivateNewDailyLimit=list=>{
-   // Zentraler Schutz für alle GKV-Buchungswege, auch Schwangerschaft und Sonderfreigaben.
-   const permitted=state.insurance==='GKV'?list.filter(x=>!isPrivateOnlyWindow(x)):list;
+   // Sperre für reguläre GKV-Termine; Schwangerschaft ist ausdrücklich ausgenommen.
+   const permitted=state.insurance==='GKV'&&state.topicMode!=='pregnancy'?list.filter(x=>!isPrivateOnlyWindow(x)):list;
    return isPrivateNewDailyLimited()?permitted.filter(x=>!state.privateNewBlockedDates.has(String(x.date||''))):permitted;
  };
  if(!special.length)return applyPrivateNewDailyLimit(normal);
@@ -1561,11 +1554,11 @@ async function bookNow(){
    st.className='status bad';st.textContent='Termine um :45 Uhr werden nicht als eigener Online-Starttermin angeboten. Bitte wählen Sie eine andere Uhrzeit.';return
  }
  if(state.selectedSlot.date<rule.earliest&&!specialOverride){st.className='status bad';st.textContent=`Dieser Termin ist für diese Auswahl erst ab ${deDate(rule.earliest)} buchbar.`;return}
- if(state.insurance==='GKV'&&(
+ if(state.insurance==='GKV'&&state.topicMode!=='pregnancy'&&(
    isPrivateOnlyWindow(state.selectedSlot)||
    (needs30MinuteBlock()&&isPrivateOnlyWindow({...state.selectedSlot,time:add15DotTime(state.selectedSlot.time)}))
  )){
-   st.className='status bad';st.textContent='Die Privatsprechstunden sind derzeit nicht für gesetzlich Versicherte buchbar.';return
+   st.className='status bad';st.textContent='Die Privatsprechstunden sind derzeit nur für privat Versicherte, Selbstzahlerinnen und Schwangerschaftstermine freigegeben.';return
  }
  if(isSpecialOpenWindow(state.selectedSlot)&&!specialOpenAudienceAllowed()){st.className='status bad';st.textContent='Dieser Sondertermin ist für diese Patientengruppe nicht buchbar.';return}
  if(isMenopauseMode()&&String(state.selectedSlot?.doctorId)!==MENOPAUSE_DOCTOR_KEY){
