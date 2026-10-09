@@ -116,8 +116,29 @@ assert(index.includes("if(state.topicMode==='pregnancy'||isSelfPayBreast()){")&&
 assert((index.match(/addPregnancyButton\(list\);/g)||[]).length>=2,'Pregnancy must be selectable for GKV as well as PKV patients');
 assert(index.includes("function pregnancyPrivateNewStartPool(items)"),'Pregnancy must have a shared private-new start-pool helper');
 assert(index.includes("if(state.topicMode==='pregnancy'&&state.patientType==='new'){"),'Only pregnancy new patients may use the consecutive 30-minute start-pool qualification');
+
+assert(!index.includes('selectGkvVorsorgePrivateShortTerm')&&!index.includes('isGkvVorsorgePrivateShortTerm'),'Short-term GKV Vorsorge private consultation release must be removed');
+assert(index.includes("const permitted=state.insurance==='GKV'?list.filter(x=>!isPrivateOnlyWindow(x)):list;"),'All visible GKV routes must exclude private consultation starts');
+assert(index.includes("if(state.insurance==='GKV'&&(isPrivateOnlyWindow(x)||isPrivateOnlyWindow(next)))return false;"),'30-minute GKV pregnancy visits must not overlap the private consultation window');
+assert(index.includes("if(state.insurance==='GKV'&&(\n   isPrivateOnlyWindow(state.selectedSlot)||"),'Final GKV booking guard must reject a private consultation slot');
+assert(index.includes("needs30MinuteBlock()&&isPrivateOnlyWindow({...state.selectedSlot,time:add15DotTime(state.selectedSlot.time)})"),'Final GKV booking guard must reject a second 15-minute block inside private consultation');
+const policyForGkv=require('../lib/booking-policy');
+for(const [date,time,expected] of [
+  ['2026-10-14','14.15',false],['2026-10-14','14.30',true],['2026-10-14','15.45',true],['2026-10-14','16.45',true],['2026-10-14','17.00',false],
+  ['2026-11-05','08.30',false],['2026-11-05','14.30',true],['2026-11-05','16.45',true],['2026-11-05','17.00',false],
+  ['2026-11-12','08.30',true],['2026-11-12','10.45',true],['2026-11-12','11.00',false]
+]){
+  assert.strictEqual(policyForGkv.isPrivateOnlyWindow({date,time}),expected,'Private-window detection mismatch: '+date+' '+time);
+}
+const gkvPregnancySlots=[
+  ['2026-12-02','14.15'],['2026-12-02','14.30'],['2026-12-02','15.45'],['2026-12-02','16.45'],['2026-12-02','17.00'],
+  ['2026-12-03','08.30'],['2026-12-03','10.45'],['2026-12-03','11.00'],['2026-12-03','14.30'],['2026-12-03','17.00']
+].map(([date,time])=>({date,time,doctorId:'vongrone',serviceId:'vorsorge',duration:15}));
+const gkvPregnancyVisible=policyForGkv.visibleForContext(gkvPregnancySlots,gkvPregnancySlots,{route:'GKV',patientType:'existing',topicMode:'pregnancy'},new Date('2026-11-30T09:00:00+01:00'));
+assert(gkvPregnancyVisible.length>0,'GKV pregnancy must retain regular online slots');
+assert(gkvPregnancyVisible.every(s=>!policyForGkv.isPrivateOnlyWindow(s)),'GKV pregnancy must not expose any Wednesday/Thursday private window');
 assert(index.includes("function privateWindowReleaseShare(slot){")&&index.includes("if(lead<=2)return 1;")&&index.includes("if(lead<7)return 2/3;")&&index.includes("return 1/2;"),'Private consultation release must be 1/2 normally, 2/3 inside one week and 100 percent from two days before the appointment');
-assert(index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x));")&&index.includes("const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);"),'Pregnancy must receive staged access to private consultation slots');
+assert(index.includes("if(state.insurance==='GKV'){\n     normal=regular;")&&index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));"),'GKV pregnancy must never gain private-window slots; PKV pregnancy staging remains available');
 assert(index.includes("if(isSelfPayBreast()){")&&index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));"),'Self-pay breast ultrasound must receive the same staged access to private consultation slots');
 assert(index.includes("bis spätestens zur <strong>7. SSW</strong>"),'All pregnancy booking paths must show the SSW-7 contact-practice notice');
 assert(index.includes("if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';"),'Quarter confirmation must apply to all GKV pregnancy bookings');
