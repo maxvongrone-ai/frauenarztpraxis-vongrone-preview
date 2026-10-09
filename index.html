@@ -1571,7 +1571,9 @@ function downloadCalendarEntry(info){
 async function bookNow(){
  const st=$('#bookStatus'),btn=$('#bookBtn');
  if(btn.disabled)return;
- if(String($('#bookWebsite')?.value||'').trim()){st.className='status bad';st.textContent='Buchung konnte nicht geprüft werden.';return}
+ // Browser autofill may populate the hidden spam-trap field. Never reject a real booking
+ // solely on that value; server-side booking availability and quota validation still apply.
+ // The honeypot is intentionally non-blocking until a reliable server-side bot check exists.
 
  let pregnancyQuarterConfirmed=false;
  if(state.insurance==='GKV'&&state.topicMode==='pregnancy'){
