@@ -98,7 +98,7 @@ assert(!dashboard.includes('<style>')&&!dashboard.includes('<script>'),'Tracking
 assert(!admin.includes('<style>')&&!admin.includes('<script>'),'Admin page must not contain inline style/script blocks');
 assert(!dashboard.includes('style=')&&!admin.includes('style='),'Strict-CSP internal pages must not use inline style attributes');
 assert(dashboard.includes('/tracking.css')&&dashboard.includes('/tracking.js'),'Tracking page assets must be external');
-assert(dashboard.includes('/tracking.js?v=60.10.12'),'Tracking dashboard must cache-bust tracking.js');
+assert(dashboard.includes('/tracking.js?v=60.10.18'),'Tracking dashboard must cache-bust tracking.js');
 assert(dashboard.includes('/botid-client.js?v=60.10.10'),'Tracking dashboard must cache-bust BotID client');
 assert(admin.includes('/admin.css')&&admin.includes('/admin.js'),'Admin page assets must be external');
 assert(index.includes("const MENOPAUSE_DOCTOR_KEY='vongrone'"),'Menopause doctor must be fixed to Dr. von Grone');
@@ -242,5 +242,23 @@ for(const source of ['/admin.html','/praxis','/tracking.html','/praxis-auswertun
   assert(csp.includes("script-src 'self'")&&!csp.includes("'unsafe-inline'"),source+' must forbid inline script');
   assert(csp.includes("style-src 'self'")&&!csp.includes("'unsafe-inline'"),source+' must forbid inline style');
 }
+
+
+const vm=require('node:vm');
+const testContext=vm.createContext({});
+const dashboardStart=dashboardJs.indexOf("$('#currentUrl').textContent");
+assert(dashboardStart>0,'Practice tracking helpers must be testable without running the dashboard');
+vm.runInContext(dashboardJs.slice(0,dashboardStart)+String.fromCharCode(10)+
+ "globalThis.trackingTest={activeOnlineSlotKeys,visibleTrackingEvents,pvsDisappearanceExplained,setCurrent(rows){current=rows}};",testContext);
+const duplicateTest=testContext.trackingTest;
+const booking30={eventType:'booking_completed',bookingStatus:'booked',appointmentDate:'2026-12-21',appointmentTime:'12.00',doctorId:'513',duration:30,recordedAt:'2026-10-10T07:00:00.000Z'};
+const pvsAt=(time,doctorId='513')=>({eventType:'pvs_booking_detected',bookingStatus:'pvs',appointmentDate:'2026-12-21',appointmentTime:time,doctorId,duration:15});
+const testEvents=[booking30,pvsAt('12.00'),pvsAt('12.15'),pvsAt('12.30'),pvsAt('12.15','512')];
+assert(duplicateTest.activeOnlineSlotKeys(testEvents).has('2026-12-21|513|735'),'30-minute online booking must cover its second block');
+assert.strictEqual(duplicateTest.visibleTrackingEvents(testEvents).length,3,'Matching PVS notifications must be suppressed, not other times/doctors');
+duplicateTest.setCurrent(testEvents);
+assert(duplicateTest.pvsDisappearanceExplained('2026-12-21|513|735',duplicateTest.activeOnlineSlotKeys(testEvents)),'PVS detection must recognize older bookings and second-block matches');
+assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,duration:15},pvsAt('12.15')]).length,2,'A 15-minute booking must not hide the following unrelated PVS slot');
+assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,bookingStatus:'released'},pvsAt('12.15')]).length,2,'Released bookings must not hide independent PVS events');
 
 console.log('Security regression checks passed.');

@@ -102,6 +102,21 @@ function slotKey(e){
  const t=timeMinutes(e?.appointmentTime);
  return `${String(e?.appointmentDate||'')}|${doc}|${Number.isFinite(t)?t:String(e?.appointmentTime||'')}`;
 }
+function activeOnlineSlotKeys(events){
+ const occupied=new Set();
+ for(const e of events||[]){
+  if(e?.eventType!=='booking_completed'||e?.bookingStatus==='released')continue;
+  const date=String(e.appointmentDate||''),doctor=effectiveDoctorId(e)||String(e.doctorId||''),start=timeMinutes(e.appointmentTime);
+  if(!date||!doctor||!Number.isFinite(start))continue;
+  const blocks=Math.max(1,Math.ceil((Number(e.duration)||15)/15));
+  for(let i=0;i<blocks;i++)occupied.add(date+'|'+doctor+'|'+(start+i*15));
+ }
+ return occupied;
+}
+function visibleTrackingEvents(events){
+ const occupied=activeOnlineSlotKeys(events);
+ return (events||[]).filter(e=>e?.eventType!=='pvs_booking_detected'||!occupied.has(slotKey(e)));
+}
 function hamburgEasterSundayUTC(year){
  const a=year%19,b=Math.floor(year/100),cc=year%100,d=Math.floor(b/4),e=b%4;
  const f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3);
@@ -163,14 +178,15 @@ function statusDetail(e){
 function render(events=current,retention=currentRetention,storage=currentStorage,migration=currentMigration,extra=''){
  current=(events||[]).slice().sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
  currentRetention=retention;currentStorage=storage;currentMigration=migration;
- $('#nAll').textContent=current.length;
- $('#nPkv').textContent=current.filter(x=>x.route==='PKV').length;
- $('#nGkv').textContent=current.filter(x=>x.route==='GKV').length;
- $('#nSelf').textContent=current.filter(x=>x.route==='SELF').length;
- $('#nReleased').textContent=current.filter(x=>x.bookingStatus==='released').length;
- $('#nPvs').textContent=current.filter(x=>x?.eventType==='pvs_booking_detected').length;
- $('#nPrivateConsultation').textContent=current.filter(isPrivateConsultation).length;
- $('#rows').innerHTML=current.map(x=>{
+ const visible=visibleTrackingEvents(current);
+ $('#nAll').textContent=visible.length;
+ $('#nPkv').textContent=visible.filter(x=>x.route==='PKV').length;
+ $('#nGkv').textContent=visible.filter(x=>x.route==='GKV').length;
+ $('#nSelf').textContent=visible.filter(x=>x.route==='SELF').length;
+ $('#nReleased').textContent=visible.filter(x=>x.bookingStatus==='released').length;
+ $('#nPvs').textContent=visible.filter(x=>x?.eventType==='pvs_booking_detected').length;
+ $('#nPrivateConsultation').textContent=visible.filter(isPrivateConsultation).length;
+ $('#rows').innerHTML=visible.map(x=>{
    const bs=bookingStatus(x),detail=statusDetail(x),released=x.bookingStatus==='released',pvs=x?.eventType==='pvs_booking_detected';
    const rowClass=pvs&&!released?' class="pvs-row"':'';
    return `<tr${rowClass}><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType)||'—')}</td><td class="${released?'released':(pvs?'pvs':'')}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td>${esc(x.serviceName||'—')}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`;
@@ -179,7 +195,8 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  const storageName=storage==='vercel-blob-private-e2ee'?'privater Vercel Blob · Ende-zu-Ende verschlüsselt':storage||'Speicher';
  const mig=Number(migration?.migrated||0)>0?` · ${migration.migrated} Alt-Datensätze verschlüsselt migriert`:'';
  const chk=lastStatusCheck?` · Status-Prüfung: ${new Date(lastStatusCheck).toLocaleString('de-DE')}`:'';
- $('#status').className='muted';$('#status').textContent=`${current.length} Datensätze geladen · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}${chk}${extra}`;
+ const combined=current.length-visible.length;
+ $('#status').className='muted';$('#status').textContent=`${visible.length} Datensätze angezeigt${combined?' · '+combined+' PVS-Doppelmeldungen zusammengeführt':''} · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}${chk}${extra}`;
 }
 let sessionCache=null;
 async function mediDateSession(force=false){
@@ -272,13 +289,9 @@ async function fetchPvsFreeSlots(){
  }
  return out;
 }
-function pvsDisappearanceExplained(key,capturedAt){
- return current.some(e=>{
-   if(slotKey(e)!==key)return false;
-   if(e?.eventType==='pvs_booking_detected'&&e.bookingStatus!=='released')return true;
-   if(e?.eventType==='booking_completed'&&String(e.recordedAt||'')>=String(capturedAt||''))return true;
-   return false;
- });
+function pvsDisappearanceExplained(key,onlineSlots){
+ if(onlineSlots.has(key))return true;
+ return current.some(e=>e?.eventType==='pvs_booking_detected'&&e.bookingStatus!=='released'&&slotKey(e)===key);
 }
 async function appendEncryptedAdminEvent(event,auth){
  const envelope=await encryptEvent(event);
@@ -297,11 +310,12 @@ async function reconcilePvsBookings(){
    const freeNow=await fetchPvsFreeSlots();
    const previous=pvsSnapshotRead();
    let detected=0,released=0;
+   const onlineSlots=activeOnlineSlotKeys(current);
    if(previous){
      for(const prev of previous.slots){
        if(!snapshotSlotFuture(prev)||freeNow.has(String(prev.key||'')))continue;
        const key=String(prev.key||'');
-       if(!key||pvsDisappearanceExplained(key,previous.capturedAt))continue;
+       if(!key||pvsDisappearanceExplained(key,onlineSlots))continue;
        const detectedAt=new Date().toISOString();
        const event={
          schemaVersion:7,eventId:crypto.randomUUID(),eventType:'pvs_booking_detected',
@@ -463,7 +477,7 @@ async function load(){
 function csv(){
  const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Buchungsstatus','Statusdetail','Terminart','Ärztin','Dauer Minuten','Erfasst'];
  const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
- const lines=[head,...current.map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),bookingStatus(x),statusDetail(x),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
+ const lines=[head,...visibleTrackingEvents(current).map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),bookingStatus(x),statusDetail(x),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
  const blob=new Blob(['\ufeff'+lines],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');
  a.href=u;a.download='medidate-buchungsauswertung.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
 }
