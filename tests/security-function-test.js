@@ -262,10 +262,10 @@ assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,duration:1
 assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,bookingStatus:'released'},pvsAt('12.15')]).length,2,'Released bookings must not hide independent PVS events');
 
 // Performance regression: the fast endpoints request only fresh free/busy slots.
-assert(core.includes('async function buildFastPublicBundle(onlyServiceKey=null)'),'Fast live schedule path must exist');
+assert(core.includes('async function buildFastPublicBundle(onlyServiceKey=null,{waitAll=false}={})'),'Fast provider bundle must offer early partial availability');
 assert(core.includes('const FAST_SERVICE_IDS=Object.freeze({vorsorge:1950,contraception:1952,followup:1973,breast:1974})'),'Fast path must use allow-listed service IDs');
 assert(core.includes('const FAST_DOCTOR_IDS=Object.freeze({moxter:512,vongrone:513})'),'Fast path must use known doctor IDs');
-assert(core.includes('await Promise.allSettled(keys.map(async key=>'),'Multi-service schedule checks must settle independently');
+assert(core.includes('const settled=Promise.allSettled(tasks);'),'Independent service fetches must settle without blocking the first success');
 assert(core.includes('const s=await bootstrap(false);'),'Fast fetch must keep validated practice/session bootstrap');
 assert(medidate.includes("await buildFastPublicBundle(serviceKey)"),'Selected service must use fast provider schedule checks');
 assert(medidate.includes("if(action==='liveSelection'){"),'Combined IGeL service availability must have fast endpoint');
@@ -369,8 +369,8 @@ assert(index.includes("cacheStorageRead('direct:'+selectionKey,Number.MAX_SAFE_I
 assert(index.includes("source:'mediDate-server-verified'"),'Only provider-confirmed responses are eligible for preview cache');
 assert(index.includes("presentAvailableDays(previewRaw,{preview:true,ageSeconds:quick.ageSeconds})"),'Recent cache must be rendered as a provisional preview');
 assert(index.includes("btn.classList.add(state.availabilityPreview?'preview':'available')"),'Unverified dates must never appear green');
-assert(index.includes("t.disabled=Boolean(state.availabilityPreview)"),'Unverified times must never allow opening a booking form');
-assert(index.includes("if(!state.availabilityPreview)t.onclick=()=>openBooking(x)"),'Booking buttons must only be wired after fresh mediDate confirmation');
+assert(index.includes("t.disabled=false;"),'Provider-derived preview times must be selectable immediately');
+assert(index.includes("t.onclick=()=>openBooking(x)"),'Preliminary appointment forms may open while final live checks remain mandatory');
 assert(index.includes("if(state.availabilityPreview){"),'Provider refresh failures must retain already validated preliminary availability');
 assert(index.includes("if(diagnosticMode)console.info('mediDate timings (internal only)'"),'Technical timing must only go to the developer console');
 assert(!index.includes("state.lastTimingDiagnostics"),'Technical timing must not appear in patient status text');
@@ -390,7 +390,7 @@ assert(!index.includes("$('#calendarStatus').textContent+=' '+state.lastTimingDi
 
 // Menopause availability must tolerate independent service failures and reuse
 // the same anonymous ten-minute snapshots across visitors and service choices.
-assert(core.includes('async function buildFastPublicBundle(onlyServiceKey=null)'),'Fast bundle still available');
+assert(core.includes('async function buildFastPublicBundle(onlyServiceKey=null,{waitAll=false}={})'),'Early-return provider bundle must remain available');
 assert(core.includes('const failedKeys=keys.filter((key,i)=>results[i].status===\'rejected\')'),'Failed services must be identified without dropping successful ones');
 assert(core.includes('if(!groups.length)throw new Error('),'Do not report availability if all services failed');
 assert(medidate.includes('async function readCombinedPreview()'),'Shared menopause preview must combine cached services');
@@ -454,7 +454,7 @@ assert(index.includes("cache:action==='snapshot'?'default':'no-store'"),'Only an
 assert(medidate.includes("cdn:'public, s-maxage=600, stale-while-revalidate=3600, stale-if-error=86400'"),'Only anonymous provider preview may use the fast CDN while live availability remains no-store');
 assert(index.includes("if(state.service===selectedService)prefetchAvailability()"),'Slow live refresh must start after shared preview request');
 assert(!index.includes('Mögliche Termine aus den letzten zehn Minuten.'),'Patient fallback text must not promise outdated ten-minute limit');
-assert(index.includes('t.disabled=Boolean(state.availabilityPreview)'),'Preliminary time buttons remain disabled');
+assert(index.includes("const live=await directMediDateRequest('appointments/appointmenttimes'"),'Direct provider verification must precede EVERY booking write');
 
 
 // An older but real provider snapshot is still a useful amber calendar.
@@ -586,8 +586,7 @@ assert(index.includes("   legacyPreview,"),
  'Previous calendar must participate in the immediate-availability lookup');
 assert(index.includes("   BUILD_SEED,"),
  'Safe deployment snapshot must still be consulted first');
-assert(index.includes("if(!state.availabilityPreview)t.onclick=()=>openBooking(x)"),
- 'Cached slots must not be bookable before current provider verification');
+assert(index.includes("if(!row)throw new Error('Dieser Termin ist inzwischen nicht mehr frei."),'Cached choices must be rejected at final booking if their provider slot is stale');
 assert(medidate.includes("cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'"),
  'Proof-bearing live provider results must never use the public CDN cache');
 
@@ -607,7 +606,7 @@ assert(!index.includes("cacheStorageWrite('shared-'+key,b)"),
 
 assert(buildScript.includes("if(process.env.VERCEL==='1'&&!hasFutureAvailability(anonymousSeed))"),
  'Vercel must never deploy a calendar page with a missing/empty appointment seed');
-assert(buildScript.includes("const live=await buildFastPublicBundle();"),
+assert(buildScript.includes("const live=await buildFastPublicBundle(null,{waitAll:true});"),
  'Build must refresh four allow-listed mediDate services before deployment');
 assert(buildScript.includes("const safe=await readBundledSnapshot({"),
  'All raw provider slots must pass through the anonymous sanitizer');
@@ -643,5 +642,21 @@ buildSeedContext.sanitizeSeed({
  assert(!JSON.stringify(safe).includes('DO_NOT_PUBLISH'),
    'Neither tracking proof nor nonce may be published in seed-data.js');
 }).catch(e=>{console.error(e);process.exitCode=1});
+
+
+// A patient may select a yellow time and fill a form while the live request
+// runs, but no POST may happen before the direct final provider check.
+assert(core.includes("const firstSuccess=new Promise(resolve=>{notifyFirst=resolve})"),
+ 'Self-pay multi-service lookup should return after the first valid service reply');
+assert(core.includes("firstSuccess.then(()=>new Promise(resolve=>setTimeout(resolve,1200)))"),
+ 'A slow service must not block other confirmed services for 30 seconds');
+assert(buildScript.includes("buildFastPublicBundle(null,{waitAll:true})"),
+ 'Deployment preloading must remain exhaustive');
+assert(index.includes("Die Verfügbarkeit wird vor verbindlicher Buchung direkt bei mediDate geprüft."),
+ 'Yellow time selection must disclose the pending live check');
+assert(index.includes("if(!row)throw new Error("),
+ 'Final booking must refuse a no-longer-available cached slot');
+assert(index.includes("const result1=await directMediDateRequest('appointments',{method:'POST'"),
+ 'Appointments must still post directly to mediDate only after checks');
 
 console.log('Security regression checks passed.');
