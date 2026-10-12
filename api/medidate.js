@@ -65,9 +65,13 @@ async function readPreview(serviceKey){
     const safe=JSON.parse(await new Response(r.stream).text());
     const age=Date.now()-Date.parse(safe?.generatedAt||'');
     if(safe?.source!=='verified-mediDate-anonymous-preview'||safe?.serviceKey!==serviceKey||
-      !Array.isArray(safe.groups)||!Number.isFinite(age)||age<0||age>previewMaxAgeMs())return null;
+      !Array.isArray(safe.groups)||!Number.isFinite(age)||age<0)return null;
     if(safe.groups.some(g=>!Array.isArray(g.availability?.appointmentTimes)))return null;
-    return {...safe,ageSeconds:Math.ceil(age/1000)};
+    // Always retain the most recent known provider result, even outside the
+    // preferred 60m/6h freshness window. It is displayed only as an
+    // unbookable, timestamped preview until a new mediDate call succeeds.
+    return {...safe,ageSeconds:Math.ceil(age/1000),
+      olderThanPreferredWindow:age>previewMaxAgeMs()};
   }catch(e){return null}
 }
 async function readCombinedPreview(){
@@ -94,6 +98,7 @@ async function readCombinedPreview(){
   const generatedAt=new Date(Math.min(...times)).toISOString();
   return {ok:true,available:true,source:'verified-mediDate-anonymous-preview',
     serviceKey:'all',generatedAt,ageSeconds:Math.ceil((Date.now()-Date.parse(generatedAt))/1000),
+    olderThanPreferredWindow:Date.now()-Date.parse(generatedAt)>previewMaxAgeMs(),
     groups,partial:groups.length<keys.length};
 }
 
