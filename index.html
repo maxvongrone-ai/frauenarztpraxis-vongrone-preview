@@ -850,21 +850,41 @@ function deploymentPublicBundle(){
  }).finally(()=>{deploymentBundlePromise=null});
  deploymentBundlePromise=p;return p;
 }
+// The patient calendar reads from the same browser-to-mediDate API used for booking.
+const DIRECT_SERVICE_IDS=Object.freeze({vorsorge:1950,contraception:1952,followup:1973,breast:1974});
+const DIRECT_DOCTOR_KEYS=Object.freeze({'512':'moxter','513':'vongrone'});
+function compactDirectAvailability(data,serviceKey,session){
+ const serviceId=DIRECT_SERVICE_IDS[serviceKey],rows=[];
+ if(!serviceId||!Array.isArray(data?.appointmentTimes))throw new Error('Ungültige mediDate-Verfügbarkeit.');
+ for(const row of data.appointmentTimes){
+   const doctorId=Number(row?.doctorId||0),doctorKey=DIRECT_DOCTOR_KEYS[String(doctorId)];
+   const date=String(row?.dateTimeStart||'').slice(0,10),duration=Number(row?.duration);
+   const listReferenzId=Number(row?.listReferenzId||0);
+   if(!doctorKey||!/^\d{4}-\d{2}-\d{2}$/.test(date)||duration!==15||!Number.isFinite(listReferenzId))continue;
+   const calendarWeek=Number(row?.calendarWeek||row?.calenderWeek||0);
+   const times=(Array.isArray(row?.times)?row.times:[]).map(raw=>{
+     const time=String(raw);
+     if(!/^([01]?\d|2[0-3])\.[0-5]\d$/.test(time))return null;
+     return {time,trackingNonce:'',trackingExp:0,trackingProof:'',
+       direct:{clientId:Number(session.clientId),locationId:Number(session.locationId),serviceId,doctorId,listReferenzId,calendarWeek,duration}};
+   }).filter(Boolean);
+   if(times.length)rows.push({dateTimeStart:String(row.dateTimeStart),duration,doctorKey,calendarWeek,times});
+ }
+ return {appointmentTimes:rows};
+}
 async function publicBundle(){
- // Never offer a cached or deployment-seeded slot as bookable.
- // Only the current live mediDate response may make a calendar day green.
- if(isIgelMode()){
-   const live=await networkPublicBundle();
-   if(!isCompleteBundle(live))throw new Error('Die Live-Verfügbarkeit konnte nicht vollständig geprüft werden.');
-   return live;
- }
- const key=String(state.service?.id||'');
- if(!REQUIRED_SERVICE_KEYS.includes(key))throw new Error('Die Terminart ist nicht freigegeben.');
- const live=await apiGet('liveService',{serviceKey:key},40000);
- if(!live?.ok||!Array.isArray(bundleGroup(live,key)?.availability?.appointmentTimes)){
-   throw new Error('Die Live-Verfügbarkeit konnte nicht vollständig geprüft werden.');
- }
- return live;
+ const serviceKeys=isIgelMode()?Object.keys(DIRECT_SERVICE_IDS):[String(state.service?.id||'')];
+ if(serviceKeys.some(key=>!Object.hasOwn(DIRECT_SERVICE_IDS,key)))throw new Error('Terminart nicht freigegeben.');
+ const session=await getDirectMediDateSession(false),started=Date.now();
+ const groups=await Promise.all(serviceKeys.map(async key=>{
+   const raw=await directMediDateRequest('appointments/appointmenttimes',{query:{
+     clientid:Number(session.clientId),locationId:Number(session.locationId),
+     serviceId:DIRECT_SERVICE_IDS[key],doctorId:0
+   }});
+   return {serviceKey:key,serviceName:key,doctorKeys:Object.values(DIRECT_DOCTOR_KEYS),
+     availability:compactDirectAvailability(raw,key,session)};
+ }));
+ return {ok:true,groups,generatedAt:new Date().toISOString(),elapsedMs:Date.now()-started,source:'mediDate-browser-direct'};
 }
 function networkAvailability(serviceKey){return publicBundle().then(b=>{const g=bundleGroup(b,serviceKey);if(!g?.availability)throw new Error('Für diese Leistung liegen derzeit keine Verfügbarkeitsdaten vor.');return {ok:true,availability:g.availability,source:'instant-seed'}})}
 async function regularAvailability(serviceKey){return networkAvailability(serviceKey)}
@@ -882,7 +902,9 @@ if(BUILD_SEED?.groups?.length){
 // A full live bundle is only requested when a multi-service booking requires it.
 
 
-$$('[data-insurance]').forEach(b=>b.onclick=()=>{
+// Prewarm a protected mediDate session before the user chooses an appointment.
+setTimeout(()=>getDirectMediDateSession(false).catch(()=>{}),100);
+$('[data-insurance]').forEach(b=>b.onclick=()=>{
  state.insurance=b.dataset.insurance;state.topicMode='regular';state.service=null;state.doctor=null;state.selectedSlot=null;state.selfPayFromGkv=false;
  select('[data-insurance]',b);
  $('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
@@ -1079,7 +1101,7 @@ function buildAvailableDays(raw){
      const trackingNonce=typeof tv==='object'?String(tv?.trackingNonce||''):'';
      const trackingExp=typeof tv==='object'?Number(tv?.trackingExp||0):0;
      const trackingProof=typeof tv==='object'?String(tv?.trackingProof||''):'';
-     if(!t||!trackingNonce||!trackingExp||!trackingProof)continue;
+     if(!t||!tv?.direct||!Number(tv.direct.serviceId)||!Number(tv.direct.doctorId))continue;
      const dt=new Date(day+'T'+t.replace('.',':')+':00');if(dt<now)continue;
      const candidate={date:day,time:t,doctorId:String(r.doctorKey||''),duration:Number(r.duration),serviceId:String(item.serviceId),serviceName:item.serviceName,trackingNonce,trackingExp,trackingProof,direct:(typeof tv==='object'&&tv?.direct)?tv.direct:null};
      // Liegt der Sondertag vor der regulären Freigabegrenze (insb. GKV-Bestand),
@@ -1194,7 +1216,8 @@ async function loadSlots(){
  const quotaStartedAt=Date.now();
  let quotaFinishedAt=quotaStartedAt;
  const quotaCheck=(quotaNeeded
-   ?refreshPrivateNewBlockedDates(false).then(()=>true).catch(()=>false)
+   ?refreshPrivateNewBlockedDates(false).then(()=>{state.privateNewQuotaVerified=true;return true})
+     .catch(()=>{state.privateNewQuotaVerified=false;return false})
    :Promise.resolve(true)).finally(()=>{quotaFinishedAt=Date.now()});
  st.textContent=quotaNeeded
    ?'Termine und Tageskontingent werden gleichzeitig geladen …'
@@ -1202,7 +1225,8 @@ async function loadSlots(){
 
  if(Date.now()-Number(state.availabilityStartedAt||0)>30000)state.availabilityPromise=null;
  try{
-   const [live,quotaVerified]=await Promise.all([startSelectedAvailability(),quotaCheck]);
+   const live=await startSelectedAvailability();
+   const quotaVerified=quotaNeeded?Boolean(state.privateNewQuotaVerified):true;
    if(state.slotLoadId!==loadId)return;
    state.privateNewQuotaVerified=quotaVerified;
    if(!quotaVerified){
@@ -1221,12 +1245,17 @@ async function loadSlots(){
    if(diagnosticMode){
      const totalFromService=Math.round((Date.now()-Number(state.availabilityStartedAt||Date.now()))/100)/10;
      const serverMs=Number(live?.elapsedMs);
-     const backend=Number.isFinite(serverMs)?(serverMs/1000).toFixed(1)+' s':'unbekannt';
+     const backend=Number.isFinite(serverMs)?(serverMs/1000).toFixed(1)+' s (direkt mediDate)':'unbekannt';
      const quotaTime=((quotaFinishedAt-quotaStartedAt)/1000).toFixed(1);
      state.lastTimingDiagnostics='[Diagnose: mediDate-Server '+backend+', ab Leistungswahl '+totalFromService.toFixed(1)+' s, Tageskontingent '+quotaTime+' s, Kontingent '+(quotaVerified?'OK':'nicht abrufbar')+']';
      $('#calendarStatus').textContent+=' '+state.lastTimingDiagnostics;
    }
    if(quotaNeeded){
+     void quotaCheck.then(ok=>{
+       if(!ok||state.slotLoadId!==loadId)return;
+       const g=bundleGroup(live,String(state.service.id));
+       if(g?.availability)presentAvailableDays(rawFromRegularAvailability({availability:g.availability}));
+     });
      if(!quotaVerified){
        const status=$('#calendarStatus');
        status.className='status warn';
@@ -1399,8 +1428,11 @@ async function sendBookingTracking(slot){
 }
 
 let directSessionCache=null;
+let directSessionPromise=null;
 async function getDirectMediDateSession(force=false){
+ if(!force&&directSessionPromise)return directSessionPromise;
  if(!force&&directSessionCache&&Date.now()-Number(directSessionCache.issuedAt||0)<12*60*1000)return directSessionCache;
+ const sessionFetch=(async()=>{
  const u=new URL('/api/session',location.origin);
  if(force)u.searchParams.set('force','1');
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
@@ -1412,6 +1444,9 @@ async function getDirectMediDateSession(force=false){
    }
    directSessionCache=j;return j;
  }finally{clearTimeout(timer)}
+ })();
+ directSessionPromise=sessionFetch;
+ try{return await sessionFetch}finally{if(directSessionPromise===sessionFetch)directSessionPromise=null}
 }
 async function directMediDateRequest(path,{method='GET',query=null,body=null}={},retry=true){
  const s=await getDirectMediDateSession(false);
@@ -1461,9 +1496,23 @@ function directAppointmentCode(data){
  return walk(data);
 }
 
+function ensureTrackingProofForSlot(slot){
+ if(slot?.trackingProof&&Number(slot?.trackingExp)>Date.now()+60000)return Promise.resolve(slot);
+ if(slot?._proofPromise)return slot._proofPromise;
+ const p=apiGet('trackingProof',{},10000).then(result=>{
+   if(!result?.trackingNonce||!result?.trackingProof||Number(result?.trackingExp)<=Date.now())throw new Error('Buchungsnachweis konnte nicht abgerufen werden.');
+   slot.trackingNonce=String(result.trackingNonce);
+   slot.trackingExp=Number(result.trackingExp);
+   slot.trackingProof=String(result.trackingProof);
+   return slot;
+ });
+ slot._proofPromise=p.finally(()=>{slot._proofPromise=null});
+ return slot._proofPromise;
+}
 function openBooking(slot){
  state.selectedSlot=slot;
  state.formStartedAt=Date.now();
+ void ensureTrackingProofForSlot(slot).catch(()=>{});
  // Formular öffnet ausschließlich mit einem serverseitig erzeugten, verschlüsselten Slot-Schlüssel.
  $('#bookingBox').innerHTML=`<div class="booking-card">
  <h2>Termin ${deDate(slot.date)} · ${slot.time.replace('.',':')} Uhr buchen</h2>
@@ -1569,6 +1618,7 @@ async function bookNow(){
  let privateNewReservation=null,privateNewBookingStarted=false;
  btn.disabled=true;st.className='status';st.textContent='Termin wird direkt bei mediDate geprüft und gebucht …';
  try{
+   await ensureTrackingProofForSlot(state.selectedSlot);
    if(isPrivateNewDailyLimited()){
      st.textContent='Tageskontingent wird geprüft und für Ihre Buchung reserviert …';
      privateNewReservation=await reservePrivateNewDay(state.selectedSlot);
