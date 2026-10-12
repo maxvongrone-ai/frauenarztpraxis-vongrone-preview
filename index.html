@@ -956,7 +956,7 @@ function previewMaxAgeMs(now=Date.now()){
  }).formatToParts(new Date(now)).find(p=>p.type==='hour')?.value);
  return h>=20||h<6?6*60*60*1000:60*60*1000;
 }
-const CALENDAR_PREVIEW_STATUS='Kalendervorschau wird im Hintergrund aktualisiert';
+const CALENDAR_LOADING_STATUS='Verfügbarkeit wird geladen …';
 function cachedDirectSelection(){
  // Synchronous lookup: the last known, anonymous provider snapshot is a
  // provisional calendar regardless of age, never a confirmed booking.
@@ -1305,13 +1305,16 @@ function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){
    if(nextDate)state.calendarHasShownResults=true;
  }
  const count=[...days.values()].reduce((n,a)=>n+a.length,0);
- st.className='status '+(count?'ok':'');
+ st.className='status '+(preview?'warn':count?'ok':'');
+ // Restore 11 October patient guidance while keeping unverified preview
+ // days yellow until mediDate confirms them.
  st.textContent=preview
-   ?CALENDAR_PREVIEW_STATUS
-   :count
-     ?'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.'
-     :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
- if(preview)st.className='status warn';
+   ?(count
+      ?'Verfügbarkeitsstand geladen. Wählen Sie einen markierten Tag.'
+      :'Im letzten verfügbaren Datenstand sind für diese Auswahl keine freien Termine sichtbar.')
+   :(count
+      ?'Wählen Sie einen grünen Tag mit verfügbaren Terminen.'
+      :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.');
  renderMonthCalendar(false);
  renderPregnancyRequestOption(days);
  if(state.selectedDay){
@@ -1342,7 +1345,7 @@ async function loadSlots(){
    :`${state.service.name} · ${state.doctor.displayName||state.doctor.fullName}`;
  renderMonthCalendar(true);
  $('#step5').scrollIntoView({behavior:'smooth',block:'start'});
- st.className='status';st.textContent=CALENDAR_PREVIEW_STATUS;
+ st.className='status';st.textContent=CALENDAR_LOADING_STATUS;
  const quick=cachedDirectSelection();
  if(quick){
    const previewRaw=isIgelMode()?rawFromIgelGroups(quick.bundle.groups):
@@ -1376,7 +1379,7 @@ async function loadSlots(){
    ?refreshPrivateNewBlockedDates(false).then(()=>{state.privateNewQuotaVerified=true;return true})
      .catch(()=>{state.privateNewQuotaVerified=false;return false})
    :Promise.resolve(true)).finally(()=>{quotaFinishedAt=Date.now()});
- if(!quick)st.textContent=CALENDAR_PREVIEW_STATUS;
+ if(!quick)st.textContent=CALENDAR_LOADING_STATUS;
 
  if(Date.now()-Number(state.availabilityStartedAt||0)>30000)state.availabilityPromise=null;
  try{
@@ -1460,7 +1463,9 @@ async function loadSlots(){
    }
    if(state.availabilityPreview){
      st.className='status warn';
-     st.textContent=CALENDAR_PREVIEW_STATUS;
+     st.textContent=[...(state.availableDays?.values()||[])].some(slots=>slots.length)
+       ?'Verfügbarkeitsstand geladen. Wählen Sie einen markierten Tag.'
+       :'Im letzten verfügbaren Datenstand sind für diese Auswahl keine freien Termine sichtbar.';
      renderMonthCalendar(false);
    }else{
      state.availableDays=new Map();
@@ -1557,7 +1562,7 @@ function renderTimesForDay(day){
  $('#chosenDay').textContent=new Intl.DateTimeFormat('de-DE',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(d);
  const list=(state.availableDays?.get(day)||[]).slice().sort((a,b)=>a.time.localeCompare(b.time));
  st.className='status '+(state.availabilityPreview?'warn':list.length?'ok':'');
- st.textContent=state.availabilityPreview?'Mögliche Uhrzeiten – Buchung nach Bestätigung verfügbar.':
+ st.textContent=state.availabilityPreview?'Mögliche Uhrzeiten aus dem letzten verfügbaren Datenstand.':
    list.length?'Wählen Sie eine Uhrzeit.':'An diesem Tag ist inzwischen kein Termin mehr verfügbar.';
  const times=document.createElement('div');times.className='times';const seen=new Set();
  for(const x of list){
