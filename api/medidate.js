@@ -196,7 +196,10 @@ module.exports=async function handler(req,res){
       const snapshot=serviceKey==='latest'?await readPreview('latest')||await readCombinedPreview():serviceKey==='all'?await readCombinedPreview():await readPreview(serviceKey);
       return send(res,200,{ok:true,available:Boolean(snapshot),snapshot},
         snapshot?{cache:'public, max-age=0, must-revalidate',
-          cdn:'public, s-maxage=30',vercel:'public, s-maxage=30'}:
+          // Anonymous slot coordinates only, never HMAC nonces/proofs.
+          // Restore the quick Oct 11 repeat-visitor experience at the edge.
+          cdn:'public, s-maxage=600, stale-while-revalidate=3600, stale-if-error=86400',
+          vercel:'public, s-maxage=600, stale-while-revalidate=3600, stale-if-error=86400'}:
           {cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='trackingProof'){
