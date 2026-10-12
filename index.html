@@ -895,7 +895,7 @@ function prefetchAvailability(){startSelectedAvailability().catch(()=>{})}
 function serviceAvailabilityKey(){return isIgelMode()?Object.keys(DIRECT_SERVICE_IDS).join(','):String(state.service?.id||'')}
 function cachedDirectSelection(){
  const v=cacheStorageRead('direct:'+serviceAvailabilityKey(),60000);
- if(!v||v.source!=='mediDate-browser-direct'||!Array.isArray(v.groups))return null;
+ if(!v||!['mediDate-browser-direct','mediDate-server-verified'].includes(v.source)||!Array.isArray(v.groups))return null;
  const age=Date.now()-Date.parse(v.generatedAt||'');
  if(!Number.isFinite(age)||age<0||age>60000)return null;
  const keys=serviceAvailabilityKey().split(',');
