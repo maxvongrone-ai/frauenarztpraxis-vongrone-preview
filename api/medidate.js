@@ -20,7 +20,8 @@ function previewMaxAgeMs(now=Date.now()){
 }
 let blobApiPromise=null;
 async function optionalBlob(){
-  if(!process.env.BLOB_STORE_ID&&!process.env.BLOB_READ_WRITE_TOKEN)return null;
+  // Vercel Blob supports both static read-write tokens and project-scoped OIDC.
+  // Do not disable storage just because a legacy token is absent.
   if(!blobApiPromise)blobApiPromise=import('@vercel/blob');
   return blobApiPromise;
 }
