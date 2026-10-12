@@ -286,7 +286,7 @@ assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
 assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Proof-bearing live availability must never be cached across patients');
 assert(index.includes("Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft."),'Calendar must explain that last-minute changes can occur');
-assert(index.includes("refreshPrivateNewBlockedDates(false).then(()=>true).catch(()=>false)"),'Private new-patient quota read must not delay live calendar by serial reconciliation');
+assert(index.includes("refreshPrivateNewBlockedDates(false).then(()=>{state.privateNewQuotaVerified=true;return true})"),'Private new-patient quota read must start independently of live calendar');
 assert(index.includes("const live=await startSelectedAvailability();")&&index.includes("void quotaCheck.then(ok=>"),'Day quota must not block the browser-direct calendar');
 assert(!index.includes("Das Tageskontingent für private Neupatientinnen konnte gerade nicht sicher geprüft werden."),'Quota reconciliation failure must no longer blanket-block calendar');
 assert(!index.includes("presentAvailableDays(rawFromRegularAvailability(cached)"),'Cached regular slots must not be presented');
