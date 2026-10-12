@@ -9,7 +9,15 @@ const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 // Shared preview contains only service/doctor identifiers and anonymous free slots.
 // Tracking nonces, proofs, bearer tokens and personal data MUST NOT enter Blob.
 const PREVIEW_PREFIX='medidate-anonymous-preview/v1/';
-const PREVIEW_MAX_AGE_MS=10*60*1000;
+const PREVIEW_DAY_MAX_AGE_MS=60*60*1000;
+const PREVIEW_NIGHT_MAX_AGE_MS=6*60*60*1000;
+function previewMaxAgeMs(now=Date.now()){
+  // Germany's local clock; handles summer/winter time changes automatically.
+  const hour=Number(new Intl.DateTimeFormat('en-GB',{
+    timeZone:'Europe/Berlin',hour:'2-digit',hourCycle:'h23'
+  }).formatToParts(new Date(now)).find(p=>p.type==='hour')?.value);
+  return hour>=20||hour<6?PREVIEW_NIGHT_MAX_AGE_MS:PREVIEW_DAY_MAX_AGE_MS;
+}
 let blobApiPromise=null;
 async function optionalBlob(){
   if(!process.env.BLOB_STORE_ID&&!process.env.BLOB_READ_WRITE_TOKEN)return null;
@@ -57,7 +65,7 @@ async function readPreview(serviceKey){
     const safe=JSON.parse(await new Response(r.stream).text());
     const age=Date.now()-Date.parse(safe?.generatedAt||'');
     if(safe?.source!=='verified-mediDate-anonymous-preview'||safe?.serviceKey!==serviceKey||
-      !Array.isArray(safe.groups)||!Number.isFinite(age)||age<0||age>PREVIEW_MAX_AGE_MS)return null;
+      !Array.isArray(safe.groups)||!Number.isFinite(age)||age<0||age>previewMaxAgeMs())return null;
     if(safe.groups.some(g=>!Array.isArray(g.availability?.appointmentTimes)))return null;
     return {...safe,ageSeconds:Math.ceil(age/1000)};
   }catch(e){return null}
@@ -151,7 +159,10 @@ module.exports=async function handler(req,res){
       const serviceKey=String(req.query?.serviceKey||'');
       if(serviceKey!=='all'&&!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart ungültig.'});
       const snapshot=serviceKey==='all'?await readCombinedPreview():await readPreview(serviceKey);
-      return send(res,200,{ok:true,available:Boolean(snapshot),snapshot},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
+      return send(res,200,{ok:true,available:Boolean(snapshot),snapshot},
+        snapshot?{cache:'public, max-age=0, must-revalidate',
+          cdn:'public, s-maxage=30',vercel:'public, s-maxage=30'}:
+          {cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='trackingProof'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
