@@ -314,6 +314,7 @@ calendarContext.testPresenter(new Map([
 ]));
 assert.strictEqual(calendarState.calendarMonth.getFullYear(),2026,'Calendar must open the year of the earliest free appointment');
 assert.strictEqual(calendarState.calendarMonth.getMonth(),11,'Calendar must open the earliest free month regardless of result order');
+calendarState.calendarHasShownResults=false; // simulate a new patient/service selection
 calendarContext.testPresenter(new Map());
 const now=new Date();
 assert.strictEqual(calendarState.calendarMonth.getFullYear(),now.getFullYear(),'No availability must leave calendar in current year');
@@ -468,5 +469,40 @@ assert(index.includes("state.availabilityPreview=false;state.previewAgeSeconds=I
 assert(!index.includes("age<0||age>previewMaxAgeMs()"),'Older known snapshots must not be dropped from patient previews');
 assert(medidate.includes("!Number.isFinite(age)||age<0)return null"),'Snapshot must retain old provider data while rejecting invalid timestamps');
 assert(medidate.includes("verifiedAt:new Date(generated).toISOString()"),'Shared service aggregation must preserve per-service age');
+
+
+// No technical progress, cache-age disclosures or background-refresh errors
+// are exposed once an anonymous provider snapshot is available.
+assert(index.includes("const CALENDAR_PREVIEW_STATUS='Kalendervorschau wird im Hintergrund aktualisiert';"),
+ 'Patient-facing calendar text must match approved wording');
+assert(!index.includes("previewAgeLabel(ageSeconds)"),'Never display snapshot age');
+assert(!index.includes("Letzter bekannter Stand: vor "), 'Never disclose snapshot age in patient view');
+assert(index.includes("if(preview)state.calendarPreviewShown=true;"),'Snapshot must pin discreet status');
+assert(index.includes("if(!state.calendarHasShownResults){"),'Background updates must preserve the month');
+assert(index.includes("void fetchSharedPreview();\n loadDoctors();"),'Selected snapshots should fetch without blocking doctor choice');
+assert(index.includes("fetchSharedPreview('latest').catch(()=>null)"),'Single shared snapshot must load at page startup');
+assert(index.includes("cacheStorageRead('shared-latest',Number.MAX_SAFE_INTEGER)"),'Browser must reuse cross-visitor snapshot instantly');
+assert(index.includes("key==='all'||key==='latest'"),'Latest snapshot supports multiple service groups');
+assert(medidate.includes("async function saveLatestPreview(bundle){"),'Provider maintains latest anonymous calendar');
+assert(medidate.includes("serviceKey:'latest',generatedAt,groups"),'Shared latest index must be anonymized');
+assert(medidate.includes("const snapshot=serviceKey==='latest'?await readPreview('latest')||await readCombinedPreview()"),'One storage read is preferred to legacy fanout');
+assert(medidate.includes("await Promise.all([savePreview(bundle,serviceKey),saveLatestPreview(bundle)]);"),'Single-service refresh must update the shared index');
+assert(medidate.includes("saveLatestPreview(bundle),"),'Combined refresh must update shared index');
+
+const quietState={availableDays:new Map(),selectedDay:null,selectedSlot:null,calendarHasShownResults:false};
+const quietStatus={className:'',textContent:''};
+const quietCtx=vm.createContext({
+ state:quietState,$:()=>quietStatus,buildAvailableDays:x=>x,
+ renderMonthCalendar:()=>{},renderPregnancyRequestOption:()=>{},
+ renderTimesForDay:()=>{},Date,Map,
+ CALENDAR_PREVIEW_STATUS:'Kalendervorschau wird im Hintergrund aktualisiert'
+});
+vm.runInContext(index.slice(presenterStart,presenterEnd)+'\nglobalThis.renderQuiet=presentAvailableDays;',quietCtx);
+quietCtx.renderQuiet(new Map([['2027-03-10',[{time:'11.00'}]]]),{preview:true,ageSeconds:500000});
+assert.strictEqual(quietStatus.textContent,'Kalendervorschau wird im Hintergrund aktualisiert');
+quietState.calendarMonth=new Date(2027,4,1);
+quietCtx.renderQuiet(new Map([['2027-02-01',[{time:'12.00'}]]]));
+assert.strictEqual(quietState.calendarMonth.getMonth(),4,'Live update must preserve user-chosen month');
+assert.strictEqual(quietStatus.textContent,'Kalendervorschau wird im Hintergrund aktualisiert');
 
 console.log('Security regression checks passed.');
