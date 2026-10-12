@@ -391,7 +391,7 @@ assert(!index.includes("$('#calendarStatus').textContent+=' '+state.lastTimingDi
 // Menopause availability must tolerate independent service failures and reuse
 // the same anonymous ten-minute snapshots across visitors and service choices.
 assert(core.includes('async function buildFastPublicBundle(onlyServiceKey=null,{waitAll=false}={})'),'Early-return provider bundle must remain available');
-assert(core.includes('const failedKeys=keys.filter((key,i)=>results[i].status===\'rejected\')'),'Failed services must be identified without dropping successful ones');
+assert(core.includes('const failedKeys=keys.filter(k=>!successes.has(k));'),'Failed or pending services must not hide successful provider groups');
 assert(core.includes('if(!groups.length)throw new Error('),'Do not report availability if all services failed');
 assert(medidate.includes('async function readCombinedPreview()'),'Shared menopause preview must combine cached services');
 assert(medidate.includes("readPreview('all'),...keys.map(readPreview)"),'Shared IGeL preview must reuse single-service reads from all visitors');
