@@ -79,7 +79,7 @@ function hasFutureAvailability(bundle){
 async function readFreshDeploymentSnapshot(){
   try{
     const {buildFastPublicBundle}=require('../lib/medidate-core');
-    const live=await buildFastPublicBundle();
+    const live=await buildFastPublicBundle(null,{waitAll:true});
     const safe=await readBundledSnapshot({
       ...live,source:'verified-mediDate-anonymous-preview'
     });
