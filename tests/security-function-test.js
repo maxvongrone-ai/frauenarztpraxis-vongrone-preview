@@ -282,7 +282,7 @@ assert(medidate.includes("const nonce=crypto.randomBytes(18).toString('base64url
 assert(index.includes("let directSessionPromise=null"),'Concurrent direct session starts should be deduplicated');
 // Regression: never present cached availability as confirmed slots.
 assert(index.includes("const live=await apiGet(key==='all'?'liveSelection':'liveService'"),'Patient availability must request fresh mediDate data while storing shared verified preview');
-assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller.signal});"),'Calendar request must bypass shared caches containing unique tracking proof nonces');
+assert(index.includes("cache:action==='snapshot'?'default':'no-store'"),'Provider availability and unique proofs bypass cache while anonymous snapshots can be CDN-cached');
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
 assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Proof-bearing live availability must never be cached across patients');
 assert(index.includes("Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft."),'Calendar must explain that last-minute changes can occur');
@@ -364,7 +364,7 @@ assert(calendarStatus.textContent.includes('keine freien Termine'),'No availabil
 
 
 // Quick-preview regression: never turn a stale client snapshot into bookable green slots.
-assert(index.includes("cacheStorageRead('direct:'+serviceAvailabilityKey(),10*60*1000)"),'Only availability less than ten minutes old may be previewed');
+assert(index.includes("cacheStorageRead('direct:'+serviceAvailabilityKey(),previewMaxAgeMs())"),'Local preview must use Berlin-local day/night TTL');
 assert(index.includes("source:'mediDate-server-verified'"),'Only provider-confirmed responses are eligible for preview cache');
 assert(index.includes("presentAvailableDays(previewRaw,{preview:true,ageSeconds:quick.ageSeconds})"),'Recent cache must be rendered as a provisional preview');
 assert(index.includes("btn.classList.add(state.availabilityPreview?'preview':'available')"),'Unverified dates must never appear green');
@@ -380,7 +380,7 @@ assert(medidate.includes("if(action==='snapshot'){"),'Anonymous preview endpoint
 assert(medidate.includes("access:'private',contentType:'application/json; charset=utf-8'"),'Snapshots must be stored privately');
 assert(medidate.includes("time:String(t.time||'')"),'Snapshot must carry anonymized free times');
 assert(!medidate.includes("trackingProof:t.trackingProof"),'No per-user proof is allowed in the shared cache');
-assert(medidate.includes("const PREVIEW_MAX_AGE_MS=10*60*1000")&&medidate.includes("age>PREVIEW_MAX_AGE_MS"),'Shared preview must expire after ten minutes');
+assert(medidate.includes("const PREVIEW_DAY_MAX_AGE_MS=60*60*1000")&&medidate.includes("const PREVIEW_NIGHT_MAX_AGE_MS=6*60*60*1000")&&medidate.includes("age>previewMaxAgeMs()"),'Shared snapshot must use 60 minutes daytime and six hours overnight');
 assert(index.includes("void fetchSharedPreview().then(shared=>"),'Patient calendar must attempt a fast cross-visitor preview');
 assert(index.includes("if(!shared||state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;"),'Late preview must not overwrite confirmed live data');
 assert(index.includes("presentAvailableDays(raw,{preview:true,ageSeconds:shared.ageSeconds})"),'Server cache must only be presented as a preliminary preview');
@@ -398,7 +398,7 @@ assert(medidate.includes("...bundle.groups.map(g=>savePreview({generatedAt:bundl
 assert(medidate.includes("t.direct&&t.direct.clientId>0"),'Cached time entries must preserve verifiable technical slot coordinates');
 assert(medidate.includes("t.time)&&"),'Cached time format must be validated');
 assert(index.includes("await fetchSharedPreview();"),'Provider failure must attempt shared preview recovery');
-assert(index.includes("Mögliche Termine aus den letzten zehn Minuten."),'Fallback status must explain that provisional slots remain visible');
+assert(index.includes("Mögliche Termine aus dem zuletzt gespeicherten Kalenderstand."),'Fallback status must explain that provisional slots remain visible');
 assert(index.includes("presentAvailableDays(rawFromIgelGroups(combined),{"),'Partial provider response must be merged with the shared snapshot');
 assert(index.includes("preview:true,ageSeconds:cached.ageSeconds"),'Mixed-freshness IGeL slots must not appear verified');
 assert(index.includes("Date.now()-sharedPreviewRequest.at<1500"),'Shared preview failures must not be cached forever in the browser');
@@ -419,5 +419,40 @@ const sample=sanitizerContext.sanitizePreviewTest({
 assert.strictEqual(sample.groups[0].availability.appointmentTimes[0].times.length,1,'Regular slot times must not be dropped by regex escaping');
 assert.strictEqual(sample.groups[0].availability.appointmentTimes[0].times[0].time,'11.00','Correct cached time');
 assert(!JSON.stringify(sample).includes('secret-proof')&&!JSON.stringify(sample).includes('secret-nonce'),'Never store tracking proofs or tokens in shared preview');
+
+
+// Calendar freshness must depend on Europe's Berlin clock, including DST.
+// Cache only produces amber, unbookable previews; final provider checks are unchanged.
+const backendWindowStart=medidate.indexOf('const PREVIEW_DAY_MAX_AGE_MS=');
+const backendWindowEnd=medidate.indexOf('\nlet blobApiPromise=null;',backendWindowStart);
+assert(backendWindowStart>=0&&backendWindowEnd>backendWindowStart,'Server clock window helper must exist');
+const backendClock=vm.createContext({Intl,Date,Number});
+vm.runInContext(medidate.slice(backendWindowStart,backendWindowEnd)+
+  '\nglobalThis.getTtl=previewMaxAgeMs;',backendClock);
+const frontendWindowStart=index.indexOf('function previewMaxAgeMs(now=Date.now()){');
+const frontendWindowEnd=index.indexOf('function cachedDirectSelection(){',frontendWindowStart);
+assert(frontendWindowStart>=0&&frontendWindowEnd>frontendWindowStart,'Browser clock window helper must exist');
+const frontendClock=vm.createContext({Intl,Date,Number,Math});
+vm.runInContext(index.slice(frontendWindowStart,frontendWindowEnd)+
+  '\nglobalThis.getTtl=previewMaxAgeMs;',frontendClock);
+for(const [label,time,expected] of [
+  ['summer 19:59','2026-10-12T17:59:00.000Z',60*60*1000],
+  ['summer 20:00','2026-10-12T18:00:00.000Z',6*60*60*1000],
+  ['summer 05:59','2026-10-13T03:59:00.000Z',6*60*60*1000],
+  ['summer 06:00','2026-10-13T04:00:00.000Z',60*60*1000],
+  ['winter 19:59','2026-12-11T18:59:00.000Z',60*60*1000],
+  ['winter 20:00','2026-12-11T19:00:00.000Z',6*60*60*1000],
+  ['winter 05:59','2026-12-12T04:59:00.000Z',6*60*60*1000],
+  ['winter 06:00','2026-12-12T05:00:00.000Z',60*60*1000]
+]){
+  const timestamp=Date.parse(time);
+  assert.strictEqual(backendClock.getTtl(timestamp),expected,'Backend Berlin cache window: '+label);
+  assert.strictEqual(frontendClock.getTtl(timestamp),expected,'Frontend Berlin cache window: '+label);
+}
+assert(index.includes("cache:action==='snapshot'?'default':'no-store'"),'Only anonymous preview may use CDN read cache');
+assert(medidate.includes("cdn:'public, s-maxage=30'"),'Only anonymous provider preview is cached briefly at the edge');
+assert(index.includes("if(state.service===selectedService)prefetchAvailability()"),'Slow live refresh must start after shared preview request');
+assert(!index.includes('Mögliche Termine aus den letzten zehn Minuten.'),'Patient fallback text must not promise outdated ten-minute limit');
+assert(index.includes('t.disabled=Boolean(state.availabilityPreview)'),'Preliminary time buttons remain disabled');
 
 console.log('Security regression checks passed.');
