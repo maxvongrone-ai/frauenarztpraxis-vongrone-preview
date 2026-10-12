@@ -836,7 +836,7 @@ function storedRegularAvailability(serviceKey){
 function storedIgelGroups(){const b=bestImmediateBundle();return isCompleteBundle(b)?b.groups:null}
 function networkPublicBundle(){
  if(publicBundleNetworkPromise)return publicBundleNetworkPromise;
- const p=apiGet('liveBundle',{},65000).then(j=>{
+ const p=apiGet('liveSelection',{},40000).then(j=>{
    if(!isCompleteBundle(j))throw new Error('Unvollständige Live-Verfügbarkeit – vorhandener Stand bleibt erhalten.');
    cacheStorageWrite('publicBundle',j);return j;
  }).catch(()=>null).finally(()=>{publicBundleNetworkPromise=null});
@@ -860,7 +860,7 @@ async function publicBundle(){
  }
  const key=String(state.service?.id||'');
  if(!REQUIRED_SERVICE_KEYS.includes(key))throw new Error('Die Terminart ist nicht freigegeben.');
- const live=await apiGet('liveService',{serviceKey:key},65000);
+ const live=await apiGet('liveService',{serviceKey:key},40000);
  if(!live?.ok||!Array.isArray(bundleGroup(live,key)?.availability?.appointmentTimes)){
    throw new Error('Die Live-Verfügbarkeit konnte nicht vollständig geprüft werden.');
  }
@@ -878,7 +878,7 @@ if(BUILD_SEED?.groups?.length){
  const local=cacheStorageRead('publicBundle',LOCAL_CACHE_MAX_AGE);
  if(!local||generatedTime(BUILD_SEED)>generatedTime(local))cacheStorageWrite('publicBundle',BUILD_SEED);
 }
-setTimeout(()=>deploymentPublicBundle().catch(()=>{}),0);
+// No background full-bundle fetch: it competed with the selected live appointment request.
 // A full live bundle is only requested when a multi-service booking requires it.
 
 
