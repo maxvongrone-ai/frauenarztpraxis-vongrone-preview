@@ -772,7 +772,7 @@ async function apiGet(action,params={},timeoutMs=8000){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeoutMs);
  try{
-   const r=await fetch(u,{cache:'default',signal:controller.signal});
+   const r=await fetch(u,{cache:'no-store',signal:controller.signal});
    const t=await r.text();let j;try{j=JSON.parse(t)}catch{throw new Error('Ungültige Serverantwort (HTTP '+r.status+').')}
    if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
    return j;
@@ -851,27 +851,35 @@ function deploymentPublicBundle(){
  deploymentBundlePromise=p;return p;
 }
 async function publicBundle(){
- const immediate=bestImmediateBundle();
- if(immediate?.groups?.length){setTimeout(()=>networkPublicBundle(),0);return immediate}
- try{const deployment=await deploymentPublicBundle();if(deployment?.groups?.length){setTimeout(()=>networkPublicBundle(),0);return deployment}}catch{}
- const live=await networkPublicBundle();
- if(live?.groups?.length)return live;
- throw new Error('Die Terminverfügbarkeit konnte derzeit nicht geladen werden. Bitte versuchen Sie es erneut.');
+ // Never offer a cached or deployment-seeded slot as bookable.
+ // Only the current live mediDate response may make a calendar day green.
+ if(isIgelMode()){
+   const live=await networkPublicBundle();
+   if(!isCompleteBundle(live))throw new Error('Die Live-Verfügbarkeit konnte nicht vollständig geprüft werden.');
+   return live;
+ }
+ const key=String(state.service?.id||'');
+ if(!REQUIRED_SERVICE_KEYS.includes(key))throw new Error('Die Terminart ist nicht freigegeben.');
+ const live=await apiGet('liveService',{serviceKey:key},65000);
+ if(!live?.ok||!Array.isArray(bundleGroup(live,key)?.availability?.appointmentTimes)){
+   throw new Error('Die Live-Verfügbarkeit konnte nicht vollständig geprüft werden.');
+ }
+ return live;
 }
 function networkAvailability(serviceKey){return publicBundle().then(b=>{const g=bundleGroup(b,serviceKey);if(!g?.availability)throw new Error('Für diese Leistung liegen derzeit keine Verfügbarkeitsdaten vor.');return {ok:true,availability:g.availability,source:'instant-seed'}})}
 async function regularAvailability(serviceKey){return networkAvailability(serviceKey)}
 function networkIgelAvailability(){return publicBundle().then(b=>({ok:true,groups:b.groups||[],source:'instant-seed'}))}
 async function igelAvailabilityAll(){const b=await publicBundle();return {ok:true,groups:b.groups||[],source:'instant-seed'}}
-function prefetchAvailability(){networkPublicBundle()}
+function prefetchAvailability(){startSelectedAvailability().catch(()=>{})}
 function serviceAvailabilityKey(){return 'instant-seed'}
-function startSelectedAvailability(){if(state.availabilityPromise)return state.availabilityPromise;state.availabilityKey='instant-seed';state.availabilityPromise=publicBundle();return state.availabilityPromise}
+function startSelectedAvailability(){if(state.availabilityPromise)return state.availabilityPromise;state.availabilityKey=serviceAvailabilityKey();state.availabilityStartedAt=Date.now();state.availabilityPromise=publicBundle();return state.availabilityPromise}
 
 if(BUILD_SEED?.groups?.length){
  const local=cacheStorageRead('publicBundle',LOCAL_CACHE_MAX_AGE);
  if(!local||generatedTime(BUILD_SEED)>generatedTime(local))cacheStorageWrite('publicBundle',BUILD_SEED);
 }
 setTimeout(()=>deploymentPublicBundle().catch(()=>{}),0);
-setTimeout(()=>networkPublicBundle(),1500);
+// A full live bundle is only requested when a multi-service booking requires it.
 
 
 $$('[data-insurance]').forEach(b=>b.onclick=()=>{
@@ -1128,22 +1136,25 @@ function renderPregnancyRequestOption(days){
 }
 
 
-function presentAvailableDays(raw,{cached=false,note=''}={}){
+function presentAvailableDays(raw){
  const st=$('#calendarStatus');
  const days=buildAvailableDays(raw);
  state.availableDays=days;
+ const nextDate=[...days.keys()].sort()[0]||'';
+ // On each selection open the month containing the earliest allowed free appointment.
+ // If the search has no free appointments, keep the current month and usual notice.
+ if(nextDate){
+   const [y,m]=nextDate.split('-').map(Number);
+   state.calendarMonth=new Date(y,m-1,1);
+ }else{
+   const now=new Date();
+   state.calendarMonth=new Date(now.getFullYear(),now.getMonth(),1);
+ }
  const count=[...days.values()].reduce((n,a)=>n+a.length,0);
  st.className='status '+(count?'ok':'');
- if(cached){
-   st.textContent=count
-     ?'Verfügbarkeitsstand geladen. Wählen Sie einen grünen Tag.'
-     :'Im letzten verfügbaren Datenstand sind für diese Auswahl keine freien Termine sichtbar.';
- }else{
-   st.textContent=count
-     ?'Wählen Sie einen grünen Tag mit verfügbaren Terminen.'
-     :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
- }
- if(note)st.textContent+=' '+note;
+ st.textContent=count
+   ?'Wählen Sie einen grünen Tag mit verfügbaren Terminen.'
+   :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
  renderMonthCalendar(false);
  renderPregnancyRequestOption(days);
  if(state.selectedDay){
@@ -1187,77 +1198,31 @@ async function loadSlots(){
    }
  }
 
+ // Recheck if the prefetched answer is older than thirty seconds.
+ if(Date.now()-Number(state.availabilityStartedAt||0)>30000)state.availabilityPromise=null;
  try{
+   const live=await startSelectedAvailability();
+   if(state.slotLoadId!==loadId)return;
    if(isIgelMode()){
-     const cachedGroups=storedIgelGroups();
-
-     // Wenn vorhanden: sofort darstellen. Kein sichtbarer Dauer-Ladezustand.
-     if(cachedGroups){
-       presentAvailableDays(rawFromIgelGroups(cachedGroups),{cached:true});
-     }
-
-     try{
-       const j=await startSelectedAvailability();
-       if(state.slotLoadId!==loadId)return;
-       if((j.groups||[]).length===DEFAULT_SERVICES.length){
-         presentAvailableDays(rawFromIgelGroups(j.groups||[]),{cached:false});
-       }else if(!cachedGroups){
-         presentAvailableDays([],{cached:false});
-       }
-     }catch(e){
-       if(state.slotLoadId!==loadId)return;
-       if(cachedGroups){
-         presentAvailableDays(rawFromIgelGroups(cachedGroups),{
-           cached:true,
-           note:'Eine aktuelle Hintergrundabfrage war gerade nicht möglich.'
-         });
-       }else{
-         st.className='status bad';
-         st.textContent='Die aktuelle Verfügbarkeit konnte gerade nicht geladen werden. Bitte versuchen Sie es erneut.';
-         renderMonthCalendar(false);
-       }
-     }
-     return;
-   }
-
-   const serviceId=String(state.service.id);
-   const cached=storedRegularAvailability(serviceId);
-
-   if(cached?.availability){
-     presentAvailableDays(rawFromRegularAvailability(cached),{cached:true});
-   }
-
-   try{
-     const fresh=await networkAvailability(serviceId);
-     if(state.slotLoadId!==loadId)return;
-     presentAvailableDays(rawFromRegularAvailability(fresh),{cached:false});
-   }catch(e){
-     if(state.slotLoadId!==loadId)return;
-     if(cached?.availability){
-       presentAvailableDays(rawFromRegularAvailability(cached),{
-         cached:true,
-         note:'Eine Aktualisierung war gerade nicht möglich.'
-       });
-     }else{
-       st.className='status bad';
-       st.innerHTML='Die aktuelle Verfügbarkeit konnte gerade nicht geladen werden. <button type="button" class="linkbtn" id="retryAvailability">Erneut laden</button>';
-       renderMonthCalendar(false);
-       $('#retryAvailability').onclick=()=>{
-         state.availabilityKey=null;state.availabilityPromise=null;
-         loadSlots();
-       };
-     }
+     if(!isCompleteBundle(live))throw new Error('Unvollständige mediDate-Antwort.');
+     presentAvailableDays(rawFromIgelGroups(live.groups));
+   }else{
+     const group=bundleGroup(live,String(state.service.id));
+     if(!Array.isArray(group?.availability?.appointmentTimes))throw new Error('Unvollständige mediDate-Antwort.');
+     presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
    }
  }catch(e){
    if(state.slotLoadId!==loadId)return;
+   state.availableDays=new Map();
+   state.selectedDay=null;state.selectedSlot=null;
+   const today=new Date();
+   state.calendarMonth=new Date(today.getFullYear(),today.getMonth(),1);
    st.className='status bad';
-   st.innerHTML='Die Verfügbarkeit konnte gerade nicht geladen werden. <button type="button" class="linkbtn" id="retryAvailability2">Erneut laden</button>';
+   st.innerHTML='Die aktuelle Verfügbarkeit konnte nicht zuverlässig bei mediDate geprüft werden. Deshalb werden vorsorglich keine buchbaren Termine angezeigt. <button type="button" class="linkbtn" id="retryAvailability">Erneut prüfen</button>';
    renderMonthCalendar(false);
-   $('#retryAvailability2').onclick=()=>{
-     
-     loadSlots();
-   };
+   $('#retryAvailability').onclick=()=>{state.availabilityPromise=null;loadSlots()};
  }
+
 }
 function monthKeyFromDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 function shiftMonth(d,n){return new Date(d.getFullYear(),d.getMonth()+n,1)}
