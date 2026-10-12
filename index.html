@@ -904,33 +904,57 @@ function previewMaxAgeMs(now=Date.now()){
 }
 function previewAgeLabel(ageSeconds){
  const minutes=Math.max(1,Math.ceil(Number(ageSeconds||0)/60));
+ if(minutes>=2880)return 'etwa '+Math.floor(minutes/1440)+' Tagen';
+ if(minutes>=120)return 'etwa '+Math.floor(minutes/60)+' Stunden';
  return minutes===1?'einer Minute':minutes+' Minuten';
 }
 function cachedDirectSelection(){
- const v=cacheStorageRead('direct:'+serviceAvailabilityKey(),previewMaxAgeMs());
- if(!v||!['mediDate-browser-direct','mediDate-server-verified'].includes(v.source)||!Array.isArray(v.groups))return null;
- const age=Date.now()-Date.parse(v.generatedAt||'');
- if(!Number.isFinite(age)||age<0||age>previewMaxAgeMs())return null;
- const keys=serviceAvailabilityKey().split(',');
- const valid=v.groups.filter(g=>keys.includes(g.serviceKey)&&Array.isArray(g.availability?.appointmentTimes));
- if(!valid.length||(!isIgelMode()&&!valid.some(g=>g.serviceKey===keys[0])))return null;
- return {bundle:v,ageSeconds:Math.ceil(age/1000)};
+ // Synchronous lookup: the last known, anonymous provider snapshot is a
+ // provisional calendar regardless of age, never a confirmed booking.
+ const selectionKey=serviceAvailabilityKey(),requested=selectionKey.split(',');
+ const caches=[
+   cacheStorageRead('direct:'+selectionKey,Number.MAX_SAFE_INTEGER),
+   cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER),
+   cacheStorageRead('shared-'+sharedPreviewKey(),Number.MAX_SAFE_INTEGER)
+ ];
+ const byKey=new Map();
+ for(const candidate of caches){
+   if(!candidate||!['mediDate-browser-direct','mediDate-server-verified',
+        'verified-mediDate-anonymous-preview'].includes(candidate.source)||
+      !Array.isArray(candidate.groups))continue;
+   const generated=Date.parse(candidate.generatedAt||'');
+   if(!Number.isFinite(generated)||generated>Date.now())continue;
+   for(const g of candidate.groups){
+     if(!requested.includes(String(g.serviceKey))||
+        !Array.isArray(g?.availability?.appointmentTimes))continue;
+     const at=Date.parse(g.verifiedAt||candidate.generatedAt||'');
+     if(!Number.isFinite(at)||at>Date.now())continue;
+     const old=byKey.get(g.serviceKey);
+     if(!old||at>old.at)byKey.set(g.serviceKey,{group:g,at});
+   }
+ }
+ if(!byKey.size||(!isIgelMode()&&!byKey.has(requested[0])))return null;
+ const groups=[...byKey.values()].map(x=>x.group);
+ const oldest=Math.min(...[...byKey.values()].map(x=>x.at));
+ return {bundle:{groups,generatedAt:new Date(oldest).toISOString()},
+   ageSeconds:Math.ceil((Date.now()-oldest)/1000)};
 }
 let sharedPreviewRequest=null;
 function sharedPreviewKey(){return isIgelMode()?'all':String(state.service?.id||'')}
-function fetchSharedPreview(){
- const key=sharedPreviewKey();
+function fetchSharedPreview(key=sharedPreviewKey()){
+
  if(key!=='all'&&!Object.hasOwn(DIRECT_SERVICE_IDS,key))return Promise.resolve(null);
  if(sharedPreviewRequest?.key===key&&Date.now()-sharedPreviewRequest.at<1500)return sharedPreviewRequest.promise;
  const promise=apiGet('snapshot',{serviceKey:key},4200).then(r=>{
    const b=r?.snapshot,age=Date.now()-Date.parse(b?.generatedAt||'');
    const keys=key==='all'?Object.keys(DIRECT_SERVICE_IDS):[key];
    if(!b||b.source!=='verified-mediDate-anonymous-preview'||
-      !Number.isFinite(age)||age<0||age>previewMaxAgeMs()||
+      !Number.isFinite(age)||age<0||
       !Array.isArray(b.groups)||!b.groups.length||
       (key==='all'
         ?!b.groups.some(g=>keys.includes(g.serviceKey)&&Array.isArray(g.availability?.appointmentTimes))
         :keys.some(k=>!Array.isArray(bundleGroup(b,k)?.availability?.appointmentTimes))))return null;
+   cacheStorageWrite('shared-'+key,b);
    return {bundle:b,ageSeconds:Math.ceil(age/1000)};
  }).catch(()=>null);
  sharedPreviewRequest={key,promise,at:Date.now()};
@@ -946,8 +970,11 @@ if(BUILD_SEED?.groups?.length){
 // A full live bundle is only requested when a multi-service booking requires it.
 
 
-// Prewarm a protected mediDate session before the user chooses an appointment.
-setTimeout(()=>getDirectMediDateSession(false).catch(()=>{}),100);
+// Begin fetching the anonymous shared snapshot as soon as the page opens,
+// before insurance and doctor selection. Other visitors' results are reusable.
+setTimeout(()=>{void fetchSharedPreview('all').catch(()=>{});},0);
+// Avoid contention with the initial preview network request.
+setTimeout(()=>getDirectMediDateSession(false).catch(()=>{}),4000);
 $$('[data-insurance]').forEach(b=>b.onclick=()=>{
  state.insurance=b.dataset.insurance;state.topicMode='regular';state.service=null;state.doctor=null;state.selectedSlot=null;state.selfPayFromGkv=false;
  select('[data-insurance]',b);
@@ -1070,7 +1097,7 @@ function chooseService(s,b,mode){
  const selectedService=s;
  setTimeout(()=>{
    if(state.service===selectedService)prefetchAvailability();
- },250);
+ },1200);
 }
 
 function switchToSelfPayFromGkvNew(){
@@ -1222,7 +1249,7 @@ function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){
  const count=[...days.values()].reduce((n,a)=>n+a.length,0);
  st.className='status '+(count?'ok':'');
  st.textContent=preview
-   ?'Kalendervorschau (zuletzt vor '+previewAgeLabel(ageSeconds)+' geprüft). mediDate wird im Hintergrund aktualisiert; erst nach Bestätigung sind Uhrzeiten buchbar.'
+   ?'Kalendervorschau wird im Hintergrund aktualisiert. Letzter bekannter Stand: vor '+previewAgeLabel(ageSeconds)+'. Buchung erst nach aktueller Bestätigung möglich.'
    :count
      ?'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.'
      :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
@@ -1265,11 +1292,14 @@ async function loadSlots(){
  }
  void fetchSharedPreview().then(shared=>{
    if(!shared||state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;
-   if(quick&&quick.ageSeconds<=shared.ageSeconds)return;
-   const b=shared.bundle;
+   const newest=cachedDirectSelection();
+   if(!newest||quick&&quick.ageSeconds<=newest.ageSeconds)return;
+   const b=newest.bundle;
+   const group=bundleGroup(b,String(state.service?.id||''));
+   if(!isIgelMode()&&!group)return;
    const raw=isIgelMode()?rawFromIgelGroups(b.groups):
-     rawFromRegularAvailability({availability:bundleGroup(b,String(state.service.id)).availability});
-   presentAvailableDays(raw,{preview:true,ageSeconds:shared.ageSeconds});
+     rawFromRegularAvailability({availability:group.availability});
+   presentAvailableDays(raw,{preview:true,ageSeconds:newest.ageSeconds});
  }).catch(()=>{});
 
  // Start the live schedule and the lightweight quota read together.
@@ -1282,9 +1312,7 @@ async function loadSlots(){
    ?refreshPrivateNewBlockedDates(false).then(()=>{state.privateNewQuotaVerified=true;return true})
      .catch(()=>{state.privateNewQuotaVerified=false;return false})
    :Promise.resolve(true)).finally(()=>{quotaFinishedAt=Date.now()});
- if(!quick)st.textContent=quotaNeeded
-   ?'Termine und Tageskontingent werden gleichzeitig geladen …'
-   :'Verfügbarkeit wird geladen …';
+ if(!quick)st.textContent='Kalendervorschau wird im Hintergrund aktualisiert.';
 
  if(Date.now()-Number(state.availabilityStartedAt||0)>30000)state.availabilityPromise=null;
  try{
