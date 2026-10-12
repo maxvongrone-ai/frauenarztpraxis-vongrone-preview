@@ -28,6 +28,7 @@ function previewPath(serviceKey){return PREVIEW_PREFIX+serviceKey+'.json'}
 function sanitizePreview(bundle,serviceKey){
   const groups=(bundle.groups||[]).map(g=>({
     serviceKey:g.serviceKey,serviceName:g.serviceName,
+    verifiedAt:String(g.verifiedAt||bundle.generatedAt||new Date().toISOString()),
     doctorKeys:Array.isArray(g.doctorKeys)?g.doctorKeys:[],
     availability:{appointmentTimes:(g.availability?.appointmentTimes||[]).map(r=>({
       dateTimeStart:r.dateTimeStart,duration:r.duration,doctorKey:r.doctorKey,calendarWeek:r.calendarWeek,
@@ -74,6 +75,34 @@ async function readPreview(serviceKey){
       olderThanPreferredWindow:age>previewMaxAgeMs()};
   }catch(e){return null}
 }
+// A single private Blob provides the latest known schedules for ALL services.
+// This avoids five sequentially awaited storage lookups during the first page view.
+// Only the anonymous, allow-listed values from sanitizePreview are persisted.
+async function saveLatestPreview(bundle){
+  try{
+    const blob=await optionalBlob();if(!blob)return;
+    const fresh=sanitizePreview(bundle,'latest');
+    const existing=await readPreview('latest');
+    const byKey=new Map();
+    for(const g of [...(existing?.groups||[]),...(fresh.groups||[])]){
+      if(!SERVICE_RULES.some(rule=>rule.key===g.serviceKey)||
+        !Array.isArray(g.availability?.appointmentTimes))continue;
+      const at=Date.parse(g.verifiedAt||fresh.generatedAt||'');
+      const prev=byKey.get(g.serviceKey);
+      if(Number.isFinite(at)&&at<=Date.now()&&(!prev||at>prev.at))
+        byKey.set(g.serviceKey,{group:g,at});
+    }
+    if(!byKey.size)return;
+    const groups=[...byKey.values()].map(x=>x.group);
+    const generatedAt=new Date(Math.max(...[...byKey.values()].map(x=>x.at))).toISOString();
+    const snapshot={ok:true,source:'verified-mediDate-anonymous-preview',
+      serviceKey:'latest',generatedAt,groups};
+    await blob.put(previewPath('latest'),JSON.stringify(snapshot),{
+      access:'private',contentType:'application/json; charset=utf-8',
+      addRandomSuffix:false,allowOverwrite:true
+    });
+  }catch(e){console.warn('Latest calendar storage unavailable',String(e?.message||e).slice(0,120))}
+}
 async function readCombinedPreview(){
   // The four services are cached independently. Any visitor who requests one
   // of them makes it immediately reusable for the menopause appointment search.
@@ -87,7 +116,7 @@ async function readCombinedPreview(){
     for(const source of [combined,...individual]){
       if(!source)continue;
       const group=(source.groups||[]).find(g=>g.serviceKey===key);
-      const t=Date.parse(source.generatedAt||'');
+      const t=Date.parse(group?.verifiedAt||source.generatedAt||'');
       if(group&&Array.isArray(group.availability?.appointmentTimes)&&t>generated){
         winner=group;generated=t;
       }
@@ -162,8 +191,8 @@ module.exports=async function handler(req,res){
     if(action==='snapshot'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const serviceKey=String(req.query?.serviceKey||'');
-      if(serviceKey!=='all'&&!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart ungültig.'});
-      const snapshot=serviceKey==='all'?await readCombinedPreview():await readPreview(serviceKey);
+      if(serviceKey!=='all'&&serviceKey!=='latest'&&!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart ungültig.'});
+      const snapshot=serviceKey==='latest'?await readPreview('latest')||await readCombinedPreview():serviceKey==='all'?await readCombinedPreview():await readPreview(serviceKey);
       return send(res,200,{ok:true,available:Boolean(snapshot),snapshot},
         snapshot?{cache:'public, max-age=0, must-revalidate',
           cdn:'public, s-maxage=30',vercel:'public, s-maxage=30'}:
@@ -184,7 +213,7 @@ module.exports=async function handler(req,res){
       const serviceKey=String(req.query?.serviceKey||'');
       if(!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart nicht freigegeben.'},{cache:'no-store'});
       const bundle=await buildFastPublicBundle(serviceKey);
-      await savePreview(bundle,serviceKey);
+      await Promise.all([savePreview(bundle,serviceKey),saveLatestPreview(bundle)]);
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='liveSelection'){
@@ -194,6 +223,7 @@ module.exports=async function handler(req,res){
       // Partial responses remain provider-confirmed for these services only.
       await Promise.all([
         savePreview(bundle,'all'),
+        saveLatestPreview(bundle),
         ...bundle.groups.map(g=>savePreview({generatedAt:bundle.generatedAt,groups:[g]},g.serviceKey))
       ]);
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
