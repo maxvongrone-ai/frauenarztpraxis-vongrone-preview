@@ -508,8 +508,9 @@ assert.strictEqual(quietStatus.textContent,'Wählen Sie einen grünen Tag mit ve
 
 // Deployment builds must actually embed a prior anonymous verified snapshot
 // whenever the shared Blob is reachable; the previous build wrote only null.
-assert(buildScript.includes("const anonymousSeed=await readBundledSnapshot();"),
- 'Deployment must look up a verified last-known snapshot');
+assert(buildScript.includes("const storedSeed=await readBundledSnapshot();")&&
+ buildScript.includes("const liveSeed=await readFreshDeploymentSnapshot();"),
+ 'Deployment must preload cached or fresh provider-verified appointments');
 assert(buildScript.includes("JSON.stringify(anonymousSeed)"),
  'Static seed-data.js must contain the last-known provider result when available');
 assert(buildScript.includes("medidate-anonymous-preview/v2/"),
@@ -602,5 +603,45 @@ assert(index.includes("localStorage.removeItem(k)"),
  'Quota recovery must clear redundant per-service copies');
 assert(!index.includes("cacheStorageWrite('shared-'+key,b)"),
  'One shared calendar cache must replace redundant per-service snapshots');
+
+
+assert(buildScript.includes("if(process.env.VERCEL==='1'&&!hasFutureAvailability(anonymousSeed))"),
+ 'Vercel must never deploy a calendar page with a missing/empty appointment seed');
+assert(buildScript.includes("const live=await buildFastPublicBundle();"),
+ 'Build must refresh four allow-listed mediDate services before deployment');
+assert(buildScript.includes("const safe=await readBundledSnapshot({"),
+ 'All raw provider slots must pass through the anonymous sanitizer');
+assert(buildScript.includes("providerRaw?['live']:['latest','all']"),
+ 'Snapshot sanitizer must also work when Blob storage is unavailable');
+assert(buildScript.includes("if(liveSeed)await storeFreshDeploymentSnapshot(liveSeed);"),
+ 'Freshly confirmed provider snapshot should initialize cross-visitor storage');
+assert(buildScript.includes("function hasFutureAvailability(bundle){"),
+ 'Build rejects expired appointments instead of shipping an empty first-visitor calendar');
+const seedFnStart=buildScript.indexOf('async function readBundledSnapshot(providerRaw=null){');
+const seedFnEnd=buildScript.indexOf('function hasFutureAvailability(bundle){',seedFnStart);
+assert(seedFnStart>=0&&seedFnEnd>seedFnStart,'Sanitizer must be independently testable');
+const buildSeedContext=vm.createContext({Date,Intl,Number,Set,Array,String,JSON,console});
+vm.runInContext(buildScript.slice(seedFnStart,seedFnEnd)+
+ '\nglobalThis.sanitizeSeed=readBundledSnapshot;',buildSeedContext);
+buildSeedContext.sanitizeSeed({
+ source:'verified-mediDate-anonymous-preview',generatedAt:new Date().toISOString(),
+ groups:[{
+  serviceKey:'vorsorge',serviceName:'Vorsorge',doctorKeys:['vongrone'],
+  availability:{appointmentTimes:[{
+   dateTimeStart:'2028-01-15T09:00:00',doctorKey:'vongrone',
+   duration:15,calendarWeek:2,times:[{
+    time:'09.00',trackingProof:'DO_NOT_PUBLISH',
+    trackingNonce:'DO_NOT_PUBLISH_NONCE',
+    direct:{clientId:179,locationId:312,serviceId:1950,
+      doctorId:513,listReferenzId:10,calendarWeek:2,duration:15}
+   }]
+  }]}
+ }]
+}).then(safe=>{
+ assert(safe?.groups[0]?.availability?.appointmentTimes[0]?.times[0]?.time==='09.00',
+   'Valid anonymized provider slots should be available to first visitor');
+ assert(!JSON.stringify(safe).includes('DO_NOT_PUBLISH'),
+   'Neither tracking proof nor nonce may be published in seed-data.js');
+}).catch(e=>{console.error(e);process.exitCode=1});
 
 console.log('Security regression checks passed.');
