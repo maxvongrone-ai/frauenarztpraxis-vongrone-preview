@@ -1076,7 +1076,7 @@ if(BUILD_SEED?.groups?.length){
 // before insurance and doctor selection. Other visitors' results are reusable.
 const sharedStartupPromise=fetchSharedPreview('latest').catch(()=>null);
 // Avoid contention with the initial preview network request.
-setTimeout(()=>getDirectMediDateSession(false).catch(()=>{}),4000);
+// The protected session is acquired on booking; prefetch no longer competes with calendar.
 $$('[data-insurance]').forEach(b=>b.onclick=()=>{
  state.insurance=b.dataset.insurance;state.topicMode='regular';state.service=null;state.doctor=null;state.selectedSlot=null;state.selfPayFromGkv=false;
  select('[data-insurance]',b);
@@ -1612,16 +1612,19 @@ function renderTimesForDay(day){
  $('#chosenDay').textContent=new Intl.DateTimeFormat('de-DE',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(d);
  const list=(state.availableDays?.get(day)||[]).slice().sort((a,b)=>a.time.localeCompare(b.time));
  st.className='status '+(state.availabilityPreview?'warn':list.length?'ok':'');
- st.textContent=state.availabilityPreview?'Mögliche Uhrzeiten aus dem letzten verfügbaren Datenstand.':
-   list.length?'Wählen Sie eine Uhrzeit.':'An diesem Tag ist inzwischen kein Termin mehr verfügbar.';
+ st.textContent=state.availabilityPreview
+   ?'Wählen Sie eine Uhrzeit. Die Verfügbarkeit wird vor der verbindlichen Buchung direkt bei mediDate geprüft.'
+   :list.length?'Wählen Sie eine Uhrzeit.':'An diesem Tag ist inzwischen kein Termin mehr verfügbar.';
  const times=document.createElement('div');times.className='times';const seen=new Set();
  for(const x of list){
    if(seen.has(x.time))continue;seen.add(x.time);
    const t=document.createElement('button');t.className='time';
    const doctorText=String(state.doctor?.id)==='0'?doctorDisplayName(x.doctorId):'';
    t.innerHTML=`<strong>${x.time.replace('.',':')} Uhr</strong>${doctorText?`<small>${esc(doctorText)}</small>`:''}`;
-   t.disabled=Boolean(state.availabilityPreview);
-   if(!state.availabilityPreview)t.onclick=()=>openBooking(x);
+   // A real, previously confirmed slot may be chosen immediately.
+   // Final submission retains the mandatory direct mediDate live validation.
+   t.disabled=false;
+   t.onclick=()=>openBooking(x);
    times.appendChild(t);
  }
  box.appendChild(times);
@@ -1772,6 +1775,7 @@ function openBooking(slot){
  // Formular öffnet ausschließlich mit einem serverseitig erzeugten, verschlüsselten Slot-Schlüssel.
  $('#bookingBox').innerHTML=`<div class="booking-card">
  <h2>Termin ${deDate(slot.date)} · ${slot.time.replace('.',':')} Uhr buchen</h2>
+ ${state.availabilityPreview?'<div class="subtle" style="margin-bottom:10px">Termin aus dem letzten bekannten Kalenderstand. Die Verfügbarkeit wird vor verbindlicher Buchung direkt bei mediDate geprüft.</div>':''}
  <div class="summary" style="margin-bottom:14px"><strong>Ärztin: ${esc(doctorDisplayName(slot.doctorId))}</strong>${state.insurance==='SELF'?`<br><span>Leistung: ${esc(state.service?.name||'Selbstzahlerleistung')}${state.service?.price?` · <strong>${esc(state.service.price)}</strong>`:''}</span>`:''}</div>
  ${needs30MinuteBlock()?'<div class="subtle"><strong>Für diesen Termin werden 30 Minuten reserviert.</strong></div>':''}
  <div class="formgrid">
