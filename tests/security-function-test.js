@@ -261,4 +261,40 @@ assert(duplicateTest.pvsDisappearanceExplained('2026-12-21|513|735',duplicateTes
 assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,duration:15},pvsAt('12.15')]).length,2,'A 15-minute booking must not hide the following unrelated PVS slot');
 assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,bookingStatus:'released'},pvsAt('12.15')]).length,2,'Released bookings must not hide independent PVS events');
 
+// Regression: never present cached availability as confirmed slots.
+assert(index.includes("apiGet('liveService',{serviceKey:key},65000)"),'Patient calendar must use selected-service live availability');
+assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller.signal});"),'Live request must bypass browser cache');
+assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
+assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Live availability must bypass CDN cache');
+assert(!index.includes("presentAvailableDays(rawFromRegularAvailability(cached)"),'Cached regular slots must not be presented');
+assert(!index.includes("presentAvailableDays(rawFromIgelGroups(cachedGroups)"),'Cached special slots must not be presented');
+
+// Exercise the real calendar presentation routine without making live network calls.
+const presenterStart=index.indexOf('function presentAvailableDays(raw){');
+const presenterEnd=index.indexOf('\nasync function loadSlots()',presenterStart);
+assert(presenterStart>=0&&presenterEnd>presenterStart,'Calendar presenter must be testable');
+const calendarStatus={className:'',textContent:''};
+const calendarState={availableDays:new Map(),selectedDay:null,selectedSlot:null,calendarMonth:null};
+const calendarContext=vm.createContext({
+ state:calendarState,
+ $:()=>calendarStatus,
+ buildAvailableDays:days=>days,
+ renderMonthCalendar:()=>{},
+ renderPregnancyRequestOption:()=>{},
+ renderTimesForDay:()=>{},
+ Date,Map
+});
+vm.runInContext(index.slice(presenterStart,presenterEnd)+'\nglobalThis.testPresenter=presentAvailableDays;',calendarContext);
+calendarContext.testPresenter(new Map([
+ ['2027-02-10',[{time:'11.00'}]],
+ ['2026-12-08',[{time:'09.00'}]]
+]));
+assert.strictEqual(calendarState.calendarMonth.getFullYear(),2026,'Calendar must open the year of the earliest free appointment');
+assert.strictEqual(calendarState.calendarMonth.getMonth(),11,'Calendar must open the earliest free month regardless of result order');
+calendarContext.testPresenter(new Map());
+const now=new Date();
+assert.strictEqual(calendarState.calendarMonth.getFullYear(),now.getFullYear(),'No availability must leave calendar in current year');
+assert.strictEqual(calendarState.calendarMonth.getMonth(),now.getMonth(),'No availability must leave calendar in current month');
+assert(calendarStatus.textContent.includes('keine freien Termine'),'No availability must retain the existing information message');
+
 console.log('Security regression checks passed.');
