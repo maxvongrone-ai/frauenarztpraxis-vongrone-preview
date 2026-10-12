@@ -293,7 +293,7 @@ assert(!index.includes("presentAvailableDays(rawFromRegularAvailability(cached)"
 assert(!index.includes("presentAvailableDays(rawFromIgelGroups(cachedGroups)"),'Cached special slots must not be presented');
 
 // Exercise the real calendar presentation routine without making live network calls.
-const presenterStart=index.indexOf('function presentAvailableDays(raw){');
+const presenterStart=index.indexOf('function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){');
 const presenterEnd=index.indexOf('\nasync function loadSlots()',presenterStart);
 assert(presenterStart>=0&&presenterEnd>presenterStart,'Calendar presenter must be testable');
 const calendarStatus={className:'',textContent:''};
