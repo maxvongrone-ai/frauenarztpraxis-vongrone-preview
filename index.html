@@ -891,7 +891,7 @@ $$('[data-insurance]').forEach(b=>b.onclick=()=>{
 $$('[data-patient]').forEach(b=>b.onclick=()=>{
  state.patientType=b.dataset.patient;select('[data-patient]',b);
  $('#step3').classList.add('hidden');$('#step4').classList.add('hidden');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
- if(isPrivateNewDailyLimited())refreshPrivateNewBlockedDates(true).catch(()=>{});else state.privateNewBlockedDates=new Set();
+ if(!isPrivateNewDailyLimited())state.privateNewBlockedDates=new Set();
  loadServices();
 });
 
@@ -1186,23 +1186,26 @@ async function loadSlots(){
  $('#step5').scrollIntoView({behavior:'smooth',block:'start'});
  st.className='status';st.textContent='Verfügbarkeit wird geladen …';
 
- if(isPrivateNewDailyLimited()){
-   st.textContent='Verfügbarkeit und Tageskontingent werden geprüft …';
-   try{await refreshPrivateNewBlockedDates(true)}catch(e){
-     if(state.slotLoadId!==loadId)return;
-     st.className='status bad';
-     st.innerHTML='Das Tageskontingent für private Neupatientinnen konnte gerade nicht sicher geprüft werden. Bitte versuchen Sie es erneut. <button type="button" class="linkbtn" id="retryPrivateNewQuota">Erneut laden</button>';
-     renderMonthCalendar(false);
-     $('#retryPrivateNewQuota').onclick=()=>loadSlots();
-     return;
-   }
- }
+ // Start the live schedule and the lightweight quota read together.
+ // A slow or failing quota reconciliation must never block the entire calendar.
+ const quotaNeeded=isPrivateNewDailyLimited();
+ const quotaCheck=quotaNeeded
+   ?refreshPrivateNewBlockedDates(false).then(()=>true).catch(()=>false)
+   :Promise.resolve(true);
+ st.textContent=quotaNeeded
+   ?'Termine und Tageskontingent werden gleichzeitig geladen …'
+   :'Verfügbarkeit wird geladen …';
 
- // Recheck if the prefetched answer is older than thirty seconds.
  if(Date.now()-Number(state.availabilityStartedAt||0)>30000)state.availabilityPromise=null;
  try{
-   const live=await startSelectedAvailability();
+   const [live,quotaVerified]=await Promise.all([startSelectedAvailability(),quotaCheck]);
    if(state.slotLoadId!==loadId)return;
+   state.privateNewQuotaVerified=quotaVerified;
+   if(!quotaVerified){
+     // Server-side reserve remains mandatory and atomic; unavailable quota
+     // listing must not be mistaken for a confirmation that a day is free.
+     state.privateNewBlockedDates=new Set();
+   }
    if(isIgelMode()){
      if(!isCompleteBundle(live))throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromIgelGroups(live.groups));
@@ -1210,6 +1213,21 @@ async function loadSlots(){
      const group=bundleGroup(live,String(state.service.id));
      if(!Array.isArray(group?.availability?.appointmentTimes))throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
+   }
+   if(quotaNeeded){
+     if(!quotaVerified){
+       const status=$('#calendarStatus');
+       status.className='status warn';
+       status.textContent+=' Die Begrenzung auf eine private Neupatientin je Tag wird verbindlich bei der Buchung geprüft.';
+     }
+     // Stornos werden im Hintergrund abgeglichen. Nach erfolgreichem Abgleich
+     // werden die zuvor gemerkten belegten Tage neu gefiltert.
+     const freshLoadId=loadId;
+     void refreshPrivateNewBlockedDates(true).then(()=>{
+       if(state.slotLoadId!==freshLoadId||!state.availableDays)return;
+       if(isIgelMode())presentAvailableDays(rawFromIgelGroups(live.groups));
+       else presentAvailableDays(rawFromRegularAvailability({availability:bundleGroup(live,String(state.service.id)).availability}));
+     }).catch(()=>{});
    }
  }catch(e){
    if(state.slotLoadId!==loadId)return;
