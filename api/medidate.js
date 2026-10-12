@@ -8,7 +8,7 @@ const {buildPublicBundle,buildFastPublicBundle,bootstrap,API_BASE,SERVICE_RULES,
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 // Shared preview contains only service/doctor identifiers and anonymous free slots.
 // Tracking nonces, proofs, bearer tokens and personal data MUST NOT enter Blob.
-const PREVIEW_PREFIX='medidate-anonymous-preview/v1/';
+const PREVIEW_PREFIX='medidate-anonymous-preview/v2/';
 const PREVIEW_DAY_MAX_AGE_MS=60*60*1000;
 const PREVIEW_NIGHT_MAX_AGE_MS=6*60*60*1000;
 function previewMaxAgeMs(now=Date.now()){
