@@ -92,7 +92,7 @@ async function readCombinedPreview(){
         winner=group;generated=t;
       }
     }
-    if(winner){groups.push(winner);times.push(generated)}
+    if(winner){groups.push({...winner,verifiedAt:new Date(generated).toISOString()});times.push(generated)}
   }
   if(!groups.length)return null;
   const generatedAt=new Date(Math.min(...times)).toISOString();
