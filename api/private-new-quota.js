@@ -1,5 +1,5 @@
 const crypto=require('crypto');
-const {buildPublicBundle,readSecret}=require('../lib/medidate-core');
+const {buildFastPublicBundle,readSecret}=require('../lib/medidate-core');
 
 let _blobApiPromise;
 async function blobApi(){
@@ -145,7 +145,7 @@ function markerSlotIsFree(bundle,marker){
 }
 async function reconcileMarkers(markers){
   const now=Date.now(),today=berlinDate(),out=[],needsLive=markers.some(m=>m&&m.date>=today&&(m.status==='active'||(m.status==='pending'&&Number(m.expiresAt||0)<=now)));
-  let bundle=null;if(needsLive)bundle=await buildPublicBundle();
+  let bundle=null;if(needsLive)bundle=await buildFastPublicBundle();
   for(const marker of markers){
     if(!marker||!validDate(marker.date))continue;
     if(marker.date<today){await deleteMarker(marker.date);continue}
