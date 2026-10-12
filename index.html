@@ -1155,6 +1155,7 @@ function presentAvailableDays(raw){
  st.textContent=count
    ?'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.'
    :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
+ if(state.lastTimingDiagnostics)st.textContent+=' '+state.lastTimingDiagnostics;
  renderMonthCalendar(false);
  renderPregnancyRequestOption(days);
  if(state.selectedDay){
@@ -1174,7 +1175,7 @@ async function loadSlots(){
  const st=$('#calendarStatus'),cal=$('#calendar');cal.innerHTML='';
  $('#slots').innerHTML='';$('#slotsStatus').textContent='';
  $('#pregnancyRequestBox').classList.add('hidden');$('#pregnancyRequestBox').innerHTML='';
- state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;
+ state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;state.lastTimingDiagnostics='';
  const loadId=state.slotLoadId=(state.slotLoadId||0)+1;
  const todayForCalendar=new Date();
  state.calendarMonth=new Date(todayForCalendar.getFullYear(),todayForCalendar.getMonth(),1);
@@ -1222,7 +1223,8 @@ async function loadSlots(){
      const serverMs=Number(live?.elapsedMs);
      const backend=Number.isFinite(serverMs)?(serverMs/1000).toFixed(1)+' s':'unbekannt';
      const quotaTime=((quotaFinishedAt-quotaStartedAt)/1000).toFixed(1);
-     $('#calendarStatus').textContent+=' [Diagnose: mediDate-Server '+backend+', ab Leistungswahl '+totalFromService.toFixed(1)+' s, Tageskontingent '+quotaTime+' s, Kontingent '+(quotaVerified?'OK':'nicht abrufbar')+']';
+     state.lastTimingDiagnostics='[Diagnose: mediDate-Server '+backend+', ab Leistungswahl '+totalFromService.toFixed(1)+' s, Tageskontingent '+quotaTime+' s, Kontingent '+(quotaVerified?'OK':'nicht abrufbar')+']';
+     $('#calendarStatus').textContent+=' '+state.lastTimingDiagnostics;
    }
    if(quotaNeeded){
      if(!quotaVerified){
@@ -1235,6 +1237,7 @@ async function loadSlots(){
      const freshLoadId=loadId;
      void refreshPrivateNewBlockedDates(true).then(()=>{
        if(state.slotLoadId!==freshLoadId||!state.availableDays)return;
+       state.privateNewQuotaVerified=true;
        if(isIgelMode())presentAvailableDays(rawFromIgelGroups(live.groups));
        else presentAvailableDays(rawFromRegularAvailability({availability:bundleGroup(live,String(state.service.id)).availability}));
      }).catch(()=>{});
