@@ -108,6 +108,46 @@ async function storeFreshDeploymentSnapshot(snapshot){
   }
 }
 
+// Complete the deployment snapshot using independently saved service results.
+// The combined mediDate request may partially fail after waiting 30 seconds.
+async function readStoredServiceSnapshots(){
+  try{
+    const {get}=await import('@vercel/blob');
+    return await Promise.all(['vorsorge','contraception','followup','breast'].map(async key=>{
+      let timer;
+      try{
+        const item=await Promise.race([
+          get('medidate-anonymous-preview/v2/'+key+'.json',{
+            access:'private',useCache:false,
+            ...(process.env.BLOB_READ_WRITE_TOKEN?{token:process.env.BLOB_READ_WRITE_TOKEN}:{})
+          }),
+          new Promise(resolve=>{timer=setTimeout(()=>resolve(null),1800)})
+        ]);
+        if(!item||item.statusCode!==200)return null;
+        return readBundledSnapshot(JSON.parse(await new Response(item.stream).text()));
+      }catch{return null}
+      finally{if(timer)clearTimeout(timer)}
+    }));
+  }catch{return []}
+}
+function mergeVerifiedSnapshots(candidates){
+  const byKey=new Map();
+  for(const snapshot of candidates){
+    if(!snapshot?.groups?.length)continue;
+    for(const group of snapshot.groups){
+      const stamp=Date.parse(group.verifiedAt||snapshot.generatedAt||'');
+      if(!Number.isFinite(stamp)||stamp>Date.now())continue;
+      const old=byKey.get(group.serviceKey);
+      if(!old||stamp>old.stamp)
+        byKey.set(group.serviceKey,{group:{...group,verifiedAt:new Date(stamp).toISOString()},stamp});
+    }
+  }
+  if(!byKey.size)return null;
+  const groups=[...byKey.values()].map(x=>x.group);
+  return {ok:true,source:'verified-mediDate-anonymous-preview',
+    generatedAt:new Date(Math.max(...[...byKey.values()].map(x=>x.stamp))).toISOString(),groups};
+}
+
 async function buildStaticAssets(){
   const publicDir=path.join(process.cwd(),'public');
   fs.rmSync(publicDir,{recursive:true,force:true});
@@ -121,14 +161,18 @@ async function buildStaticAssets(){
   if(!styleMatch||scriptMatches.length!==2||!scriptMatches[0][1].includes(marker))throw new Error('Booking-Assets konnten nicht sicher extrahiert werden.');
 
   fs.writeFileSync(path.join(publicDir,'styles.css'),styleMatch[1].trim()+'\n','utf8');
-  const storedSeed=await readBundledSnapshot();
-  // This query happens at BUILD time, not while a patient is opening a calendar.
+  // The shared merged snapshot and four single-service snapshots may contain
+  // different successfully checked mediDate groups; never discard any of them.
+  const [storedSeed,individualSeeds]=await Promise.all([
+    readBundledSnapshot(),readStoredServiceSnapshots()
+  ]);
+  // The provider refresh happens at BUILD time, never while a patient waits.
   const liveSeed=await readFreshDeploymentSnapshot();
-  const anonymousSeed=liveSeed||storedSeed;
+  const anonymousSeed=mergeVerifiedSnapshots([storedSeed,...individualSeeds,liveSeed]);
   if(process.env.VERCEL==='1'&&!hasFutureAvailability(anonymousSeed)){
     throw new Error('Build verweigert: kein aktueller, anonymisierter mediDate-Terminstand vorhanden. Vorherige Produktion bleibt bestehen.');
   }
-  if(liveSeed)await storeFreshDeploymentSnapshot(liveSeed);
+  if(anonymousSeed)await storeFreshDeploymentSnapshot(anonymousSeed);
   // Only anonymous, provider-verified technical free slots are bundled here.
   // No tracking proof, patient identity or booking token is included.
   fs.writeFileSync(path.join(publicDir,'seed-data.js'),
