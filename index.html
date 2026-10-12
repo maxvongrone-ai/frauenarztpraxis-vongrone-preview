@@ -958,11 +958,16 @@ function previewMaxAgeMs(now=Date.now()){
 }
 const CALENDAR_LOADING_STATUS='Verfügbarkeit wird geladen …';
 function cachedDirectSelection(){
- // Synchronous lookup: the last known, anonymous provider snapshot is a
- // provisional calendar regardless of age, never a confirmed booking.
+ // Restore the fast Oct 11 path: reuse a previously fetched full provider
+ // bundle from localStorage IMMEDIATELY. Import only its anonymous slot
+ // coordinates; drop all expired/unique tracking nonces and HMAC proofs.
+ const legacy=cacheStorageRead('publicBundle',Number.MAX_SAFE_INTEGER);
+ const legacyPreview=legacy?.groups?.length?compactClientCalendar(legacy):null;
+ // Every source below is provisional until the background live check finishes.
  const selectionKey=serviceAvailabilityKey(),requested=selectionKey.split(',');
  const caches=[
    BUILD_SEED,
+   legacyPreview,
    cacheStorageRead('direct:'+selectionKey,Number.MAX_SAFE_INTEGER),
    cacheStorageRead('shared-latest',Number.MAX_SAFE_INTEGER),
    cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER),
