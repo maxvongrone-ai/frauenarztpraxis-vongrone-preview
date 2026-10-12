@@ -972,7 +972,7 @@ if(BUILD_SEED?.groups?.length){
 
 // Begin fetching the anonymous shared snapshot as soon as the page opens,
 // before insurance and doctor selection. Other visitors' results are reusable.
-setTimeout(()=>{void fetchSharedPreview('all').catch(()=>{});},0);
+const sharedStartupPromise=fetchSharedPreview('all').catch(()=>null);
 // Avoid contention with the initial preview network request.
 setTimeout(()=>getDirectMediDateSession(false).catch(()=>{}),4000);
 $$('[data-insurance]').forEach(b=>b.onclick=()=>{
@@ -1236,6 +1236,7 @@ function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){
  const st=$('#calendarStatus');
  const days=buildAvailableDays(raw);
  state.availableDays=days;state.availabilityPreview=Boolean(preview);
+ state.previewAgeSeconds=preview?ageSeconds:0;
  const nextDate=[...days.keys()].sort()[0]||'';
  // On each selection open the month containing the earliest allowed free appointment.
  // If the search has no free appointments, keep the current month and usual notice.
@@ -1290,17 +1291,22 @@ async function loadSlots(){
      rawFromRegularAvailability({availability:bundleGroup(quick.bundle,String(state.service.id)).availability});
    presentAvailableDays(previewRaw,{preview:true,ageSeconds:quick.ageSeconds});
  }
- void fetchSharedPreview().then(shared=>{
-   if(!shared||state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;
-   const newest=cachedDirectSelection();
-   if(!newest||quick&&quick.ageSeconds<=newest.ageSeconds)return;
-   const b=newest.bundle;
-   const group=bundleGroup(b,String(state.service?.id||''));
+ // Both the page-start global snapshot and the service-specific snapshot
+ // can resolve independently. Show whichever last-known provider snapshot
+ // is newest, but never overwrite a successful live verification.
+ function adoptNewestPreview(){
+   if(state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;
+   const latest=cachedDirectSelection();
+   if(!latest)return;
+   if(state.availabilityPreview&&Number(state.previewAgeSeconds)<=latest.ageSeconds)return;
+   const group=bundleGroup(latest.bundle,String(state.service?.id||''));
    if(!isIgelMode()&&!group)return;
-   const raw=isIgelMode()?rawFromIgelGroups(b.groups):
+   const raw=isIgelMode()?rawFromIgelGroups(latest.bundle.groups):
      rawFromRegularAvailability({availability:group.availability});
-   presentAvailableDays(raw,{preview:true,ageSeconds:newest.ageSeconds});
- }).catch(()=>{});
+   presentAvailableDays(raw,{preview:true,ageSeconds:latest.ageSeconds});
+ }
+ void sharedStartupPromise.then(()=>adoptNewestPreview()).catch(()=>{});
+ void fetchSharedPreview().then(()=>adoptNewestPreview()).catch(()=>{});
 
  // Start the live schedule and the lightweight quota read together.
  // A slow or failing quota reconciliation must never block the entire calendar.
