@@ -3,31 +3,31 @@ const path=require('path');
 const crypto=require('crypto');
 const esbuild=require('esbuild');
 
-// The deployment may reuse a previously verified anonymous cache, but never
-// queries mediDate during its build.
+// A deployment must include a verified, anonymous slot snapshot, or fail safely.
 const secretPath=path.join(process.cwd(),'api','security-secret.json');
 if(!process.env.BOOKING_TOKEN_SECRET&&!fs.existsSync(secretPath)){
   fs.writeFileSync(secretPath,JSON.stringify({secret:crypto.randomBytes(48).toString('base64url')},null,2)+'\n','utf8');
 }
 
-// Build only from previously provider-verified, anonymous shared snapshots.
-// Build may safely continue without one; it never contacts mediDate itself.
-async function readBundledSnapshot(){
-  // Private Blob may authenticate with Vercel OIDC when no static token exists.
+// The sanitizer is shared by the private-store and the build-time mediDate path.
+async function readBundledSnapshot(providerRaw=null){
   try{
-    const {get}=await import('@vercel/blob');
-    for(const key of ['latest','all']){
+    const {get}=providerRaw?{get:null}:await import('@vercel/blob');
+    for(const key of providerRaw?['live']:['latest','all']){
       let timer;
       try{
-        const blob=await Promise.race([
-          get('medidate-anonymous-preview/v2/'+key+'.json',{
-            access:'private',useCache:false,
-            ...(process.env.BLOB_READ_WRITE_TOKEN?{token:process.env.BLOB_READ_WRITE_TOKEN}:{})
-          }),
-          new Promise(resolve=>{timer=setTimeout(()=>resolve(null),2500)})
-        ]);
-        if(!blob||blob.statusCode!==200)continue;
-        const raw=JSON.parse(await new Response(blob.stream).text());
+        let raw=providerRaw;
+        if(!raw){
+          const blob=await Promise.race([
+            get('medidate-anonymous-preview/v2/'+key+'.json',{
+              access:'private',useCache:false,
+              ...(process.env.BLOB_READ_WRITE_TOKEN?{token:process.env.BLOB_READ_WRITE_TOKEN}:{})
+            }),
+            new Promise(resolve=>{timer=setTimeout(()=>resolve(null),2500)})
+          ]);
+          if(!blob||blob.statusCode!==200)continue;
+          raw=JSON.parse(await new Response(blob.stream).text());
+        }
         const validServices=new Set(['vorsorge','contraception','followup','breast']);
         const validDoctors=new Set(['moxter','vongrone']);
         const stamp=Date.parse(raw?.generatedAt||'');
@@ -68,6 +68,46 @@ async function readBundledSnapshot(){
   return null;
 }
 
+function hasFutureAvailability(bundle){
+  const parts=new Intl.DateTimeFormat('en-GB',{
+    timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'
+  }).formatToParts(new Date());
+  const today=['year','month','day'].map(k=>parts.find(p=>p.type===k)?.value).join('-');
+  return Boolean(bundle?.groups?.some(g=>g.availability?.appointmentTimes?.some(r=>
+    String(r.dateTimeStart||'').slice(0,10)>=today&&r.times?.length)));
+}
+async function readFreshDeploymentSnapshot(){
+  try{
+    const {buildFastPublicBundle}=require('../lib/medidate-core');
+    const live=await buildFastPublicBundle();
+    const safe=await readBundledSnapshot({
+      ...live,source:'verified-mediDate-anonymous-preview'
+    });
+    if(!hasFutureAvailability(safe))return null;
+    console.log('Deployment mediDate availability ready, services:',safe.groups.length);
+    return safe;
+  }catch(e){
+    console.warn('Deployment live availability failed:',String(e?.message||e).slice(0,170));
+    return null;
+  }
+}
+async function storeFreshDeploymentSnapshot(snapshot){
+  if(!snapshot)return;
+  try{
+    const {put}=await import('@vercel/blob');
+    await put('medidate-anonymous-preview/v2/latest.json',JSON.stringify({
+      ...snapshot,serviceKey:'latest'
+    }),{
+      access:'private',contentType:'application/json; charset=utf-8',
+      addRandomSuffix:false,allowOverwrite:true,
+      ...(process.env.BLOB_READ_WRITE_TOKEN?{token:process.env.BLOB_READ_WRITE_TOKEN}:{})
+    });
+    console.log('Deployment: anonymous shared calendar storage updated');
+  }catch(e){
+    console.warn('Deployment Blob write unavailable:',String(e?.message||e).slice(0,130));
+  }
+}
+
 async function buildStaticAssets(){
   const publicDir=path.join(process.cwd(),'public');
   fs.rmSync(publicDir,{recursive:true,force:true});
@@ -81,7 +121,14 @@ async function buildStaticAssets(){
   if(!styleMatch||scriptMatches.length!==2||!scriptMatches[0][1].includes(marker))throw new Error('Booking-Assets konnten nicht sicher extrahiert werden.');
 
   fs.writeFileSync(path.join(publicDir,'styles.css'),styleMatch[1].trim()+'\n','utf8');
-  const anonymousSeed=await readBundledSnapshot();
+  const storedSeed=await readBundledSnapshot();
+  // This query happens at BUILD time, not while a patient is opening a calendar.
+  const liveSeed=await readFreshDeploymentSnapshot();
+  const anonymousSeed=liveSeed||storedSeed;
+  if(process.env.VERCEL==='1'&&!hasFutureAvailability(anonymousSeed)){
+    throw new Error('Build verweigert: kein aktueller, anonymisierter mediDate-Terminstand vorhanden. Vorherige Produktion bleibt bestehen.');
+  }
+  if(liveSeed)await storeFreshDeploymentSnapshot(liveSeed);
   // Only anonymous, provider-verified technical free slots are bundled here.
   // No tracking proof, patient identity or booking token is included.
   fs.writeFileSync(path.join(publicDir,'seed-data.js'),
