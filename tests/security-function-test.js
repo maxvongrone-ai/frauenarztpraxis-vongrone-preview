@@ -269,10 +269,10 @@ assert(core.includes('await Promise.all(keys.map(async key=>'),'Multi-service sc
 assert(core.includes('const s=await bootstrap(false);'),'Fast fetch must keep validated practice/session bootstrap');
 assert(medidate.includes("await buildFastPublicBundle(serviceKey)"),'Selected service must use fast provider schedule checks');
 assert(medidate.includes("if(action==='liveSelection'){"),'Combined IGeL service availability must have fast endpoint');
-assert(index.includes("const groups=await Promise.all(serviceKeys.map(async key=>"),'Menopause calendar must query mediDate services concurrently');
+assert(index.includes("key==='all'?'liveSelection':'liveService'"),'Selected calendar must use allow-listed provider-backed live service');
 assert(!index.includes("setTimeout(()=>deploymentPublicBundle().catch(()=>{}),0);"),'Startup must not launch a competing full-bundle background request');
 // Live appointments no longer wait for Vercel serial calls or tracking proof generation.
-assert(index.includes("source:'mediDate-browser-direct'"),'Live calendar must use the direct mediDate path');
+assert(index.includes("source:'mediDate-server-verified'"),'Live calendar must only mark provider-backed slots as confirmed');
 assert(index.includes("const DIRECT_SERVICE_IDS=Object.freeze({vorsorge:1950,contraception:1952,followup:1973,breast:1974})"),'Direct service mapping must stay on approved services');
 assert(index.includes("const DIRECT_DOCTOR_KEYS=Object.freeze({'512':'moxter','513':'vongrone'})"),'Direct doctor mapping must stay restricted');
 assert(index.includes("await ensureTrackingProofForSlot(state.selectedSlot)"),'A fresh tracking proof must be obtained before any booking');
@@ -281,7 +281,7 @@ assert(medidate.includes("if(action==='trackingProof'){"),'Single tracking proof
 assert(medidate.includes("const nonce=crypto.randomBytes(18).toString('base64url')"),'Tracking nonces must be unique');
 assert(index.includes("let directSessionPromise=null"),'Concurrent direct session starts should be deduplicated');
 // Regression: never present cached availability as confirmed slots.
-assert(index.includes("const raw=await directMediDateRequest('appointments/appointmenttimes'"),'Patient calendar must query mediDate directly from the browser');
+assert(index.includes("const live=await apiGet(key==='all'?'liveSelection':'liveService'"),'Patient availability must request fresh mediDate data while storing shared verified preview');
 assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller.signal});"),'Calendar request must bypass shared caches containing unique tracking proof nonces');
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
 assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Proof-bearing live availability must never be cached across patients');
@@ -371,7 +371,19 @@ assert(index.includes("btn.classList.add(state.availabilityPreview?'preview':'av
 assert(index.includes("t.disabled=Boolean(state.availabilityPreview)"),'Unverified times must never allow opening a booking form');
 assert(index.includes("if(!state.availabilityPreview)t.onclick=()=>openBooking(x)"),'Booking buttons must only be wired after fresh mediDate confirmation');
 assert(index.includes("state.availabilityPreview=false;"),'Failed live checks must clear preliminary bookability');
-assert(index.includes("const session=await getDirectMediDateSession(false),sessionMs=Date.now()-requestStarted;"),'Timing diagnostics must separate token session from mediDate schedule');
-assert(index.includes("mediDate-Termine '+((Number(live?.mediDateMs)||0)/1000)"),'Diagnostic details must include provider timings');
+assert(index.includes("if(diagnosticMode)console.info('mediDate timings (internal only)'"),'Technical timing must only go to the developer console');
+assert(!index.includes("state.lastTimingDiagnostics"),'Technical timing must not appear in patient status text');
+
+
+// Shared cross-patient preview is scrubbed of unique tracking proofs.
+assert(medidate.includes("if(action==='snapshot'){"),'Anonymous preview endpoint must be available');
+assert(medidate.includes("access:'private',contentType:'application/json; charset=utf-8'"),'Snapshots must be stored privately');
+assert(medidate.includes("time:String(t.time||'')"),'Snapshot must carry anonymized free times');
+assert(!medidate.includes("trackingProof:t.trackingProof"),'No per-user proof is allowed in the shared cache');
+assert(medidate.includes("age>PREVIEW_MAX_AGE_MS"),'Shared preview must expire after five minutes');
+assert(index.includes("void fetchSharedPreview().then(shared=>"),'Patient calendar must attempt a fast cross-visitor preview');
+assert(index.includes("if(!shared||state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;"),'Late preview must not overwrite confirmed live data');
+assert(index.includes("presentAvailableDays(raw,{preview:true,ageSeconds:shared.ageSeconds})"),'Server cache must only be presented as a preliminary preview');
+assert(!index.includes("$('#calendarStatus').textContent+=' '+state.lastTimingDiagnostics"),'Patient view must contain no technical statistics');
 
 console.log('Security regression checks passed.');
