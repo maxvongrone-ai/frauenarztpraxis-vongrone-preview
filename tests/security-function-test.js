@@ -508,9 +508,9 @@ assert.strictEqual(quietStatus.textContent,'Wählen Sie einen grünen Tag mit ve
 
 // Deployment builds must actually embed a prior anonymous verified snapshot
 // whenever the shared Blob is reachable; the previous build wrote only null.
-assert(buildScript.includes("const storedSeed=await readBundledSnapshot();")&&
+assert(buildScript.includes("readBundledSnapshot(),readStoredServiceSnapshots()")&&
  buildScript.includes("const liveSeed=await readFreshDeploymentSnapshot();"),
- 'Deployment must preload cached or fresh provider-verified appointments');
+ 'Deployment must preload previous service snapshots and fresh provider-verified appointments');
 assert(buildScript.includes("JSON.stringify(anonymousSeed)"),
  'Static seed-data.js must contain the last-known provider result when available');
 assert(buildScript.includes("medidate-anonymous-preview/v2/"),
@@ -612,8 +612,8 @@ assert(buildScript.includes("const safe=await readBundledSnapshot({"),
  'All raw provider slots must pass through the anonymous sanitizer');
 assert(buildScript.includes("providerRaw?['live']:['latest','all']"),
  'Snapshot sanitizer must also work when Blob storage is unavailable');
-assert(buildScript.includes("if(liveSeed)await storeFreshDeploymentSnapshot(liveSeed);"),
- 'Freshly confirmed provider snapshot should initialize cross-visitor storage');
+assert(buildScript.includes("if(anonymousSeed)await storeFreshDeploymentSnapshot(anonymousSeed);"),
+ 'Complete merged provider snapshots should initialize shared storage');
 assert(buildScript.includes("function hasFutureAvailability(bundle){"),
  'Build rejects expired appointments instead of shipping an empty first-visitor calendar');
 const seedFnStart=buildScript.indexOf('async function readBundledSnapshot(providerRaw=null){');
@@ -658,5 +658,32 @@ assert(index.includes("if(!row)throw new Error("),
  'Final booking must refuse a no-longer-available cached slot');
 assert(index.includes("const result1=await directMediDateRequest('appointments',{method:'POST'"),
  'Appointments must still post directly to mediDate only after checks');
+
+
+// A partial provider response must not erase other real, independently cached
+// service calendars when producing the fast static startup seed.
+assert(buildScript.includes("async function readStoredServiceSnapshots(){"),
+ 'Build must retrieve service-specific cross-visitor caches');
+assert(buildScript.includes("function mergeVerifiedSnapshots(candidates){"),
+ 'Build must choose the newest verified provider group for each service');
+assert(buildScript.includes("const anonymousSeed=mergeVerifiedSnapshots([storedSeed,...individualSeeds,liveSeed]);"),
+ 'Build must include earlier successfully checked services absent from the current provider response');
+const mergingStart=buildScript.indexOf('function mergeVerifiedSnapshots(candidates){');
+const mergingEnd=buildScript.indexOf('async function buildStaticAssets(){',mergingStart);
+assert(mergingStart>=0&&mergingEnd>mergingStart,'Snapshot merger must be testable');
+const mergeContext=vm.createContext({Date,Map});
+vm.runInContext(buildScript.slice(mergingStart,mergingEnd)+
+ '\nglobalThis.mergeSnapshotsTest=mergeVerifiedSnapshots;',mergeContext);
+const oldAt=new Date(Date.now()-3600000).toISOString(),newAt=new Date().toISOString();
+const oldGroup={serviceKey:'breast',serviceName:'Brustultraschall',verifiedAt:oldAt,
+  availability:{appointmentTimes:[{dateTimeStart:'2028-01-03',times:[{time:'10.00'}]}]}};
+const newGroup={serviceKey:'vorsorge',serviceName:'Vorsorge',verifiedAt:newAt,
+  availability:{appointmentTimes:[{dateTimeStart:'2028-01-04',times:[{time:'11.00'}]}]}};
+const merged=mergeContext.mergeSnapshotsTest([
+ {generatedAt:oldAt,groups:[oldGroup]},
+ {generatedAt:newAt,groups:[newGroup]}
+]);
+assert.deepStrictEqual(Array.from(merged.groups.map(g=>g.serviceKey)).sort(),['breast','vorsorge'],
+ 'Missing services from a partial live response must still be included in the instant patient preview');
 
 console.log('Security regression checks passed.');
