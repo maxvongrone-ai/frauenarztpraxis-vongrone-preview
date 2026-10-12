@@ -1,9 +1,10 @@
 /* mediDate availability/session bridge for browser-direct booking.
  * Patient identity data is never accepted or processed by this endpoint.
  */
+const crypto=require('crypto');
 const fs=require('fs');
 const path=require('path');
-const {buildPublicBundle,buildFastPublicBundle,bootstrap,API_BASE,SERVICE_RULES}=require('../lib/medidate-core');
+const {buildPublicBundle,buildFastPublicBundle,bootstrap,API_BASE,SERVICE_RULES,readSecret}=require('../lib/medidate-core');
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 let liveBundlePromise=null;
 async function getLiveBundle(){
@@ -61,6 +62,16 @@ module.exports=async function handler(req,res){
         bundle=await getLiveBundle();
       }
       return send(res,200,{ok:true,...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=60',cdn:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600',vercel:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600'});
+    }
+    if(action==='trackingProof'){
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
+      // Issue a single, unique, short-lived, content-free tracking token. This
+      // endpoint does not receive patient identity, appointment date or time.
+      // The proof is fetched only when a patient actually selects a time.
+      const nonce=crypto.randomBytes(18).toString('base64url');
+      const exp=Date.now()+12*60*60*1000;
+      const proof=crypto.createHmac('sha256',readSecret()).update('tracking:'+nonce+':'+exp).digest('base64url');
+      return send(res,200,{ok:true,trackingNonce:nonce,trackingExp:exp,trackingProof:proof},{cache:'no-store, max-age=0'});
     }
     if(action==='liveService'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
