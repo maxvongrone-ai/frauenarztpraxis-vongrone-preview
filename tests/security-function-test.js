@@ -324,7 +324,7 @@ assert(calendarStatus.textContent.includes('keine freien Termine'),'No availabil
  // Browser-start smoke check: a one-character selector typo previously prevented
  // every insurer/patient button from registering. Run the actual production
  // inline JavaScript with a minimal synthetic DOM and exercise the first 2 steps.
- const inlineScripts=[...index.matchAll(/<script>([\\s\\S]*?)<\\/script>/gi)];
+ const inlineScripts=index.split('<script>').slice(1).filter(part=>part.startsWith('>')).map(part=>part.slice(1,part.indexOf('</script>')));
  assert.strictEqual(inlineScripts.length,2,'Booking HTML must have 2 inline script blocks');
  function bookingSmokeElement(dataset={}){
    return {
@@ -350,7 +350,7 @@ assert(calendarStatus.textContent.includes('keine freien Termine'),'No availabil
    },
    createElement(){return bookingSmokeElement()}
  };
- vm.runInNewContext(inlineScripts[1][1],{
+ vm.runInNewContext(inlineScripts[1],{
    window:{__MEDIDATE_SEED__:null},document:bookingSmokeDocument,
    location:{search:'',origin:'https://booking.example.invalid',hash:''},
    localStorage:{getItem(){return null},setItem(){}},
