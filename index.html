@@ -772,7 +772,7 @@ async function apiGet(action,params={},timeoutMs=8000){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeoutMs);
  try{
-   const r=await fetch(u,{cache:'no-store',signal:controller.signal});
+   const r=await fetch(u,{cache:action==='snapshot'?'default':'no-store',signal:controller.signal});
    const t=await r.text();let j;try{j=JSON.parse(t)}catch{throw new Error('Ungültige Serverantwort (HTTP '+r.status+').')}
    if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
    return j;
@@ -896,11 +896,21 @@ function networkIgelAvailability(){return publicBundle().then(b=>({ok:true,group
 async function igelAvailabilityAll(){const b=await publicBundle();return {ok:true,groups:b.groups||[],source:'instant-seed'}}
 function prefetchAvailability(){startSelectedAvailability().catch(()=>{})}
 function serviceAvailabilityKey(){return isIgelMode()?Object.keys(DIRECT_SERVICE_IDS).join(','):String(state.service?.id||'')}
+function previewMaxAgeMs(now=Date.now()){
+ const h=Number(new Intl.DateTimeFormat('en-GB',{
+   timeZone:'Europe/Berlin',hour:'2-digit',hourCycle:'h23'
+ }).formatToParts(new Date(now)).find(p=>p.type==='hour')?.value);
+ return h>=20||h<6?6*60*60*1000:60*60*1000;
+}
+function previewAgeLabel(ageSeconds){
+ const minutes=Math.max(1,Math.ceil(Number(ageSeconds||0)/60));
+ return minutes===1?'einer Minute':minutes+' Minuten';
+}
 function cachedDirectSelection(){
- const v=cacheStorageRead('direct:'+serviceAvailabilityKey(),10*60*1000);
+ const v=cacheStorageRead('direct:'+serviceAvailabilityKey(),previewMaxAgeMs());
  if(!v||!['mediDate-browser-direct','mediDate-server-verified'].includes(v.source)||!Array.isArray(v.groups))return null;
  const age=Date.now()-Date.parse(v.generatedAt||'');
- if(!Number.isFinite(age)||age<0||age>10*60*1000)return null;
+ if(!Number.isFinite(age)||age<0||age>previewMaxAgeMs())return null;
  const keys=serviceAvailabilityKey().split(',');
  const valid=v.groups.filter(g=>keys.includes(g.serviceKey)&&Array.isArray(g.availability?.appointmentTimes));
  if(!valid.length||(!isIgelMode()&&!valid.some(g=>g.serviceKey===keys[0])))return null;
@@ -916,7 +926,7 @@ function fetchSharedPreview(){
    const b=r?.snapshot,age=Date.now()-Date.parse(b?.generatedAt||'');
    const keys=key==='all'?Object.keys(DIRECT_SERVICE_IDS):[key];
    if(!b||b.source!=='verified-mediDate-anonymous-preview'||
-      !Number.isFinite(age)||age<0||age>10*60*1000||
+      !Number.isFinite(age)||age<0||age>previewMaxAgeMs()||
       !Array.isArray(b.groups)||!b.groups.length||
       (key==='all'
         ?!b.groups.some(g=>keys.includes(g.serviceKey)&&Array.isArray(g.availability?.appointmentTimes))
@@ -1054,10 +1064,13 @@ function chooseService(s,b,mode){
  serviceStatus.className='status';
  serviceStatus.textContent='';
 
- // Einmalige Slotabfrage startet sofort; die Arztauswahl ist rein lokal.
- prefetchAvailability();
+ // Fetch the shared snapshot first to avoid a competing 15-second provider request.
  void fetchSharedPreview();
  loadDoctors();
+ const selectedService=s;
+ setTimeout(()=>{
+   if(state.service===selectedService)prefetchAvailability();
+ },250);
 }
 
 function switchToSelfPayFromGkvNew(){
@@ -1071,8 +1084,7 @@ function loadDoctors(){
  show('#step4');$('#step5').classList.add('hidden');$('#step6').classList.add('hidden');
  const box=$('#doctors'),st=$('#doctorsStatus');box.innerHTML='';st.className='status';st.textContent='';
 
- const p=startSelectedAvailability();
- if(p)p.catch(()=>{});
+ // Appointment provider requests are not required to show doctor choices.
 
  if(isMenopauseMode()){
    const d=PRACTICE_DOCTORS.find(x=>String(x.id)===MENOPAUSE_DOCTOR_KEY);
@@ -1210,7 +1222,7 @@ function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){
  const count=[...days.values()].reduce((n,a)=>n+a.length,0);
  st.className='status '+(count?'ok':'');
  st.textContent=preview
-   ?'Kalendervorschau (letzte Prüfung vor '+ageSeconds+' Sekunden). mediDate wird jetzt live geprüft; erst danach sind Termine buchbar.'
+   ?'Kalendervorschau (zuletzt vor '+previewAgeLabel(ageSeconds)+' geprüft). mediDate wird im Hintergrund aktualisiert; erst nach Bestätigung sind Uhrzeiten buchbar.'
    :count
      ?'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.'
      :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
@@ -1356,7 +1368,7 @@ async function loadSlots(){
    }
    if(state.availabilityPreview){
      st.className='status warn';
-     st.innerHTML='Mögliche Termine aus den letzten zehn Minuten. Eine neue mediDate-Bestätigung ist derzeit nicht möglich; die Uhrzeiten bleiben vorläufig. <button type="button" class="linkbtn" id="retryAvailability">Erneut prüfen</button>';
+     st.innerHTML='Mögliche Termine aus dem zuletzt gespeicherten Kalenderstand. Eine neue mediDate-Bestätigung ist derzeit nicht möglich; die Uhrzeiten bleiben vorläufig. <button type="button" class="linkbtn" id="retryAvailability">Erneut prüfen</button>';
      renderMonthCalendar(false);
    }else{
      state.availableDays=new Map();
