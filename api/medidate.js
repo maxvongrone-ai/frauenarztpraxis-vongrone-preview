@@ -8,7 +8,7 @@ const {buildPublicBundle,buildFastPublicBundle,bootstrap,API_BASE,SERVICE_RULES,
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 // Shared preview contains only service/doctor identifiers and anonymous free slots.
 // Tracking nonces, proofs, bearer tokens and personal data MUST NOT enter Blob.
-const PREVIEW_PREFIX='medidate-anonymous-preview/v1/';
+const PREVIEW_PREFIX='medidate-anonymous-preview/v2/';
 const PREVIEW_MAX_AGE_MS=10*60*1000;
 let blobApiPromise=null;
 async function optionalBlob(){
