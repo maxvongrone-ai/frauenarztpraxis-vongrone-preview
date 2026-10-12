@@ -477,7 +477,7 @@ assert(index.includes("const CALENDAR_PREVIEW_STATUS='Kalendervorschau wird im H
  'Patient-facing calendar text must match approved wording');
 assert(!index.includes("previewAgeLabel(ageSeconds)"),'Never display snapshot age');
 assert(!index.includes("Letzter bekannter Stand: vor "), 'Never disclose snapshot age in patient view');
-assert(index.includes("if(preview)state.calendarPreviewShown=true;"),'Snapshot must pin discreet status');
+assert(index.includes("st.textContent=preview")&&index.includes("?CALENDAR_PREVIEW_STATUS"),'Only preliminary snapshots show the background refresh label');
 assert(index.includes("if(!state.calendarHasShownResults){"),'Background updates must preserve the month');
 assert(index.includes("void fetchSharedPreview();\n loadDoctors();"),'Selected snapshots should fetch without blocking doctor choice');
 assert(index.includes("fetchSharedPreview('latest').catch(()=>null)"),'Single shared snapshot must load at page startup');
@@ -503,6 +503,31 @@ assert.strictEqual(quietStatus.textContent,'Kalendervorschau wird im Hintergrund
 quietState.calendarMonth=new Date(2027,4,1);
 quietCtx.renderQuiet(new Map([['2027-02-01',[{time:'12.00'}]]]));
 assert.strictEqual(quietState.calendarMonth.getMonth(),4,'Live update must preserve user-chosen month');
-assert.strictEqual(quietStatus.textContent,'Kalendervorschau wird im Hintergrund aktualisiert');
+assert.strictEqual(quietStatus.textContent,'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.');
+
+
+// Deployment builds must actually embed a prior anonymous verified snapshot
+// whenever the shared Blob is reachable; the previous build wrote only null.
+assert(buildScript.includes("const anonymousSeed=await readBundledSnapshot();"),
+ 'Deployment must look up a verified last-known snapshot');
+assert(buildScript.includes("JSON.stringify(anonymousSeed)"),
+ 'Static seed-data.js must contain the last-known provider result when available');
+assert(buildScript.includes("medidate-anonymous-preview/v2/"),
+ 'Bundle preload must use the same private snapshot namespace as the provider API');
+assert(buildScript.includes("access:'private',token:process.env.BLOB_READ_WRITE_TOKEN"),
+ 'Build may read only its authorized private Blob');
+assert(buildScript.includes("validServices.has(g?.serviceKey)")&&
+ buildScript.includes("validDoctors.has(r?.doctorKey)"),
+ 'Bundled preview must be strictly anonymized and restricted to known services/doctors');
+assert(buildScript.includes("time:String(t.time)"),
+ 'Bundled preview must retain time and technical coordinates, not tracking proofs');
+assert(index.includes("isAnonymousCalendarSeed(window.__MEDIDATE_SEED__)"),
+ 'The booking page must accept partial provider-backed deployment snapshots');
+assert(index.includes("   BUILD_SEED,"),
+ 'Bundled snapshots must be consulted synchronously, before local/network sources');
+assert(index.includes("cacheStorageWrite('shared-latest',BUILD_SEED);"),
+ 'Seed must remain accessible on subsequent local visits');
+assert(!index.includes("state.calendarPreviewShown"),
+ 'Live-verified dates must not keep the preliminary status');
 
 console.log('Security regression checks passed.');
