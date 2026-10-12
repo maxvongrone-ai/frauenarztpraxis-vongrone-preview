@@ -399,7 +399,7 @@ assert(medidate.includes("...bundle.groups.map(g=>savePreview({generatedAt:bundl
 assert(medidate.includes("t.direct&&t.direct.clientId>0"),'Cached time entries must preserve verifiable technical slot coordinates');
 assert(medidate.includes("t.time)&&"),'Cached time format must be validated');
 assert(index.includes("await fetchSharedPreview();"),'Provider failure must attempt shared preview recovery');
-assert(index.includes("if(state.availabilityPreview){")&&index.includes("st.textContent=CALENDAR_PREVIEW_STATUS;"),'Provider refresh failure must preserve the existing preview without visible warning');
+assert(index.includes("if(state.availabilityPreview){")&&index.includes("Verfügbarkeitsstand geladen. Wählen Sie einen markierten Tag."),'Provider failure must retain an available provisional calendar');
 assert(index.includes("presentAvailableDays(rawFromIgelGroups(combined),{"),'Partial provider response must be merged with the shared snapshot');
 assert(index.includes("preview:true,ageSeconds:cached.ageSeconds"),'Mixed-freshness IGeL slots must not appear verified');
 assert(index.includes("Date.now()-sharedPreviewRequest.at<1500"),'Shared preview failures must not be cached forever in the browser');
