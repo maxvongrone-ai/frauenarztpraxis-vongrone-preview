@@ -946,8 +946,11 @@ function rememberLatestCalendar(bundle){
  if(!snapshot.groups.length)return;
  const existing=cacheStorageRead('shared-latest',Number.MAX_SAFE_INTEGER);
  const olderAll=cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER);
+ const oldFull=cacheStorageRead('publicBundle',Number.MAX_SAFE_INTEGER);
+ const oldSafe=oldFull?.groups?.length?compactClientCalendar(oldFull):null;
  const byKey=new Map();
- for(const c of [olderAll,existing,snapshot]){
+ // Migrate every old service BEFORE deleting its duplicate cache entry.
+ for(const c of [oldSafe,olderAll,existing,snapshot]){
    if(!c||!Array.isArray(c.groups))continue;
    for(const g of c.groups){
      if(!REQUIRED_SERVICE_KEYS.includes(g.serviceKey)||
