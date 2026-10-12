@@ -1263,7 +1263,7 @@ async function loadSlots(){
    ?refreshPrivateNewBlockedDates(false).then(()=>{state.privateNewQuotaVerified=true;return true})
      .catch(()=>{state.privateNewQuotaVerified=false;return false})
    :Promise.resolve(true)).finally(()=>{quotaFinishedAt=Date.now()});
- st.textContent=quotaNeeded
+ if(!quick)st.textContent=quotaNeeded
    ?'Termine und Tageskontingent werden gleichzeitig geladen …'
    :'Verfügbarkeit wird geladen …';
 
