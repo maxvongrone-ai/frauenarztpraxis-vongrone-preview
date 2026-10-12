@@ -594,7 +594,7 @@ assert(medidate.includes("cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-
 // Ensure migration never drops an otherwise valid old snapshot.
 assert(index.includes("const oldSafe=oldFull?.groups?.length?compactClientCalendar(oldFull):null;"),
  'Old provider snapshots must be migrated without storing unique tracking proofs');
-assert(index.includes("for(const c of [oldSafe,olderAll,existing,snapshot])"),
+assert(index.includes("for(const c of [oldSafe,olderAll,...oldSingles,existing,snapshot])"),
  'All old services must be merged before deleting redundant copies');
 assert(index.includes("))pruneLegacyCalendarCopies();"),
  'Obsolete copies may only be deleted AFTER a successful new cache write');
