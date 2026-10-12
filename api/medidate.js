@@ -67,12 +67,12 @@ module.exports=async function handler(req,res){
       const serviceKey=String(req.query?.serviceKey||'');
       if(!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart nicht freigegeben.'},{cache:'no-store'});
       const bundle=await buildFastPublicBundle(serviceKey);
-      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
+      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=0, must-revalidate',cdn:'public, s-maxage=60',vercel:'public, s-maxage=60'});
     }
     if(action==='liveSelection'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const bundle=await buildFastPublicBundle();
-      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
+      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=0, must-revalidate',cdn:'public, s-maxage=60',vercel:'public, s-maxage=60'});
     }
     if(action==='liveBundle'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
