@@ -13,7 +13,7 @@ if(!process.env.BOOKING_TOKEN_SECRET&&!fs.existsSync(secretPath)){
 // Build only from previously provider-verified, anonymous shared snapshots.
 // Build may safely continue without one; it never contacts mediDate itself.
 async function readBundledSnapshot(){
-  if(!process.env.BLOB_READ_WRITE_TOKEN)return null;
+  // Private Blob may authenticate with Vercel OIDC when no static token exists.
   try{
     const {get}=await import('@vercel/blob');
     for(const key of ['latest','all']){
@@ -21,7 +21,8 @@ async function readBundledSnapshot(){
       try{
         const blob=await Promise.race([
           get('medidate-anonymous-preview/v2/'+key+'.json',{
-            access:'private',token:process.env.BLOB_READ_WRITE_TOKEN,useCache:false
+            access:'private',useCache:false,
+            ...(process.env.BLOB_READ_WRITE_TOKEN?{token:process.env.BLOB_READ_WRITE_TOKEN}:{})
           }),
           new Promise(resolve=>{timer=setTimeout(()=>resolve(null),2500)})
         ]);
