@@ -7,12 +7,12 @@ const PORT=22;
 const USERNAME='a2509659';
 const BASE='https://raw.githubusercontent.com/maxvongrone-ai/frauenarztpraxis-vongrone-preview/ud-site-v5-20261012/website/';
 const FILES=[
-  {src:'index.html',dst:'/frauenarztpraxis/index.html',sha256:'ba11cffc3ad50473496449ec52c8bbff6fd743f354b7e29d8659ab44da8624dc'},
   {src:'assets/style.css',dst:'/frauenarztpraxis/assets/style.css',sha256:'142c744a4b35c4e925c0db7cb2e4762d8aef6df1d9e011182b5bd15da3a5a69c'},
   {src:'schwangerschaft/index.html',dst:'/frauenarztpraxis/schwangerschaft/index.html',sha256:'45f5fe1880b8031500317520a13bd1a4e16ab69997972079c68b899211f027b7'},
   {src:'wechseljahre/index.html',dst:'/frauenarztpraxis/wechseljahre/index.html',sha256:'c855b3f73d765aa3349a5d35efec15aebf2d2477ae2cb7f5260c509d27fffaf0'},
   {src:'brustultraschall/index.html',dst:'/frauenarztpraxis/brustultraschall/index.html',sha256:'3fbb77b0b8a8761475d8fe7bb794c07e848f23c40d8f9a6a0a6c8396c5faf398'},
-  {src:'privat-selbstzahler/index.html',dst:'/frauenarztpraxis/privat-selbstzahler/index.html',sha256:'e9e542f3ea284a5e4100edef1db6012775ccc4fbc6970b7749db35b6f74a3c07'}
+  {src:'privat-selbstzahler/index.html',dst:'/frauenarztpraxis/privat-selbstzahler/index.html',sha256:'e9e542f3ea284a5e4100edef1db6012775ccc4fbc6970b7749db35b6f74a3c07'},
+  {src:'index.html',dst:'/frauenarztpraxis/index.html',sha256:'ba11cffc3ad50473496449ec52c8bbff6fd743f354b7e29d8659ab44da8624dc'}
 ];
 
 function send(res,status,body){
