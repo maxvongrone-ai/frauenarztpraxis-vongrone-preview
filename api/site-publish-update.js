@@ -12,7 +12,7 @@ const FILES=[
   {src:'wechseljahre/index.html',dst:'/frauenarztpraxis/wechseljahre/index.html',sha256:'c855b3f73d765aa3349a5d35efec15aebf2d2477ae2cb7f5260c509d27fffaf0'},
   {src:'brustultraschall/index.html',dst:'/frauenarztpraxis/brustultraschall/index.html',sha256:'3fbb77b0b8a8761475d8fe7bb794c07e848f23c40d8f9a6a0a6c8396c5faf398'},
   {src:'privat-selbstzahler/index.html',dst:'/frauenarztpraxis/privat-selbstzahler/index.html',sha256:'e9e542f3ea284a5e4100edef1db6012775ccc4fbc6970b7749db35b6f74a3c07'},
-  {src:'index.html',dst:'/frauenarztpraxis/index.html',sha256:'c821e70ffba6ef2c681215e5ecfc81de8c1f135c1bb5f5d609987ccea30af996'}
+  {src:'index.html',dst:'/frauenarztpraxis/index.html',sha256:'ee0965b806e52fed2fe75f493755decd45112ccb9c5235f3cbf230a2acd3f731'}
 ];
 
 function send(res,status,body){
