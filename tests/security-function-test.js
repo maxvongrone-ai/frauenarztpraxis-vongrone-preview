@@ -269,16 +269,25 @@ assert(core.includes('await Promise.all(keys.map(async key=>'),'Multi-service sc
 assert(core.includes('const s=await bootstrap(false);'),'Fast fetch must keep validated practice/session bootstrap');
 assert(medidate.includes("await buildFastPublicBundle(serviceKey)"),'Selected service must use fast provider schedule checks');
 assert(medidate.includes("if(action==='liveSelection'){"),'Combined IGeL service availability must have fast endpoint');
-assert(index.includes("apiGet('liveSelection',{},40000)"),'Menopause calendar must use fast parallel availability');
+assert(index.includes("const groups=await Promise.all(serviceKeys.map(async key=>"),'Menopause calendar must query mediDate services concurrently');
 assert(!index.includes("setTimeout(()=>deploymentPublicBundle().catch(()=>{}),0);"),'Startup must not launch a competing full-bundle background request');
+// Live appointments no longer wait for Vercel serial calls or tracking proof generation.
+assert(index.includes("source:'mediDate-browser-direct'"),'Live calendar must use the direct mediDate path');
+assert(index.includes("const DIRECT_SERVICE_IDS=Object.freeze({vorsorge:1950,contraception:1952,followup:1973,breast:1974})"),'Direct service mapping must stay on approved services');
+assert(index.includes("const DIRECT_DOCTOR_KEYS=Object.freeze({'512':'moxter','513':'vongrone'})"),'Direct doctor mapping must stay restricted');
+assert(index.includes("await ensureTrackingProofForSlot(state.selectedSlot)"),'A fresh tracking proof must be obtained before any booking');
+assert(index.includes("void ensureTrackingProofForSlot(slot).catch(()=>{})"),'Tracking proof is prefetched after selecting a time');
+assert(medidate.includes("if(action==='trackingProof'){"),'Single tracking proof must be issued separately');
+assert(medidate.includes("const nonce=crypto.randomBytes(18).toString('base64url')"),'Tracking nonces must be unique');
+assert(index.includes("let directSessionPromise=null"),'Concurrent direct session starts should be deduplicated');
 // Regression: never present cached availability as confirmed slots.
-assert(index.includes("apiGet('liveService',{serviceKey:key},40000)"),'Patient calendar must use selected-service live availability');
+assert(index.includes("const raw=await directMediDateRequest('appointments/appointmenttimes'"),'Patient calendar must query mediDate directly from the browser');
 assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller.signal});"),'Calendar request must bypass shared caches containing unique tracking proof nonces');
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
 assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Proof-bearing live availability must never be cached across patients');
 assert(index.includes("Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft."),'Calendar must explain that last-minute changes can occur');
-assert(index.includes("refreshPrivateNewBlockedDates(false).then(()=>true).catch(()=>false)"),'Private new-patient quota read must not delay live calendar by serial reconciliation');
-assert(index.includes("await Promise.all([startSelectedAvailability(),quotaCheck])"),'Quota check and mediDate lookup must run concurrently');
+assert(index.includes("refreshPrivateNewBlockedDates(false).then(()=>{state.privateNewQuotaVerified=true;return true})"),'Private new-patient quota read must start independently of live calendar');
+assert(index.includes("const live=await startSelectedAvailability();")&&index.includes("void quotaCheck.then(ok=>"),'Day quota must not block the browser-direct calendar');
 assert(!index.includes("Das Tageskontingent für private Neupatientinnen konnte gerade nicht sicher geprüft werden."),'Quota reconciliation failure must no longer blanket-block calendar');
 assert(!index.includes("presentAvailableDays(rawFromRegularAvailability(cached)"),'Cached regular slots must not be presented');
 assert(!index.includes("presentAvailableDays(rawFromIgelGroups(cachedGroups)"),'Cached special slots must not be presented');
@@ -310,5 +319,47 @@ const now=new Date();
 assert.strictEqual(calendarState.calendarMonth.getFullYear(),now.getFullYear(),'No availability must leave calendar in current year');
 assert.strictEqual(calendarState.calendarMonth.getMonth(),now.getMonth(),'No availability must leave calendar in current month');
 assert(calendarStatus.textContent.includes('keine freien Termine'),'No availability must retain the existing information message');
+
+
+ // Browser-start smoke check: a one-character selector typo previously prevented
+ // every insurer/patient button from registering. Run the actual production
+ // inline JavaScript with a minimal synthetic DOM and exercise the first 2 steps.
+ const inlineScripts=[...index.matchAll(/<script>([\\s\\S]*?)<\\/script>/gi)];
+ assert.strictEqual(inlineScripts.length,2,'Booking HTML must have 2 inline script blocks');
+ function bookingSmokeElement(dataset={}){
+   return {
+     dataset,classList:{add(){},remove(){},toggle(){}},style:{},
+     children:[],disabled:false,textContent:'',innerHTML:'',value:'',onclick:null,
+     appendChild(node){this.children.push(node)},
+     append(...nodes){this.children.push(...nodes)},
+     setAttribute(){},scrollIntoView(){},focus(){}
+   };
+ }
+ const insuranceChoice=bookingSmokeElement({insurance:'PKV'});
+ const patientChoice=bookingSmokeElement({patient:'existing'});
+ const smokeNodes=new Map();
+ const bookingSmokeDocument={
+   querySelector(selector){
+     if(!smokeNodes.has(selector))smokeNodes.set(selector,bookingSmokeElement());
+     return smokeNodes.get(selector);
+   },
+   querySelectorAll(selector){
+     if(selector==='[data-insurance]')return [insuranceChoice];
+     if(selector==='[data-patient]')return [patientChoice];
+     return [];
+   },
+   createElement(){return bookingSmokeElement()}
+ };
+ vm.runInNewContext(inlineScripts[1][1],{
+   window:{__MEDIDATE_SEED__:null},document:bookingSmokeDocument,
+   location:{search:'',origin:'https://booking.example.invalid',hash:''},
+   localStorage:{getItem(){return null},setItem(){}},
+   URLSearchParams,setTimeout(){return 0},Date,Intl,Map,Set,Number,Math
+ },{timeout:5000});
+ assert.strictEqual(typeof insuranceChoice.onclick,'function','Insurance buttons must be clickable after page initialization');
+ insuranceChoice.onclick();
+ assert.strictEqual(typeof patientChoice.onclick,'function','Patient-type buttons must be clickable');
+ patientChoice.onclick();
+ assert(smokeNodes.get('#services').children.length>=4,'Choosing insurance and patient must render service buttons');
 
 console.log('Security regression checks passed.');
