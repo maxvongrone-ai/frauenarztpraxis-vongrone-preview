@@ -462,7 +462,7 @@ assert(index.includes('t.disabled=Boolean(state.availabilityPreview)'),'Prelimin
 assert(index.includes("const sharedStartupPromise=fetchSharedPreview('latest').catch(()=>null);"),'Cross-visitor preview must begin at initial page load');
 assert(index.includes("cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER)"),'First booking selection must immediately reuse an already prefetched shared snapshot');
 assert(index.includes("void sharedStartupPromise.then(()=>adoptNewestPreview())"),'The page-start snapshot must update an already-open calendar');
-assert(index.includes("cacheStorageWrite('shared-'+key,b)"),'Fresh anonymous shared results must be retained for the next visit');
+assert(index.includes("rememberLatestCalendar(b);"),'Shared cross-visitor snapshots must be merged into the consolidated local index');
 assert(index.includes("const CALENDAR_LOADING_STATUS='Verfügbarkeit wird geladen …';"),'Use yesterday initial notice');
 assert(index.includes("state.previewAgeSeconds=preview?ageSeconds:0"),'Preview presentation must remember its actual age');
 assert(index.includes("state.availabilityPreview=false;state.previewAgeSeconds=Infinity;"),'New selection must not inherit a prior calendar preview');
@@ -545,12 +545,12 @@ assert(buildScript.includes("...(process.env.BLOB_READ_WRITE_TOKEN?{token:proces
 
 // Browser caches a compact, patient-free last known provider schedule, not the
 // enormous, per-request signed proofs. This is a prerequisite for fast reloads.
-assert(index.includes("cacheStorageWrite('direct:'+keys.join(','),compactClientCalendar(result));"),
- 'Selected provider result must be stored in anonymous compact form');
+assert(!index.includes("cacheStorageWrite('direct:'+keys.join(','),compactClientCalendar(result));"),
+ 'Selected provider result must not be duplicated in limited browser storage');
 assert(index.includes("rememberLatestCalendar(result);"),
  'Every successful selected fetch must refresh the instant local latest cache');
-assert(index.includes("cacheStorageWrite('shared-latest',{"),
- 'The browser must keep a cross-service local index');
+assert(index.includes("if(cacheStorageWrite('shared-latest',{"),
+ 'The browser must verify durable writing of its consolidated local index');
 const compactStart=index.indexOf('function compactClientCalendar(bundle){');
 const compactEnd=index.indexOf('function rememberLatestCalendar(bundle){',compactStart);
 assert(compactStart>=0&&compactEnd>compactStart,'Client-side anonymous sanitizer must exist');
@@ -589,5 +589,18 @@ assert(index.includes("if(!state.availabilityPreview)t.onclick=()=>openBooking(x
  'Cached slots must not be bookable before current provider verification');
 assert(medidate.includes("cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'"),
  'Proof-bearing live provider results must never use the public CDN cache');
+
+
+// Ensure migration never drops an otherwise valid old snapshot.
+assert(index.includes("const oldSafe=oldFull?.groups?.length?compactClientCalendar(oldFull):null;"),
+ 'Old provider snapshots must be migrated without storing unique tracking proofs');
+assert(index.includes("for(const c of [oldSafe,olderAll,existing,snapshot])"),
+ 'All old services must be merged before deleting redundant copies');
+assert(index.includes("))pruneLegacyCalendarCopies();"),
+ 'Obsolete copies may only be deleted AFTER a successful new cache write');
+assert(index.includes("localStorage.removeItem(k)"),
+ 'Quota recovery must clear redundant per-service copies');
+assert(!index.includes("cacheStorageWrite('shared-'+key,b)"),
+ 'One shared calendar cache must replace redundant per-service snapshots');
 
 console.log('Security regression checks passed.');
