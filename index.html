@@ -882,6 +882,49 @@ function compactDirectAvailability(data,serviceKey,session){
 }
 // Live provider requests update a centrally shared, anonymous preview.
 // Patient identity is still transmitted only in the direct final booking request.
+function compactClientCalendar(bundle){
+ const groups=(bundle.groups||[]).filter(g=>
+   REQUIRED_SERVICE_KEYS.includes(g?.serviceKey)&&Array.isArray(g?.availability?.appointmentTimes))
+ .map(g=>({
+   serviceKey:g.serviceKey,
+   serviceName:g.serviceName,
+   verifiedAt:String(g.verifiedAt||bundle.generatedAt),
+   doctorKeys:Array.isArray(g.doctorKeys)?g.doctorKeys:[],
+   availability:{appointmentTimes:g.availability.appointmentTimes.map(row=>({
+     dateTimeStart:row.dateTimeStart,duration:row.duration,
+     doctorKey:row.doctorKey,calendarWeek:row.calendarWeek,
+     times:(row.times||[]).filter(t=>t?.direct&&t?.time).map(t=>({
+       time:String(t.time),direct:t.direct
+     }))
+   }))}
+ }));
+ return {ok:true,source:'verified-mediDate-anonymous-preview',
+   generatedAt:bundle.generatedAt,groups};
+}
+function rememberLatestCalendar(bundle){
+ const snapshot=compactClientCalendar(bundle);
+ if(!snapshot.groups.length)return;
+ const existing=cacheStorageRead('shared-latest',Number.MAX_SAFE_INTEGER);
+ const byKey=new Map();
+ for(const c of [existing,snapshot]){
+   if(!c||!Array.isArray(c.groups))continue;
+   for(const g of c.groups){
+     if(!REQUIRED_SERVICE_KEYS.includes(g.serviceKey)||
+       !Array.isArray(g.availability?.appointmentTimes))continue;
+     const stamp=Date.parse(g.verifiedAt||c.generatedAt||'');
+     const prev=byKey.get(g.serviceKey);
+     if(Number.isFinite(stamp)&&stamp<=Date.now()&&(!prev||stamp>prev.stamp))
+       byKey.set(g.serviceKey,{group:g,stamp});
+   }
+ }
+ if(!byKey.size)return;
+ const groups=[...byKey.values()].map(v=>v.group);
+ cacheStorageWrite('shared-latest',{
+   ok:true,source:'verified-mediDate-anonymous-preview',
+   generatedAt:new Date(Math.max(...[...byKey.values()].map(v=>v.stamp))).toISOString(),
+   groups
+ });
+}
 async function publicBundle(){
  const key=isIgelMode()?'all':String(state.service?.id||'');
  if(key!=='all'&&!Object.hasOwn(DIRECT_SERVICE_IDS,key))throw new Error('Terminart nicht freigegeben.');
@@ -894,7 +937,10 @@ async function publicBundle(){
    throw new Error('Unvollständige Live-Verfügbarkeit.');
  live.groups=validGroups;
  const result={...live,elapsedMs:Date.now()-started,source:'mediDate-server-verified'};
- cacheStorageWrite('direct:'+keys.join(','),result);
+ // Avoid filling the browser's small localStorage with per-slot tracking proofs.
+ // An anonymous compact cache is enough for the next immediate preview.
+ cacheStorageWrite('direct:'+keys.join(','),compactClientCalendar(result));
+ rememberLatestCalendar(result);
  return result;
 }
 
