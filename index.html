@@ -808,7 +808,15 @@ function isCompleteBundle(b){
  }
  return REQUIRED_SERVICE_KEYS.every(key=>keys.has(key));
 }
-const BUILD_SEED=isCompleteBundle(window.__MEDIDATE_SEED__)?window.__MEDIDATE_SEED__:null;
+function isAnonymousCalendarSeed(bundle){
+ if(!bundle||bundle.source!=='verified-mediDate-anonymous-preview'||
+    !Array.isArray(bundle.groups)||!bundle.groups.length)return false;
+ const generated=Date.parse(bundle.generatedAt||'');
+ return Number.isFinite(generated)&&generated<=Date.now()&&bundle.groups.every(g=>
+   REQUIRED_SERVICE_KEYS.includes(String(g.serviceKey))&&
+   Array.isArray(g?.availability?.appointmentTimes));
+}
+const BUILD_SEED=isAnonymousCalendarSeed(window.__MEDIDATE_SEED__)?window.__MEDIDATE_SEED__:null;
 if(new URLSearchParams(location.search).get('debug')==='1'){
  console.info('mediDate secure availability diagnostics',{
    buildSeedComplete:Boolean(BUILD_SEED),
@@ -908,6 +916,7 @@ function cachedDirectSelection(){
  // provisional calendar regardless of age, never a confirmed booking.
  const selectionKey=serviceAvailabilityKey(),requested=selectionKey.split(',');
  const caches=[
+   BUILD_SEED,
    cacheStorageRead('direct:'+selectionKey,Number.MAX_SAFE_INTEGER),
    cacheStorageRead('shared-latest',Number.MAX_SAFE_INTEGER),
    cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER),
@@ -959,8 +968,9 @@ function fetchSharedPreview(key=sharedPreviewKey()){
 function startSelectedAvailability(){if(state.availabilityPromise)return state.availabilityPromise;state.availabilityKey=serviceAvailabilityKey();state.availabilityStartedAt=Date.now();state.availabilityPromise=publicBundle();return state.availabilityPromise}
 
 if(BUILD_SEED?.groups?.length){
- const local=cacheStorageRead('publicBundle',LOCAL_CACHE_MAX_AGE);
- if(!local||generatedTime(BUILD_SEED)>generatedTime(local))cacheStorageWrite('publicBundle',BUILD_SEED);
+ const local=cacheStorageRead('shared-latest',Number.MAX_SAFE_INTEGER);
+ if(!local||generatedTime(BUILD_SEED)>generatedTime(local))
+   cacheStorageWrite('shared-latest',BUILD_SEED);
 }
 // No background full-bundle fetch: it competed with the selected live appointment request.
 // A full live bundle is only requested when a multi-service booking requires it.
@@ -1250,12 +1260,11 @@ function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){
  }
  const count=[...days.values()].reduce((n,a)=>n+a.length,0);
  st.className='status '+(count?'ok':'');
- if(preview)state.calendarPreviewShown=true;
  st.textContent=preview
    ?CALENDAR_PREVIEW_STATUS
    :count
-     ?state.calendarPreviewShown?CALENDAR_PREVIEW_STATUS:'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.'
-     :state.calendarPreviewShown?CALENDAR_PREVIEW_STATUS:'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
+     ?'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.'
+     :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
  if(preview)st.className='status warn';
  renderMonthCalendar(false);
  renderPregnancyRequestOption(days);
@@ -1277,7 +1286,7 @@ async function loadSlots(){
  $('#slots').innerHTML='';$('#slotsStatus').textContent='';
  $('#pregnancyRequestBox').classList.add('hidden');$('#pregnancyRequestBox').innerHTML='';
  state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;
- state.availabilityPreview=false;state.previewAgeSeconds=Infinity;state.calendarPreviewShown=false;state.calendarHasShownResults=false;
+ state.availabilityPreview=false;state.previewAgeSeconds=Infinity;state.calendarHasShownResults=false;
  const loadId=state.slotLoadId=(state.slotLoadId||0)+1;
  const todayForCalendar=new Date();
  state.calendarMonth=new Date(todayForCalendar.getFullYear(),todayForCalendar.getMonth(),1);
