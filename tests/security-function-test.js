@@ -530,4 +530,16 @@ assert(index.includes("cacheStorageWrite('shared-latest',BUILD_SEED);"),
 assert(!index.includes("state.calendarPreviewShown"),
  'Live-verified dates must not keep the preliminary status');
 
+
+// OIDC-enabled Blob stores do not require legacy BLOB_* env variables.
+// The former environment-variable guard silently disabled the shared calendar.
+assert(!medidate.includes("if(!process.env.BLOB_STORE_ID&&!process.env.BLOB_READ_WRITE_TOKEN)return null;"),
+ 'Shared calendar storage must not be disabled when Vercel OIDC is used');
+assert(medidate.includes("if(!blobApiPromise)blobApiPromise=import('@vercel/blob');"),
+ 'Vercel Blob SDK must be allowed to discover project-scoped OIDC authentication');
+assert(!buildScript.includes("if(!process.env.BLOB_READ_WRITE_TOKEN)return null;"),
+ 'Build should attempt the verified provider snapshot with project OIDC');
+assert(buildScript.includes("...(process.env.BLOB_READ_WRITE_TOKEN?{token:process.env.BLOB_READ_WRITE_TOKEN}:{})"),
+ 'Build should support static tokens and tokenless OIDC');
+
 console.log('Security regression checks passed.');
