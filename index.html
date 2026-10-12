@@ -1275,6 +1275,7 @@ async function loadSlots(){
  $('#slots').innerHTML='';$('#slotsStatus').textContent='';
  $('#pregnancyRequestBox').classList.add('hidden');$('#pregnancyRequestBox').innerHTML='';
  state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;
+ state.availabilityPreview=false;state.previewAgeSeconds=Infinity;
  const loadId=state.slotLoadId=(state.slotLoadId||0)+1;
  const todayForCalendar=new Date();
  state.calendarMonth=new Date(todayForCalendar.getFullYear(),todayForCalendar.getMonth(),1);
