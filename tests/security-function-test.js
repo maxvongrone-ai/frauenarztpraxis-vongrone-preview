@@ -273,9 +273,13 @@ assert(index.includes("apiGet('liveSelection',{},40000)"),'Menopause calendar mu
 assert(!index.includes("setTimeout(()=>deploymentPublicBundle().catch(()=>{}),0);"),'Startup must not launch a competing full-bundle background request');
 // Regression: never present cached availability as confirmed slots.
 assert(index.includes("apiGet('liveService',{serviceKey:key},40000)"),'Patient calendar must use selected-service live availability');
-assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller.signal});"),'Live request must bypass browser cache');
+assert(index.includes("cache:allowEdgeReadCache?'default':'no-store'"),'Only read-only anonymous availability previews may use edge cache');
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
-assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Live availability must bypass CDN cache');
+assert(medidate.includes("{cache:'public, max-age=0, must-revalidate',cdn:'public, s-maxage=60',vercel:'public, s-maxage=60'}"),'Anonymous appointment preview cache must expire after sixty seconds');
+assert(index.includes("Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft."),'Calendar must not promise final availability from a cached preview');
+assert(index.includes("refreshPrivateNewBlockedDates(false).then(()=>true).catch(()=>false)"),'Private new-patient quota read must not delay live calendar by serial reconciliation');
+assert(index.includes("await Promise.all([startSelectedAvailability(),quotaCheck])"),'Quota check and mediDate lookup must run concurrently');
+assert(!index.includes("Das Tageskontingent für private Neupatientinnen konnte gerade nicht sicher geprüft werden."),'Quota reconciliation failure must no longer blanket-block calendar');
 assert(!index.includes("presentAvailableDays(rawFromRegularAvailability(cached)"),'Cached regular slots must not be presented');
 assert(!index.includes("presentAvailableDays(rawFromIgelGroups(cachedGroups)"),'Cached special slots must not be presented');
 
