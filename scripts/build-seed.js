@@ -3,14 +3,71 @@ const path=require('path');
 const crypto=require('crypto');
 const esbuild=require('esbuild');
 
-// V60.8.2: deployment builds are deliberately network-independent.
-// mediDate is contacted only at runtime through /api/medidate.
+// The deployment may reuse a previously verified anonymous cache, but never
+// queries mediDate during its build.
 const secretPath=path.join(process.cwd(),'api','security-secret.json');
 if(!process.env.BOOKING_TOKEN_SECRET&&!fs.existsSync(secretPath)){
   fs.writeFileSync(secretPath,JSON.stringify({secret:crypto.randomBytes(48).toString('base64url')},null,2)+'\n','utf8');
 }
 
-function buildStaticAssets(){
+// Build only from previously provider-verified, anonymous shared snapshots.
+// Build may safely continue without one; it never contacts mediDate itself.
+async function readBundledSnapshot(){
+  if(!process.env.BLOB_READ_WRITE_TOKEN)return null;
+  try{
+    const {get}=await import('@vercel/blob');
+    for(const key of ['latest','all']){
+      let timer;
+      try{
+        const blob=await Promise.race([
+          get('medidate-anonymous-preview/v2/'+key+'.json',{
+            access:'private',token:process.env.BLOB_READ_WRITE_TOKEN,useCache:false
+          }),
+          new Promise(resolve=>{timer=setTimeout(()=>resolve(null),2500)})
+        ]);
+        if(!blob||blob.statusCode!==200)continue;
+        const raw=JSON.parse(await new Response(blob.stream).text());
+        const validServices=new Set(['vorsorge','contraception','followup','breast']);
+        const validDoctors=new Set(['moxter','vongrone']);
+        const stamp=Date.parse(raw?.generatedAt||'');
+        if(raw?.source!=='verified-mediDate-anonymous-preview'||
+          !Array.isArray(raw.groups)||!Number.isFinite(stamp)||stamp>Date.now())continue;
+        const groups=raw.groups.filter(g=>
+          validServices.has(g?.serviceKey)&&Array.isArray(g.availability?.appointmentTimes))
+          .map(g=>({
+            serviceKey:g.serviceKey,
+            serviceName:String(g.serviceName||g.serviceKey),
+            verifiedAt:String(g.verifiedAt||raw.generatedAt),
+            doctorKeys:Array.isArray(g.doctorKeys)?g.doctorKeys.filter(k=>validDoctors.has(k)):[],
+            availability:{appointmentTimes:g.availability.appointmentTimes
+              .filter(r=>validDoctors.has(r?.doctorKey)&&
+                /^\d{4}-\d{2}-\d{2}/.test(String(r?.dateTimeStart||''))&&
+                Number(r.duration)===15&&Array.isArray(r.times))
+              .map(r=>({
+                dateTimeStart:String(r.dateTimeStart),duration:15,
+                doctorKey:r.doctorKey,calendarWeek:Number(r.calendarWeek||0),
+                times:r.times.filter(t=>/^([01]?\d|2[0-3])\.[0-5]\d$/.test(String(t?.time||''))&&
+                  t.direct&&Number(t.direct.clientId)>0&&Number(t.direct.locationId)>0&&
+                  Number(t.direct.serviceId)>0&&Number(t.direct.doctorId)>0)
+                  .map(t=>({time:String(t.time),direct:{
+                    clientId:Number(t.direct.clientId),locationId:Number(t.direct.locationId),
+                    serviceId:Number(t.direct.serviceId),doctorId:Number(t.direct.doctorId),
+                    listReferenzId:Number(t.direct.listReferenzId||0),
+                    calendarWeek:Number(t.direct.calendarWeek||0),duration:15
+                  }}))
+              }))}
+          }));
+        if(groups.length)return {ok:true,source:'verified-mediDate-anonymous-preview',
+          generatedAt:raw.generatedAt,groups};
+      }finally{if(timer)clearTimeout(timer)}
+    }
+  }catch(e){
+    console.warn('Anonymous calendar preload unavailable:',String(e?.message||e).slice(0,110));
+  }
+  return null;
+}
+
+async function buildStaticAssets(){
   const publicDir=path.join(process.cwd(),'public');
   fs.rmSync(publicDir,{recursive:true,force:true});
   fs.mkdirSync(publicDir,{recursive:true});
@@ -23,8 +80,11 @@ function buildStaticAssets(){
   if(!styleMatch||scriptMatches.length!==2||!scriptMatches[0][1].includes(marker))throw new Error('Booking-Assets konnten nicht sicher extrahiert werden.');
 
   fs.writeFileSync(path.join(publicDir,'styles.css'),styleMatch[1].trim()+'\n','utf8');
-  // No deployment-time slot tokens: they are generated with the deployment secret at runtime.
-  fs.writeFileSync(path.join(publicDir,'seed-data.js'),'window.__MEDIDATE_SEED__=null;\n','utf8');
+  const anonymousSeed=await readBundledSnapshot();
+  // Only anonymous, provider-verified technical free slots are bundled here.
+  // No tracking proof, patient identity or booking token is included.
+  fs.writeFileSync(path.join(publicDir,'seed-data.js'),
+    'window.__MEDIDATE_SEED__='+JSON.stringify(anonymousSeed)+';\n','utf8');
   fs.writeFileSync(path.join(publicDir,'app.js'),scriptMatches[1][1].trim()+'\n','utf8');
 
   esbuild.buildSync({
@@ -57,10 +117,10 @@ function buildStaticAssets(){
   // Explicit empty placeholder. The API treats this as "no cached bundle" and
   // fetches a fresh, server-validated bundle on first runtime request.
   fs.writeFileSync(path.join(process.cwd(),'api','seed-bundle.json'),JSON.stringify({ok:false,generatedAt:null,groups:[],runtimeBootstrap:true},null,2)+'\n','utf8');
-  console.log('Secure static build generated; mediDate runtime bootstrap enabled.');
+  console.log('Secure static build; anonymous calendar preloaded:',Boolean(anonymousSeed));
 }
 
-try{buildStaticAssets()}catch(e){
+buildStaticAssets().catch(e=>{
   console.error('Static build failed:',e?.stack||e?.message||e);
   process.exit(1);
-}
+});
