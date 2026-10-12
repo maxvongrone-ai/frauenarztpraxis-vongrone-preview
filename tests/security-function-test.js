@@ -282,7 +282,7 @@ assert(medidate.includes("const nonce=crypto.randomBytes(18).toString('base64url
 assert(index.includes("let directSessionPromise=null"),'Concurrent direct session starts should be deduplicated');
 // Regression: never present cached availability as confirmed slots.
 assert(index.includes("const live=await apiGet(key==='all'?'liveSelection':'liveService'"),'Patient availability must request fresh mediDate data while storing shared verified preview');
-assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller.signal});"),'Calendar request must bypass shared caches containing unique tracking proof nonces');
+assert(index.includes("cache:action==='snapshot'?'default':'no-store'"),'Provider availability and unique proofs bypass cache while anonymous snapshots can be CDN-cached');
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
 assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Proof-bearing live availability must never be cached across patients');
 assert(index.includes("Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft."),'Calendar must explain that last-minute changes can occur');
@@ -398,7 +398,7 @@ assert(medidate.includes("...bundle.groups.map(g=>savePreview({generatedAt:bundl
 assert(medidate.includes("t.direct&&t.direct.clientId>0"),'Cached time entries must preserve verifiable technical slot coordinates');
 assert(medidate.includes("t.time)&&"),'Cached time format must be validated');
 assert(index.includes("await fetchSharedPreview();"),'Provider failure must attempt shared preview recovery');
-assert(index.includes("Mögliche Termine aus den letzten zehn Minuten."),'Fallback status must explain that provisional slots remain visible');
+assert(index.includes("Mögliche Termine aus dem zuletzt gespeicherten Kalenderstand."),'Fallback status must explain that provisional slots remain visible');
 assert(index.includes("presentAvailableDays(rawFromIgelGroups(combined),{"),'Partial provider response must be merged with the shared snapshot');
 assert(index.includes("preview:true,ageSeconds:cached.ageSeconds"),'Mixed-freshness IGeL slots must not appear verified');
 assert(index.includes("Date.now()-sharedPreviewRequest.at<1500"),'Shared preview failures must not be cached forever in the browser');
