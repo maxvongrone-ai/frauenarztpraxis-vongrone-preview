@@ -399,7 +399,7 @@ assert(medidate.includes("...bundle.groups.map(g=>savePreview({generatedAt:bundl
 assert(medidate.includes("t.direct&&t.direct.clientId>0"),'Cached time entries must preserve verifiable technical slot coordinates');
 assert(medidate.includes("t.time)&&"),'Cached time format must be validated');
 assert(index.includes("await fetchSharedPreview();"),'Provider failure must attempt shared preview recovery');
-assert(index.includes("Mögliche Termine aus dem zuletzt gespeicherten Kalenderstand."),'Fallback status must explain that provisional slots remain visible');
+assert(index.includes("if(state.availabilityPreview){")&&index.includes("st.textContent=CALENDAR_PREVIEW_STATUS;"),'Provider refresh failure must preserve the existing preview without visible warning');
 assert(index.includes("presentAvailableDays(rawFromIgelGroups(combined),{"),'Partial provider response must be merged with the shared snapshot');
 assert(index.includes("preview:true,ageSeconds:cached.ageSeconds"),'Mixed-freshness IGeL slots must not appear verified');
 assert(index.includes("Date.now()-sharedPreviewRequest.at<1500"),'Shared preview failures must not be cached forever in the browser');
@@ -459,11 +459,11 @@ assert(index.includes('t.disabled=Boolean(state.availabilityPreview)'),'Prelimin
 
 // An older but real provider snapshot is still a useful amber calendar.
 // Browsers read it synchronously and never expose bookable times until live refresh.
-assert(index.includes("const sharedStartupPromise=fetchSharedPreview('all').catch(()=>null);"),'Cross-visitor preview must begin at initial page load');
+assert(index.includes("const sharedStartupPromise=fetchSharedPreview('latest').catch(()=>null);"),'Cross-visitor preview must begin at initial page load');
 assert(index.includes("cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER)"),'First booking selection must immediately reuse an already prefetched shared snapshot');
 assert(index.includes("void sharedStartupPromise.then(()=>adoptNewestPreview())"),'The page-start snapshot must update an already-open calendar');
 assert(index.includes("cacheStorageWrite('shared-'+key,b)"),'Fresh anonymous shared results must be retained for the next visit');
-assert(index.includes("Kalendervorschau wird im Hintergrund aktualisiert."),'Patient message must clearly explain background verification');
+assert(index.includes("const CALENDAR_PREVIEW_STATUS='Kalendervorschau wird im Hintergrund aktualisiert';"),'Patient message must show approved status only');
 assert(index.includes("state.previewAgeSeconds=preview?ageSeconds:0"),'Preview presentation must remember its actual age');
 assert(index.includes("state.availabilityPreview=false;state.previewAgeSeconds=Infinity;"),'New selection must not inherit a prior calendar preview');
 assert(!index.includes("age<0||age>previewMaxAgeMs()"),'Older known snapshots must not be dropped from patient previews');
