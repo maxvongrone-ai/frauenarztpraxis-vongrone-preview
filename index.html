@@ -880,8 +880,11 @@ async function publicBundle(){
  const started=Date.now();
  const live=await apiGet(key==='all'?'liveSelection':'liveService',key==='all'?{}:{serviceKey:key},40000);
  const keys=key==='all'?Object.keys(DIRECT_SERVICE_IDS):[key];
- if(!Array.isArray(live?.groups)||keys.some(k=>!Array.isArray(bundleGroup(live,k)?.availability?.appointmentTimes)))
+ const validGroups=Array.isArray(live?.groups)?live.groups.filter(g=>
+   keys.includes(g.serviceKey)&&Array.isArray(g?.availability?.appointmentTimes)):[];
+ if(!validGroups.length||(key!=='all'&&validGroups.length!==1))
    throw new Error('Unvollständige Live-Verfügbarkeit.');
+ live.groups=validGroups;
  const result={...live,elapsedMs:Date.now()-started,source:'mediDate-server-verified'};
  cacheStorageWrite('direct:'+keys.join(','),result);
  return result;
@@ -894,12 +897,13 @@ async function igelAvailabilityAll(){const b=await publicBundle();return {ok:tru
 function prefetchAvailability(){startSelectedAvailability().catch(()=>{})}
 function serviceAvailabilityKey(){return isIgelMode()?Object.keys(DIRECT_SERVICE_IDS).join(','):String(state.service?.id||'')}
 function cachedDirectSelection(){
- const v=cacheStorageRead('direct:'+serviceAvailabilityKey(),60000);
+ const v=cacheStorageRead('direct:'+serviceAvailabilityKey(),10*60*1000);
  if(!v||!['mediDate-browser-direct','mediDate-server-verified'].includes(v.source)||!Array.isArray(v.groups))return null;
  const age=Date.now()-Date.parse(v.generatedAt||'');
- if(!Number.isFinite(age)||age<0||age>60000)return null;
+ if(!Number.isFinite(age)||age<0||age>10*60*1000)return null;
  const keys=serviceAvailabilityKey().split(',');
- if(v.groups.length!==keys.length||!keys.every(key=>Array.isArray(bundleGroup(v,key)?.availability?.appointmentTimes)))return null;
+ const valid=v.groups.filter(g=>keys.includes(g.serviceKey)&&Array.isArray(g.availability?.appointmentTimes));
+ if(!valid.length||(!isIgelMode()&&!valid.some(g=>g.serviceKey===keys[0])))return null;
  return {bundle:v,ageSeconds:Math.ceil(age/1000)};
 }
 let sharedPreviewRequest=null;
@@ -912,8 +916,11 @@ function fetchSharedPreview(){
    const b=r?.snapshot,age=Date.now()-Date.parse(b?.generatedAt||'');
    const keys=key==='all'?Object.keys(DIRECT_SERVICE_IDS):[key];
    if(!b||b.source!=='verified-mediDate-anonymous-preview'||
-      !Number.isFinite(age)||age<0||age>300000||
-      !Array.isArray(b.groups)||keys.some(k=>!Array.isArray(bundleGroup(b,k)?.availability?.appointmentTimes)))return null;
+      !Number.isFinite(age)||age<0||age>10*60*1000||
+      !Array.isArray(b.groups)||!b.groups.length||
+      (key==='all'
+        ?!b.groups.some(g=>keys.includes(g.serviceKey)&&Array.isArray(g.availability?.appointmentTimes))
+        :keys.some(k=>!Array.isArray(bundleGroup(b,k)?.availability?.appointmentTimes))))return null;
    return {bundle:b,ageSeconds:Math.ceil(age/1000)};
  }).catch(()=>null);
  sharedPreviewRequest={key,promise};
@@ -1270,7 +1277,6 @@ async function loadSlots(){
  if(Date.now()-Number(state.availabilityStartedAt||0)>30000)state.availabilityPromise=null;
  try{
    const live=await startSelectedAvailability();
-   state.liveVerifiedLoadId=loadId;
    const quotaVerified=quotaNeeded?Boolean(state.privateNewQuotaVerified):true;
    if(state.slotLoadId!==loadId)return;
    state.privateNewQuotaVerified=quotaVerified;
@@ -1280,13 +1286,15 @@ async function loadSlots(){
      state.privateNewBlockedDates=new Set();
    }
    if(isIgelMode()){
-     if(!isCompleteBundle(live))throw new Error('Unvollständige mediDate-Antwort.');
+     if(!Array.isArray(live.groups)||!live.groups.some(g=>Array.isArray(g.availability?.appointmentTimes)))
+       throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromIgelGroups(live.groups));
    }else{
      const group=bundleGroup(live,String(state.service.id));
      if(!Array.isArray(group?.availability?.appointmentTimes))throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
    }
+   state.liveVerifiedLoadId=loadId;
    if(diagnosticMode)console.info('mediDate timings (internal only)',{
      elapsedSeconds:Math.round(Number(live?.elapsedMs||0)/100)/10,
      serviceKey:serviceAvailabilityKey(),
@@ -1316,15 +1324,34 @@ async function loadSlots(){
    }
  }catch(e){
    if(state.slotLoadId!==loadId)return;
-   state.availableDays=new Map();
-   state.selectedDay=null;state.selectedSlot=null;
-   const today=new Date();
-   state.calendarMonth=new Date(today.getFullYear(),today.getMonth(),1);
-   st.className='status bad';
-   state.availabilityPreview=false;
-   st.innerHTML='Die aktuelle Verfügbarkeit konnte nicht zuverlässig bei mediDate geprüft werden. Deshalb werden vorsorglich keine buchbaren Termine angezeigt. <button type="button" class="linkbtn" id="retryAvailability">Erneut prüfen</button>';
-   renderMonthCalendar(false);
+   // Keep the last confirmed provider snapshot from any visitor visible.
+   // On a failed refresh, never make cached times look newly confirmed.
+   if(!state.availabilityPreview){
+     const shared=await fetchSharedPreview();
+     if(state.slotLoadId!==loadId)return;
+     if(shared){
+       const key=String(state.service?.id||'');
+       const group=bundleGroup(shared.bundle,key);
+       const raw=isIgelMode()?rawFromIgelGroups(shared.bundle.groups):
+         group?rawFromRegularAvailability({availability:group.availability}):[];
+       presentAvailableDays(raw,{preview:true,ageSeconds:shared.ageSeconds});
+     }
+   }
+   if(state.availabilityPreview){
+     st.className='status warn';
+     st.innerHTML='Mögliche Termine aus den letzten zehn Minuten. Eine neue mediDate-Bestätigung ist derzeit nicht möglich; die Uhrzeiten bleiben vorläufig. <button type="button" class="linkbtn" id="retryAvailability">Erneut prüfen</button>';
+     renderMonthCalendar(false);
+   }else{
+     state.availableDays=new Map();
+     state.selectedDay=null;state.selectedSlot=null;
+     const today=new Date();
+     state.calendarMonth=new Date(today.getFullYear(),today.getMonth(),1);
+     st.className='status bad';
+     st.innerHTML='Die aktuelle Verfügbarkeit konnte nicht zuverlässig bei mediDate geprüft werden. Deshalb werden vorsorglich keine buchbaren Termine angezeigt. <button type="button" class="linkbtn" id="retryAvailability">Erneut prüfen</button>';
+     renderMonthCalendar(false);
+   }
    $('#retryAvailability').onclick=()=>{state.availabilityPromise=null;loadSlots()};
+
  }
 
 }
