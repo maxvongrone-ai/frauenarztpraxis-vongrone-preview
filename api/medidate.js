@@ -3,7 +3,7 @@
  */
 const fs=require('fs');
 const path=require('path');
-const {buildPublicBundle,bootstrap,API_BASE,SERVICE_RULES}=require('../lib/medidate-core');
+const {buildPublicBundle,buildFastPublicBundle,bootstrap,API_BASE,SERVICE_RULES}=require('../lib/medidate-core');
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 let liveBundlePromise=null;
 async function getLiveBundle(){
@@ -66,7 +66,12 @@ module.exports=async function handler(req,res){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const serviceKey=String(req.query?.serviceKey||'');
       if(!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart nicht freigegeben.'},{cache:'no-store'});
-      const bundle=await buildPublicBundle(undefined,serviceKey);
+      const bundle=await buildFastPublicBundle(serviceKey);
+      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
+    }
+    if(action==='liveSelection'){
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
+      const bundle=await buildFastPublicBundle();
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='liveBundle'){
