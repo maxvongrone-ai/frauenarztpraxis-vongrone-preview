@@ -872,25 +872,21 @@ function compactDirectAvailability(data,serviceKey,session){
  }
  return {appointmentTimes:rows};
 }
+// Live provider requests update a centrally shared, anonymous preview.
+// Patient identity is still transmitted only in the direct final booking request.
 async function publicBundle(){
- const serviceKeys=isIgelMode()?Object.keys(DIRECT_SERVICE_IDS):[String(state.service?.id||'')];
- if(serviceKeys.some(key=>!Object.hasOwn(DIRECT_SERVICE_IDS,key)))throw new Error('Terminart nicht freigegeben.');
- const requestStarted=Date.now();
- const session=await getDirectMediDateSession(false),sessionMs=Date.now()-requestStarted;
+ const key=isIgelMode()?'all':String(state.service?.id||'');
+ if(key!=='all'&&!Object.hasOwn(DIRECT_SERVICE_IDS,key))throw new Error('Terminart nicht freigegeben.');
  const started=Date.now();
- const groups=await Promise.all(serviceKeys.map(async key=>{
-   const raw=await directMediDateRequest('appointments/appointmenttimes',{query:{
-     clientid:Number(session.clientId),locationId:Number(session.locationId),
-     serviceId:DIRECT_SERVICE_IDS[key],doctorId:0
-   }});
-   return {serviceKey:key,serviceName:key,doctorKeys:Object.values(DIRECT_DOCTOR_KEYS),
-     availability:compactDirectAvailability(raw,key,session)};
- }));
- const response={ok:true,groups,generatedAt:new Date().toISOString(),elapsedMs:Date.now()-requestStarted,
-   sessionMs,mediDateMs:Date.now()-started,source:'mediDate-browser-direct'};
- cacheStorageWrite('direct:'+serviceKeys.join(','),response);
- return response;
+ const live=await apiGet(key==='all'?'liveSelection':'liveService',key==='all'?{}:{serviceKey:key},40000);
+ const keys=key==='all'?Object.keys(DIRECT_SERVICE_IDS):[key];
+ if(!Array.isArray(live?.groups)||keys.some(k=>!Array.isArray(bundleGroup(live,k)?.availability?.appointmentTimes)))
+   throw new Error('Unvollständige Live-Verfügbarkeit.');
+ const result={...live,elapsedMs:Date.now()-started,source:'mediDate-server-verified'};
+ cacheStorageWrite('direct:'+keys.join(','),result);
+ return result;
 }
+
 function networkAvailability(serviceKey){return publicBundle().then(b=>{const g=bundleGroup(b,serviceKey);if(!g?.availability)throw new Error('Für diese Leistung liegen derzeit keine Verfügbarkeitsdaten vor.');return {ok:true,availability:g.availability,source:'instant-seed'}})}
 async function regularAvailability(serviceKey){return networkAvailability(serviceKey)}
 function networkIgelAvailability(){return publicBundle().then(b=>({ok:true,groups:b.groups||[],source:'instant-seed'}))}
@@ -905,6 +901,23 @@ function cachedDirectSelection(){
  const keys=serviceAvailabilityKey().split(',');
  if(v.groups.length!==keys.length||!keys.every(key=>Array.isArray(bundleGroup(v,key)?.availability?.appointmentTimes)))return null;
  return {bundle:v,ageSeconds:Math.ceil(age/1000)};
+}
+let sharedPreviewRequest=null;
+function sharedPreviewKey(){return isIgelMode()?'all':String(state.service?.id||'')}
+function fetchSharedPreview(){
+ const key=sharedPreviewKey();
+ if(key!=='all'&&!Object.hasOwn(DIRECT_SERVICE_IDS,key))return Promise.resolve(null);
+ if(sharedPreviewRequest?.key===key)return sharedPreviewRequest.promise;
+ const promise=apiGet('snapshot',{serviceKey:key},4200).then(r=>{
+   const b=r?.snapshot,age=Date.now()-Date.parse(b?.generatedAt||'');
+   const keys=key==='all'?Object.keys(DIRECT_SERVICE_IDS):[key];
+   if(!b||b.source!=='verified-mediDate-anonymous-preview'||
+      !Number.isFinite(age)||age<0||age>300000||
+      !Array.isArray(b.groups)||keys.some(k=>!Array.isArray(bundleGroup(b,k)?.availability?.appointmentTimes)))return null;
+   return {bundle:b,ageSeconds:Math.ceil(age/1000)};
+ }).catch(()=>null);
+ sharedPreviewRequest={key,promise};
+ return promise;
 }
 function startSelectedAvailability(){if(state.availabilityPromise)return state.availabilityPromise;state.availabilityKey=serviceAvailabilityKey();state.availabilityStartedAt=Date.now();state.availabilityPromise=publicBundle();return state.availabilityPromise}
 
@@ -1036,6 +1049,7 @@ function chooseService(s,b,mode){
 
  // Einmalige Slotabfrage startet sofort; die Arztauswahl ist rein lokal.
  prefetchAvailability();
+ void fetchSharedPreview();
  loadDoctors();
 }
 
@@ -1194,7 +1208,6 @@ function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){
      ?'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.'
      :'Für Ihre Auswahl sind derzeit keine freien Termine verfügbar.';
  if(preview)st.className='status warn';
- if(state.lastTimingDiagnostics)st.textContent+=' '+state.lastTimingDiagnostics;
  renderMonthCalendar(false);
  renderPregnancyRequestOption(days);
  if(state.selectedDay){
@@ -1214,7 +1227,7 @@ async function loadSlots(){
  const st=$('#calendarStatus'),cal=$('#calendar');cal.innerHTML='';
  $('#slots').innerHTML='';$('#slotsStatus').textContent='';
  $('#pregnancyRequestBox').classList.add('hidden');$('#pregnancyRequestBox').innerHTML='';
- state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;state.lastTimingDiagnostics='';
+ state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;
  const loadId=state.slotLoadId=(state.slotLoadId||0)+1;
  const todayForCalendar=new Date();
  state.calendarMonth=new Date(todayForCalendar.getFullYear(),todayForCalendar.getMonth(),1);
@@ -1231,6 +1244,14 @@ async function loadSlots(){
      rawFromRegularAvailability({availability:bundleGroup(quick.bundle,String(state.service.id)).availability});
    presentAvailableDays(previewRaw,{preview:true,ageSeconds:quick.ageSeconds});
  }
+ void fetchSharedPreview().then(shared=>{
+   if(!shared||state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;
+   if(quick&&quick.ageSeconds<=shared.ageSeconds)return;
+   const b=shared.bundle;
+   const raw=isIgelMode()?rawFromIgelGroups(b.groups):
+     rawFromRegularAvailability({availability:bundleGroup(b,String(state.service.id)).availability});
+   presentAvailableDays(raw,{preview:true,ageSeconds:shared.ageSeconds});
+ }).catch(()=>{});
 
  // Start the live schedule and the lightweight quota read together.
  // A slow or failing quota reconciliation must never block the entire calendar.
@@ -1249,6 +1270,7 @@ async function loadSlots(){
  if(Date.now()-Number(state.availabilityStartedAt||0)>30000)state.availabilityPromise=null;
  try{
    const live=await startSelectedAvailability();
+   state.liveVerifiedLoadId=loadId;
    const quotaVerified=quotaNeeded?Boolean(state.privateNewQuotaVerified):true;
    if(state.slotLoadId!==loadId)return;
    state.privateNewQuotaVerified=quotaVerified;
@@ -1265,14 +1287,12 @@ async function loadSlots(){
      if(!Array.isArray(group?.availability?.appointmentTimes))throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
    }
-   if(diagnosticMode){
-     const totalFromService=Math.round((Date.now()-Number(state.availabilityStartedAt||Date.now()))/100)/10;
-     const serverMs=Number(live?.elapsedMs);
-     const backend=Number.isFinite(serverMs)?(serverMs/1000).toFixed(1)+' s (direkt mediDate)':'unbekannt';
-     const quotaTime=((quotaFinishedAt-quotaStartedAt)/1000).toFixed(1);
-     state.lastTimingDiagnostics='[Diagnose: Gesamtabruf '+backend+', Sitzung '+((Number(live?.sessionMs)||0)/1000).toFixed(1)+' s, mediDate-Termine '+((Number(live?.mediDateMs)||0)/1000).toFixed(1)+' s, ab Leistungswahl '+totalFromService.toFixed(1)+' s, Tageskontingent '+quotaTime+' s, Kontingent '+(quotaVerified?'OK':'nicht abrufbar')+']';
-     $('#calendarStatus').textContent+=' '+state.lastTimingDiagnostics;
-   }
+   if(diagnosticMode)console.info('mediDate timings (internal only)',{
+     elapsedSeconds:Math.round(Number(live?.elapsedMs||0)/100)/10,
+     serviceKey:serviceAvailabilityKey(),
+     quotaSeconds:Math.round((quotaFinishedAt-quotaStartedAt)/100)/10,
+     quotaVerified
+   });
    if(quotaNeeded){
      void quotaCheck.then(ok=>{
        if(!ok||state.slotLoadId!==loadId)return;
