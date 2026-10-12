@@ -48,7 +48,7 @@ assert(index.includes("privateNewBookingStarted=true")&&index.includes("confirmP
 assert(index.includes("privateNewBlockedDates.has(String(x.date||''))"),'Already occupied PKV-new days must be removed from visible slots');
 assert(privateNewQuota.includes("const PREFIX='medidate-private-new-daily/v1/days/'"),'Daily quota must use its own private Blob namespace');
 assert(privateNewQuota.includes("allowOverwrite:Boolean(allowOverwrite)")&&privateNewQuota.includes("writeMarker(marker,false)"),'Daily reservation creation must be non-overwriting to prevent concurrent double booking');
-assert(privateNewQuota.includes("buildPublicBundle"),'Daily quota must reconcile cancellations against live mediDate availability');
+assert(privateNewQuota.includes("buildFastPublicBundle"),'Daily quota must reconcile cancellations against fast live mediDate availability');
 assert(!/firstName|lastName|birthDate|eMailAddress|email/i.test(privateNewQuota),'Daily quota endpoint must not process patient identity/contact data');
 assert(dashboardJs.includes("action','admin-sync"),'Encrypted practice dashboard must synchronize existing active PKV new bookings into the daily quota without identity data');
 assert(dashboardJs.includes("eventType:'pvs_booking_detected'"),'Dashboard must persist direct Praxis/PVS disappearance events only after browser-side comparison');
