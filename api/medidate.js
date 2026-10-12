@@ -6,6 +6,60 @@ const fs=require('fs');
 const path=require('path');
 const {buildPublicBundle,buildFastPublicBundle,bootstrap,API_BASE,SERVICE_RULES,readSecret}=require('../lib/medidate-core');
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
+// Shared preview contains only service/doctor identifiers and anonymous free slots.
+// Tracking nonces, proofs, bearer tokens and personal data MUST NOT enter Blob.
+const PREVIEW_PREFIX='medidate-anonymous-preview/v1/';
+const PREVIEW_MAX_AGE_MS=5*60*1000;
+let blobApiPromise=null;
+async function optionalBlob(){
+  if(!process.env.BLOB_STORE_ID&&!process.env.BLOB_READ_WRITE_TOKEN)return null;
+  if(!blobApiPromise)blobApiPromise=import('@vercel/blob');
+  return blobApiPromise;
+}
+function previewPath(serviceKey){return PREVIEW_PREFIX+serviceKey+'.json'}
+function sanitizePreview(bundle,serviceKey){
+  const groups=(bundle.groups||[]).map(g=>({
+    serviceKey:g.serviceKey,serviceName:g.serviceName,
+    doctorKeys:Array.isArray(g.doctorKeys)?g.doctorKeys:[],
+    availability:{appointmentTimes:(g.availability?.appointmentTimes||[]).map(r=>({
+      dateTimeStart:r.dateTimeStart,duration:r.duration,doctorKey:r.doctorKey,calendarWeek:r.calendarWeek,
+      times:(r.times||[]).map(t=>({
+        time:String(t.time||''),
+        direct:t.direct?{
+          clientId:Number(t.direct.clientId),locationId:Number(t.direct.locationId),
+          serviceId:Number(t.direct.serviceId),doctorId:Number(t.direct.doctorId),
+          listReferenzId:Number(t.direct.listReferenzId),calendarWeek:Number(t.direct.calendarWeek||0),
+          duration:Number(t.direct.duration)
+        }:null
+      })).filter(t=>/^([01]?\\d|2[0-3])\\.[0-5]\\d$/.test(t.time)&&t.direct)
+    }))}
+  }));
+  return {ok:true,source:'verified-mediDate-anonymous-preview',serviceKey,
+    generatedAt:String(bundle.generatedAt||new Date().toISOString()),groups};
+}
+async function savePreview(bundle,serviceKey){
+  try{
+    const blob=await optionalBlob();if(!blob)return;
+    const safe=sanitizePreview(bundle,serviceKey);
+    await blob.put(previewPath(serviceKey),JSON.stringify(safe),{
+      access:'private',contentType:'application/json; charset=utf-8',
+      addRandomSuffix:false,allowOverwrite:true
+    });
+  }catch(e){console.warn('Preview storage unavailable',String(e?.message||e).slice(0,120))}
+}
+async function readPreview(serviceKey){
+  try{
+    const blob=await optionalBlob();if(!blob)return null;
+    const r=await blob.get(previewPath(serviceKey),{access:'private',useCache:false});
+    if(!r||r.statusCode!==200)return null;
+    const safe=JSON.parse(await new Response(r.stream).text());
+    const age=Date.now()-Date.parse(safe?.generatedAt||'');
+    if(safe?.source!=='verified-mediDate-anonymous-preview'||safe?.serviceKey!==serviceKey||
+      !Array.isArray(safe.groups)||!Number.isFinite(age)||age<0||age>PREVIEW_MAX_AGE_MS)return null;
+    if(safe.groups.some(g=>!Array.isArray(g.availability?.appointmentTimes)))return null;
+    return {...safe,ageSeconds:Math.ceil(age/1000)};
+  }catch(e){return null}
+}
 let liveBundlePromise=null;
 async function getLiveBundle(){
   if(liveBundlePromise)return liveBundlePromise;
@@ -63,6 +117,13 @@ module.exports=async function handler(req,res){
       }
       return send(res,200,{ok:true,...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=60',cdn:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600',vercel:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600'});
     }
+    if(action==='snapshot'){
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
+      const serviceKey=String(req.query?.serviceKey||'');
+      if(serviceKey!=='all'&&!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart ungültig.'});
+      const snapshot=await readPreview(serviceKey);
+      return send(res,200,{ok:true,available:Boolean(snapshot),snapshot},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
+    }
     if(action==='trackingProof'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       // Issue a single, unique, short-lived, content-free tracking token. This
@@ -78,11 +139,13 @@ module.exports=async function handler(req,res){
       const serviceKey=String(req.query?.serviceKey||'');
       if(!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart nicht freigegeben.'},{cache:'no-store'});
       const bundle=await buildFastPublicBundle(serviceKey);
+      await savePreview(bundle,serviceKey);
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='liveSelection'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const bundle=await buildFastPublicBundle();
+      await savePreview(bundle,'all');
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='liveBundle'){
