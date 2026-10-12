@@ -362,4 +362,16 @@ assert(calendarStatus.textContent.includes('keine freien Termine'),'No availabil
  patientChoice.onclick();
  assert(smokeNodes.get('#services').children.length>=4,'Choosing insurance and patient must render service buttons');
 
+
+// Quick-preview regression: never turn a stale client snapshot into bookable green slots.
+assert(index.includes("cacheStorageRead('direct:'+serviceAvailabilityKey(),60000)"),'Only direct-mediDate availability less than 60 seconds old may be previewed');
+assert(index.includes("source:'mediDate-browser-direct'"),'Only provider-confirmed responses are eligible for preview cache');
+assert(index.includes("presentAvailableDays(previewRaw,{preview:true,ageSeconds:quick.ageSeconds})"),'Recent cache must be rendered as a provisional preview');
+assert(index.includes("btn.classList.add(state.availabilityPreview?'preview':'available')"),'Unverified dates must never appear green');
+assert(index.includes("t.disabled=Boolean(state.availabilityPreview)"),'Unverified times must never allow opening a booking form');
+assert(index.includes("if(!state.availabilityPreview)t.onclick=()=>openBooking(x)"),'Booking buttons must only be wired after fresh mediDate confirmation');
+assert(index.includes("state.availabilityPreview=false;"),'Failed live checks must clear preliminary bookability');
+assert(index.includes("const session=await getDirectMediDateSession(false),sessionMs=Date.now()-requestStarted;"),'Timing diagnostics must separate token session from mediDate schedule');
+assert(index.includes("mediDate-Termine '+((Number(live?.mediDateMs)||0)/1000)"),'Diagnostic details must include provider timings');
+
 console.log('Security regression checks passed.');
