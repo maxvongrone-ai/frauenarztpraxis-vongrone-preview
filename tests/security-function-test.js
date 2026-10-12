@@ -364,7 +364,7 @@ assert(calendarStatus.textContent.includes('keine freien Termine'),'No availabil
 
 
 // Quick-preview regression: never turn a stale client snapshot into bookable green slots.
-assert(index.includes("cacheStorageRead('direct:'+serviceAvailabilityKey(),previewMaxAgeMs())"),'Local preview must use Berlin-local day/night TTL');
+assert(index.includes("cacheStorageRead('direct:'+selectionKey,Number.MAX_SAFE_INTEGER)"),'Always present the last known local provider snapshot as preliminary data');
 assert(index.includes("source:'mediDate-server-verified'"),'Only provider-confirmed responses are eligible for preview cache');
 assert(index.includes("presentAvailableDays(previewRaw,{preview:true,ageSeconds:quick.ageSeconds})"),'Recent cache must be rendered as a provisional preview');
 assert(index.includes("btn.classList.add(state.availabilityPreview?'preview':'available')"),'Unverified dates must never appear green');
@@ -380,10 +380,10 @@ assert(medidate.includes("if(action==='snapshot'){"),'Anonymous preview endpoint
 assert(medidate.includes("access:'private',contentType:'application/json; charset=utf-8'"),'Snapshots must be stored privately');
 assert(medidate.includes("time:String(t.time||'')"),'Snapshot must carry anonymized free times');
 assert(!medidate.includes("trackingProof:t.trackingProof"),'No per-user proof is allowed in the shared cache');
-assert(medidate.includes("const PREVIEW_DAY_MAX_AGE_MS=60*60*1000")&&medidate.includes("const PREVIEW_NIGHT_MAX_AGE_MS=6*60*60*1000")&&medidate.includes("age>previewMaxAgeMs()"),'Shared snapshot must use 60 minutes daytime and six hours overnight');
-assert(index.includes("void fetchSharedPreview().then(shared=>"),'Patient calendar must attempt a fast cross-visitor preview');
-assert(index.includes("if(!shared||state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;"),'Late preview must not overwrite confirmed live data');
-assert(index.includes("presentAvailableDays(raw,{preview:true,ageSeconds:shared.ageSeconds})"),'Server cache must only be presented as a preliminary preview');
+assert(medidate.includes("olderThanPreferredWindow:age>previewMaxAgeMs()"),'Server may identify older-than-preferred snapshots without hiding them');
+assert(index.includes("void fetchSharedPreview().then(()=>adoptNewestPreview())"),'Patient calendar must adopt a cross-visitor preview asynchronously');
+assert(index.includes("if(state.slotLoadId!==loadId||state.liveVerifiedLoadId===loadId)return;"),'Late preview must not overwrite confirmed live data');
+assert(index.includes("presentAvailableDays(raw,{preview:true,ageSeconds:latest.ageSeconds})"),'Server cache must only be presented as a preliminary preview');
 assert(!index.includes("$('#calendarStatus').textContent+=' '+state.lastTimingDiagnostics"),'Patient view must contain no technical statistics');
 
 
@@ -454,5 +454,19 @@ assert(medidate.includes("cdn:'public, s-maxage=30'"),'Only anonymous provider p
 assert(index.includes("if(state.service===selectedService)prefetchAvailability()"),'Slow live refresh must start after shared preview request');
 assert(!index.includes('Mögliche Termine aus den letzten zehn Minuten.'),'Patient fallback text must not promise outdated ten-minute limit');
 assert(index.includes('t.disabled=Boolean(state.availabilityPreview)'),'Preliminary time buttons remain disabled');
+
+
+// An older but real provider snapshot is still a useful amber calendar.
+// Browsers read it synchronously and never expose bookable times until live refresh.
+assert(index.includes("const sharedStartupPromise=fetchSharedPreview('all').catch(()=>null);"),'Cross-visitor preview must begin at initial page load');
+assert(index.includes("cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER)"),'First booking selection must immediately reuse an already prefetched shared snapshot');
+assert(index.includes("void sharedStartupPromise.then(()=>adoptNewestPreview())"),'The page-start snapshot must update an already-open calendar');
+assert(index.includes("cacheStorageWrite('shared-'+key,b)"),'Fresh anonymous shared results must be retained for the next visit');
+assert(index.includes("Kalendervorschau wird im Hintergrund aktualisiert."),'Patient message must clearly explain background verification');
+assert(index.includes("state.previewAgeSeconds=preview?ageSeconds:0"),'Preview presentation must remember its actual age');
+assert(index.includes("state.availabilityPreview=false;state.previewAgeSeconds=Infinity;"),'New selection must not inherit a prior calendar preview');
+assert(!index.includes("age<0||age>previewMaxAgeMs()"),'Older known snapshots must not be dropped from patient previews');
+assert(medidate.includes("!Number.isFinite(age)||age<0)return null"),'Snapshot must retain old provider data while rejecting invalid timestamps');
+assert(medidate.includes("verifiedAt:new Date(generated).toISOString()"),'Shared service aggregation must preserve per-service age');
 
 console.log('Security regression checks passed.');
