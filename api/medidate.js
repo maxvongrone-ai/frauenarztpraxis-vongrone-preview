@@ -9,7 +9,7 @@ const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 // Shared preview contains only service/doctor identifiers and anonymous free slots.
 // Tracking nonces, proofs, bearer tokens and personal data MUST NOT enter Blob.
 const PREVIEW_PREFIX='medidate-anonymous-preview/v1/';
-const PREVIEW_MAX_AGE_MS=5*60*1000;
+const PREVIEW_MAX_AGE_MS=10*60*1000;
 let blobApiPromise=null;
 async function optionalBlob(){
   if(!process.env.BLOB_STORE_ID&&!process.env.BLOB_READ_WRITE_TOKEN)return null;
@@ -31,7 +31,9 @@ function sanitizePreview(bundle,serviceKey){
           listReferenzId:Number(t.direct.listReferenzId),calendarWeek:Number(t.direct.calendarWeek||0),
           duration:Number(t.direct.duration)
         }:null
-      })).filter(t=>/^([01]?\\d|2[0-3])\\.[0-5]\\d$/.test(t.time)&&t.direct)
+      })).filter(t=>/^([01]?\d|2[0-3])\.[0-5]\d$/.test(t.time)&&
+        t.direct&&t.direct.clientId>0&&t.direct.locationId>0&&
+        t.direct.serviceId>0&&t.direct.doctorId>0)
     }))}
   }));
   return {ok:true,source:'verified-mediDate-anonymous-preview',serviceKey,
@@ -60,6 +62,33 @@ async function readPreview(serviceKey){
     return {...safe,ageSeconds:Math.ceil(age/1000)};
   }catch(e){return null}
 }
+async function readCombinedPreview(){
+  // The four services are cached independently. Any visitor who requests one
+  // of them makes it immediately reusable for the menopause appointment search.
+  const keys=SERVICE_RULES.map(rule=>rule.key);
+  const [combined,...individual]=await Promise.all([
+    readPreview('all'),...keys.map(readPreview)
+  ]);
+  const groups=[],times=[];
+  for(const key of keys){
+    let winner=null,generated=0;
+    for(const source of [combined,...individual]){
+      if(!source)continue;
+      const group=(source.groups||[]).find(g=>g.serviceKey===key);
+      const t=Date.parse(source.generatedAt||'');
+      if(group&&Array.isArray(group.availability?.appointmentTimes)&&t>generated){
+        winner=group;generated=t;
+      }
+    }
+    if(winner){groups.push(winner);times.push(generated)}
+  }
+  if(!groups.length)return null;
+  const generatedAt=new Date(Math.min(...times)).toISOString();
+  return {ok:true,available:true,source:'verified-mediDate-anonymous-preview',
+    serviceKey:'all',generatedAt,ageSeconds:Math.ceil((Date.now()-Date.parse(generatedAt))/1000),
+    groups,partial:groups.length<keys.length};
+}
+
 let liveBundlePromise=null;
 async function getLiveBundle(){
   if(liveBundlePromise)return liveBundlePromise;
@@ -121,7 +150,7 @@ module.exports=async function handler(req,res){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const serviceKey=String(req.query?.serviceKey||'');
       if(serviceKey!=='all'&&!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart ungültig.'});
-      const snapshot=await readPreview(serviceKey);
+      const snapshot=serviceKey==='all'?await readCombinedPreview():await readPreview(serviceKey);
       return send(res,200,{ok:true,available:Boolean(snapshot),snapshot},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='trackingProof'){
@@ -145,7 +174,12 @@ module.exports=async function handler(req,res){
     if(action==='liveSelection'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const bundle=await buildFastPublicBundle();
-      await savePreview(bundle,'all');
+      // Persist each successful service even when a different service failed.
+      // Partial responses remain provider-confirmed for these services only.
+      await Promise.all([
+        savePreview(bundle,'all'),
+        ...bundle.groups.map(g=>savePreview({generatedAt:bundle.generatedAt,groups:[g]},g.serviceKey))
+      ]);
       return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='liveBundle'){
