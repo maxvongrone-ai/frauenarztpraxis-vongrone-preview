@@ -1087,13 +1087,10 @@ function chooseService(s,b,mode){
  serviceStatus.className='status';
  serviceStatus.textContent='';
 
- // The single latest snapshot has already been requested on page load.
- // Query the selected service only if that snapshot lacks its calendar.
- void sharedStartupPromise.then(()=>{
-   const key=isIgelMode()?'all':String(state.service?.id||'');
-   const warm=cachedDirectSelection();
-   if(!warm||(key!=='all'&&!bundleGroup(warm.bundle,key)))void fetchSharedPreview();
- }).catch(()=>{});
+ // The last known cross-visitor snapshot is already loading from page start.
+ // Also start a selected-service snapshot immediately; whichever is available
+ // first can populate the calendar without waiting for mediDate.
+ void fetchSharedPreview();
  loadDoctors();
  const selectedService=s;
  setTimeout(()=>{
@@ -1239,14 +1236,17 @@ function presentAvailableDays(raw,{preview=false,ageSeconds=0}={}){
  state.availableDays=days;state.availabilityPreview=Boolean(preview);
  state.previewAgeSeconds=preview?ageSeconds:0;
  const nextDate=[...days.keys()].sort()[0]||'';
- // On each selection open the month containing the earliest allowed free appointment.
- // If the search has no free appointments, keep the current month and usual notice.
- if(nextDate){
-   const [y,m]=nextDate.split('-').map(Number);
-   state.calendarMonth=new Date(y,m-1,1);
- }else{
-   const now=new Date();
-   state.calendarMonth=new Date(now.getFullYear(),now.getMonth(),1);
+ // Keep the displayed month stable when fresh results arrive in the background.
+ // Only the first successful preview/live response jumps to the earliest free month.
+ if(!state.calendarHasShownResults){
+   if(nextDate){
+     const [y,m]=nextDate.split('-').map(Number);
+     state.calendarMonth=new Date(y,m-1,1);
+   }else{
+     const now=new Date();
+     state.calendarMonth=new Date(now.getFullYear(),now.getMonth(),1);
+   }
+   if(nextDate)state.calendarHasShownResults=true;
  }
  const count=[...days.values()].reduce((n,a)=>n+a.length,0);
  st.className='status '+(count?'ok':'');
@@ -1277,7 +1277,7 @@ async function loadSlots(){
  $('#slots').innerHTML='';$('#slotsStatus').textContent='';
  $('#pregnancyRequestBox').classList.add('hidden');$('#pregnancyRequestBox').innerHTML='';
  state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;
- state.availabilityPreview=false;state.previewAgeSeconds=Infinity;state.calendarPreviewShown=false;
+ state.availabilityPreview=false;state.previewAgeSeconds=Infinity;state.calendarPreviewShown=false;state.calendarHasShownResults=false;
  const loadId=state.slotLoadId=(state.slotLoadId||0)+1;
  const todayForCalendar=new Date();
  state.calendarMonth=new Date(todayForCalendar.getFullYear(),todayForCalendar.getMonth(),1);
