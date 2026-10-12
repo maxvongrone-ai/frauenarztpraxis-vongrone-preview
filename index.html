@@ -1189,9 +1189,12 @@ async function loadSlots(){
  // Start the live schedule and the lightweight quota read together.
  // A slow or failing quota reconciliation must never block the entire calendar.
  const quotaNeeded=isPrivateNewDailyLimited();
- const quotaCheck=quotaNeeded
+ const diagnosticMode=new URLSearchParams(location.search).get('debug')==='1';
+ const quotaStartedAt=Date.now();
+ let quotaFinishedAt=quotaStartedAt;
+ const quotaCheck=(quotaNeeded
    ?refreshPrivateNewBlockedDates(false).then(()=>true).catch(()=>false)
-   :Promise.resolve(true);
+   :Promise.resolve(true)).finally(()=>{quotaFinishedAt=Date.now()});
  st.textContent=quotaNeeded
    ?'Termine und Tageskontingent werden gleichzeitig geladen …'
    :'Verfügbarkeit wird geladen …';
@@ -1213,6 +1216,13 @@ async function loadSlots(){
      const group=bundleGroup(live,String(state.service.id));
      if(!Array.isArray(group?.availability?.appointmentTimes))throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
+   }
+   if(diagnosticMode){
+     const totalFromService=Math.round((Date.now()-Number(state.availabilityStartedAt||Date.now()))/100)/10;
+     const serverMs=Number(live?.elapsedMs);
+     const backend=Number.isFinite(serverMs)?(serverMs/1000).toFixed(1)+' s':'unbekannt';
+     const quotaTime=((quotaFinishedAt-quotaStartedAt)/1000).toFixed(1);
+     $('#calendarStatus').textContent+=' [Diagnose: mediDate-Server '+backend+', ab Leistungswahl '+totalFromService.toFixed(1)+' s, Tageskontingent '+quotaTime+' s, Kontingent '+(quotaVerified?'OK':'nicht abrufbar')+']';
    }
    if(quotaNeeded){
      if(!quotaVerified){
