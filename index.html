@@ -827,7 +827,47 @@ if(new URLSearchParams(location.search).get('debug')==='1'){
 function cacheStorageRead(key,maxAge){
  try{const raw=localStorage.getItem(PUBLIC_CACHE_PREFIX+key);if(!raw)return null;const x=JSON.parse(raw);if(!x||!x.at||Date.now()-x.at>maxAge)return null;return x.value}catch{return null}
 }
-function cacheStorageWrite(key,value){try{localStorage.setItem(PUBLIC_CACHE_PREFIX+key,JSON.stringify({at:Date.now(),value}))}catch{}}
+// Keep one current anonymous local preview instead of several multi-MB copies.
+// Report failures only in internal diagnostics, never in the patient calendar.
+function cacheStorageWrite(key,value){
+ const cacheKey=PUBLIC_CACHE_PREFIX+key;
+ let serialized;
+ try{serialized=JSON.stringify({at:Date.now(),value})}catch{return false}
+ try{localStorage.setItem(cacheKey,serialized);return true}
+ catch(e){
+   if(key==='shared-latest'){
+     // First remove redundant new-format per-service copies; keep the older
+     // signed publicBundle intact until the new safe snapshot is saved.
+     try{
+       const keys=[];
+       for(let i=0;i<localStorage.length;i++){
+         const k=localStorage.key(i);
+         if(k?.startsWith(PUBLIC_CACHE_PREFIX+'direct:'))keys.push(k);
+       }
+       for(const k of keys)localStorage.removeItem(k);
+       localStorage.setItem(cacheKey,serialized);
+       return true;
+     }catch{}
+   }
+   if(new URLSearchParams(location.search).get('debug')==='1')
+     console.warn('mediDate local calendar could not be saved',key,String(e?.name||'storage unavailable'));
+   return false;
+ }
+}
+function pruneLegacyCalendarCopies(){
+ try{
+   for(const key of ['publicBundle','shared-all','shared-vorsorge','shared-contraception',
+     'shared-followup','shared-breast']){
+     localStorage.removeItem(PUBLIC_CACHE_PREFIX+key);
+   }
+   const keys=[];
+   for(let i=0;i<localStorage.length;i++){
+     const k=localStorage.key(i);
+     if(k?.startsWith(PUBLIC_CACHE_PREFIX+'direct:'))keys.push(k);
+   }
+   for(const k of keys)localStorage.removeItem(k);
+ }catch{}
+}
 function generatedTime(x){const t=new Date(x?.generatedAt||0).getTime();return Number.isFinite(t)?t:0}
 function bestImmediateBundle(){
  const rawLocal=cacheStorageRead('publicBundle',LOCAL_CACHE_MAX_AGE);
@@ -905,8 +945,9 @@ function rememberLatestCalendar(bundle){
  const snapshot=compactClientCalendar(bundle);
  if(!snapshot.groups.length)return;
  const existing=cacheStorageRead('shared-latest',Number.MAX_SAFE_INTEGER);
+ const olderAll=cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER);
  const byKey=new Map();
- for(const c of [existing,snapshot]){
+ for(const c of [olderAll,existing,snapshot]){
    if(!c||!Array.isArray(c.groups))continue;
    for(const g of c.groups){
      if(!REQUIRED_SERVICE_KEYS.includes(g.serviceKey)||
@@ -919,11 +960,11 @@ function rememberLatestCalendar(bundle){
  }
  if(!byKey.size)return;
  const groups=[...byKey.values()].map(v=>v.group);
- cacheStorageWrite('shared-latest',{
+ if(cacheStorageWrite('shared-latest',{
    ok:true,source:'verified-mediDate-anonymous-preview',
    generatedAt:new Date(Math.max(...[...byKey.values()].map(v=>v.stamp))).toISOString(),
    groups
- });
+ }))pruneLegacyCalendarCopies();
 }
 async function publicBundle(){
  const key=isIgelMode()?'all':String(state.service?.id||'');
@@ -939,7 +980,6 @@ async function publicBundle(){
  const result={...live,elapsedMs:Date.now()-started,source:'mediDate-server-verified'};
  // Avoid filling the browser's small localStorage with per-slot tracking proofs.
  // An anonymous compact cache is enough for the next immediate preview.
- cacheStorageWrite('direct:'+keys.join(','),compactClientCalendar(result));
  rememberLatestCalendar(result);
  return result;
 }
@@ -1010,7 +1050,7 @@ function fetchSharedPreview(key=sharedPreviewKey()){
       (key==='all'||key==='latest'
         ?!b.groups.some(g=>keys.includes(g.serviceKey)&&Array.isArray(g.availability?.appointmentTimes))
         :keys.some(k=>!Array.isArray(bundleGroup(b,k)?.availability?.appointmentTimes))))return null;
-   cacheStorageWrite('shared-'+key,b);
+   rememberLatestCalendar(b);
    return {bundle:b,ageSeconds:Math.ceil(age/1000)};
  }).catch(()=>null);
  sharedPreviewRequest={key,promise,at:Date.now()};
