@@ -3,7 +3,7 @@
  */
 const fs=require('fs');
 const path=require('path');
-const {buildPublicBundle,bootstrap,API_BASE}=require('../lib/medidate-core');
+const {buildPublicBundle,bootstrap,API_BASE,SERVICE_RULES}=require('../lib/medidate-core');
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
 let liveBundlePromise=null;
 async function getLiveBundle(){
@@ -62,10 +62,17 @@ module.exports=async function handler(req,res){
       }
       return send(res,200,{ok:true,...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=60',cdn:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600',vercel:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600'});
     }
+    if(action==='liveService'){
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
+      const serviceKey=String(req.query?.serviceKey||'');
+      if(!SERVICE_RULES.some(rule=>rule.key===serviceKey))return send(res,400,{ok:false,error:'Terminart nicht freigegeben.'},{cache:'no-store'});
+      const bundle=await buildPublicBundle(undefined,serviceKey);
+      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
+    }
     if(action==='liveBundle'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
       const bundle=await getLiveBundle();
-      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'public, max-age=30, stale-while-revalidate=120',cdn:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600',vercel:'public, s-maxage=600, stale-while-revalidate=900, stale-if-error=21600'});
+      return send(res,200,{...bundle,elapsedMs:Date.now()-started},{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
     }
     return send(res,404,{ok:false,error:'Unbekannte oder nicht freigegebene Aktion.'});
   }catch(e){
