@@ -514,7 +514,7 @@ assert(buildScript.includes("JSON.stringify(anonymousSeed)"),
  'Static seed-data.js must contain the last-known provider result when available');
 assert(buildScript.includes("medidate-anonymous-preview/v2/"),
  'Bundle preload must use the same private snapshot namespace as the provider API');
-assert(buildScript.includes("access:'private',token:process.env.BLOB_READ_WRITE_TOKEN"),
+assert(buildScript.includes("access:'private',useCache:false,")&&buildScript.includes("process.env.BLOB_READ_WRITE_TOKEN"),
  'Build may read only its authorized private Blob');
 assert(buildScript.includes("validServices.has(g?.serviceKey)")&&
  buildScript.includes("validDoctors.has(r?.doctorKey)"),
