@@ -451,7 +451,7 @@ for(const [label,time,expected] of [
   assert.strictEqual(frontendClock.getTtl(timestamp),expected,'Frontend Berlin cache window: '+label);
 }
 assert(index.includes("cache:action==='snapshot'?'default':'no-store'"),'Only anonymous preview may use CDN read cache');
-assert(medidate.includes("cdn:'public, s-maxage=30'"),'Only anonymous provider preview is cached briefly at the edge');
+assert(medidate.includes("cdn:'public, s-maxage=600, stale-while-revalidate=3600, stale-if-error=86400'"),'Only anonymous provider preview may use the fast CDN while live availability remains no-store');
 assert(index.includes("if(state.service===selectedService)prefetchAvailability()"),'Slow live refresh must start after shared preview request');
 assert(!index.includes('Mögliche Termine aus den letzten zehn Minuten.'),'Patient fallback text must not promise outdated ten-minute limit');
 assert(index.includes('t.disabled=Boolean(state.availabilityPreview)'),'Preliminary time buttons remain disabled');
@@ -573,4 +573,21 @@ assert(!JSON.stringify(compactSample).includes('private-proof')&&
  'Local calendar must not persist HMAC proofs or per-request nonces');
 
 assert(!index.includes('Kalendervorschau wird im Hintergrund aktualisiert'),'Remove the interim calendar status');
+
+// Restore Oct 11's instant patient-facing calendar without reverting newer
+// business rules: consult local publicBundle synchronously and SANITIZE its
+// legacy signed slots before presenting them provisionally.
+assert(index.includes("const legacy=cacheStorageRead('publicBundle',Number.MAX_SAFE_INTEGER);"),
+ 'Previously fetched Oct 11 calendar must be consulted before any network call');
+assert(index.includes("const legacyPreview=legacy?.groups?.length?compactClientCalendar(legacy):null;"),
+ 'Legacy signed calendar entries must be reduced to anonymous preview values');
+assert(index.includes("   legacyPreview,"),
+ 'Previous calendar must participate in the immediate-availability lookup');
+assert(index.includes("   BUILD_SEED,"),
+ 'Safe deployment snapshot must still be consulted first');
+assert(index.includes("if(!state.availabilityPreview)t.onclick=()=>openBooking(x)"),
+ 'Cached slots must not be bookable before current provider verification');
+assert(medidate.includes("cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'"),
+ 'Proof-bearing live provider results must never use the public CDN cache');
+
 console.log('Security regression checks passed.');
