@@ -261,8 +261,18 @@ assert(duplicateTest.pvsDisappearanceExplained('2026-12-21|513|735',duplicateTes
 assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,duration:15},pvsAt('12.15')]).length,2,'A 15-minute booking must not hide the following unrelated PVS slot');
 assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,bookingStatus:'released'},pvsAt('12.15')]).length,2,'Released bookings must not hide independent PVS events');
 
+// Performance regression: the fast endpoints request only fresh free/busy slots.
+assert(core.includes('async function buildFastPublicBundle(onlyServiceKey=null)'),'Fast live schedule path must exist');
+assert(core.includes('const FAST_SERVICE_IDS=Object.freeze({vorsorge:1950,contraception:1952,followup:1973,breast:1974})'),'Fast path must use allow-listed service IDs');
+assert(core.includes('const FAST_DOCTOR_IDS=Object.freeze({moxter:512,vongrone:513})'),'Fast path must use known doctor IDs');
+assert(core.includes('await Promise.all(keys.map(async key=>'),'Multi-service schedule checks must run concurrently');
+assert(core.includes('const s=await bootstrap(false);'),'Fast fetch must keep validated practice/session bootstrap');
+assert(medidate.includes("await buildFastPublicBundle(serviceKey)"),'Selected service must use fast provider schedule checks');
+assert(medidate.includes("if(action==='liveSelection'){"),'Combined IGeL service availability must have fast endpoint');
+assert(index.includes("apiGet('liveSelection',{},40000)"),'Menopause calendar must use fast parallel availability');
+assert(!index.includes("setTimeout(()=>deploymentPublicBundle().catch(()=>{}),0);"),'Startup must not launch a competing full-bundle background request');
 // Regression: never present cached availability as confirmed slots.
-assert(index.includes("apiGet('liveService',{serviceKey:key},65000)"),'Patient calendar must use selected-service live availability');
+assert(index.includes("apiGet('liveService',{serviceKey:key},40000)"),'Patient calendar must use selected-service live availability');
 assert(index.includes("const r=await fetch(u,{cache:'no-store',signal:controller.signal});"),'Live request must bypass browser cache');
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
 assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Live availability must bypass CDN cache');
