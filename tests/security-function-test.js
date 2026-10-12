@@ -285,7 +285,7 @@ assert(index.includes("const live=await apiGet(key==='all'?'liveSelection':'live
 assert(index.includes("cache:action==='snapshot'?'default':'no-store'"),'Provider availability and unique proofs bypass cache while anonymous snapshots can be CDN-cached');
 assert(medidate.includes("if(action==='liveService'){"),'Selected-service live endpoint must be enabled');
 assert(medidate.includes("{cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'}"),'Proof-bearing live availability must never be cached across patients');
-assert(index.includes("Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft."),'Calendar must explain that last-minute changes can occur');
+assert(index.includes("Termin wird direkt bei mediDate geprüft und gebucht"),'Final booking must still verify directly with mediDate');
 assert(index.includes("refreshPrivateNewBlockedDates(false).then(()=>{state.privateNewQuotaVerified=true;return true})"),'Private new-patient quota read must start independently of live calendar');
 assert(index.includes("const live=await startSelectedAvailability();")&&index.includes("void quotaCheck.then(ok=>"),'Day quota must not block the browser-direct calendar');
 assert(!index.includes("Das Tageskontingent für private Neupatientinnen konnte gerade nicht sicher geprüft werden."),'Quota reconciliation failure must no longer blanket-block calendar');
@@ -399,7 +399,7 @@ assert(medidate.includes("...bundle.groups.map(g=>savePreview({generatedAt:bundl
 assert(medidate.includes("t.direct&&t.direct.clientId>0"),'Cached time entries must preserve verifiable technical slot coordinates');
 assert(medidate.includes("t.time)&&"),'Cached time format must be validated');
 assert(index.includes("await fetchSharedPreview();"),'Provider failure must attempt shared preview recovery');
-assert(index.includes("if(state.availabilityPreview){")&&index.includes("st.textContent=CALENDAR_PREVIEW_STATUS;"),'Provider refresh failure must preserve the existing preview without visible warning');
+assert(index.includes("if(state.availabilityPreview){")&&index.includes("Verfügbarkeitsstand geladen. Wählen Sie einen markierten Tag."),'Provider refresh failure must preserve the existing preview');
 assert(index.includes("presentAvailableDays(rawFromIgelGroups(combined),{"),'Partial provider response must be merged with the shared snapshot');
 assert(index.includes("preview:true,ageSeconds:cached.ageSeconds"),'Mixed-freshness IGeL slots must not appear verified');
 assert(index.includes("Date.now()-sharedPreviewRequest.at<1500"),'Shared preview failures must not be cached forever in the browser');
@@ -463,7 +463,7 @@ assert(index.includes("const sharedStartupPromise=fetchSharedPreview('latest').c
 assert(index.includes("cacheStorageRead('shared-all',Number.MAX_SAFE_INTEGER)"),'First booking selection must immediately reuse an already prefetched shared snapshot');
 assert(index.includes("void sharedStartupPromise.then(()=>adoptNewestPreview())"),'The page-start snapshot must update an already-open calendar');
 assert(index.includes("cacheStorageWrite('shared-'+key,b)"),'Fresh anonymous shared results must be retained for the next visit');
-assert(index.includes("const CALENDAR_PREVIEW_STATUS='Kalendervorschau wird im Hintergrund aktualisiert';"),'Patient message must show approved status only');
+assert(index.includes("const CALENDAR_LOADING_STATUS='Verfügbarkeit wird geladen …';"),'Use yesterday initial notice');
 assert(index.includes("state.previewAgeSeconds=preview?ageSeconds:0"),'Preview presentation must remember its actual age');
 assert(index.includes("state.availabilityPreview=false;state.previewAgeSeconds=Infinity;"),'New selection must not inherit a prior calendar preview');
 assert(!index.includes("age<0||age>previewMaxAgeMs()"),'Older known snapshots must not be dropped from patient previews');
@@ -473,11 +473,11 @@ assert(medidate.includes("verifiedAt:new Date(generated).toISOString()"),'Shared
 
 // No technical progress, cache-age disclosures or background-refresh errors
 // are exposed once an anonymous provider snapshot is available.
-assert(index.includes("const CALENDAR_PREVIEW_STATUS='Kalendervorschau wird im Hintergrund aktualisiert';"),
- 'Patient-facing calendar text must match approved wording');
+assert(index.includes("Verfügbarkeitsstand geladen. Wählen Sie einen markierten Tag.")&&index.includes("Wählen Sie einen grünen Tag mit verfügbaren Terminen."),
+ 'Use yesterday preview and available notices');
 assert(!index.includes("previewAgeLabel(ageSeconds)"),'Never display snapshot age');
 assert(!index.includes("Letzter bekannter Stand: vor "), 'Never disclose snapshot age in patient view');
-assert(index.includes("st.textContent=preview")&&index.includes("?CALENDAR_PREVIEW_STATUS"),'Only preliminary snapshots show the background refresh label');
+assert(index.includes("Im letzten verfügbaren Datenstand sind für diese Auswahl keine freien Termine sichtbar."),'Use yesterday no-cached-slots notice');
 assert(index.includes("if(!state.calendarHasShownResults){"),'Background updates must preserve the month');
 assert(index.includes("void fetchSharedPreview();\n loadDoctors();"),'Selected snapshots should fetch without blocking doctor choice');
 assert(index.includes("fetchSharedPreview('latest').catch(()=>null)"),'Single shared snapshot must load at page startup');
@@ -495,15 +495,15 @@ const quietCtx=vm.createContext({
  state:quietState,$:()=>quietStatus,buildAvailableDays:x=>x,
  renderMonthCalendar:()=>{},renderPregnancyRequestOption:()=>{},
  renderTimesForDay:()=>{},Date,Map,
- CALENDAR_PREVIEW_STATUS:'Kalendervorschau wird im Hintergrund aktualisiert'
+ CALENDAR_LOADING_STATUS:'Verfügbarkeit wird geladen …'
 });
 vm.runInContext(index.slice(presenterStart,presenterEnd)+'\nglobalThis.renderQuiet=presentAvailableDays;',quietCtx);
 quietCtx.renderQuiet(new Map([['2027-03-10',[{time:'11.00'}]]]),{preview:true,ageSeconds:500000});
-assert.strictEqual(quietStatus.textContent,'Kalendervorschau wird im Hintergrund aktualisiert');
+assert.strictEqual(quietStatus.textContent,'Verfügbarkeitsstand geladen. Wählen Sie einen markierten Tag.');
 quietState.calendarMonth=new Date(2027,4,1);
 quietCtx.renderQuiet(new Map([['2027-02-01',[{time:'12.00'}]]]));
 assert.strictEqual(quietState.calendarMonth.getMonth(),4,'Live update must preserve user-chosen month');
-assert.strictEqual(quietStatus.textContent,'Wählen Sie einen grünen Tag. Der Termin wird vor der Buchung noch einmal direkt bei mediDate geprüft.');
+assert.strictEqual(quietStatus.textContent,'Wählen Sie einen grünen Tag mit verfügbaren Terminen.');
 
 
 // Deployment builds must actually embed a prior anonymous verified snapshot
@@ -572,4 +572,5 @@ assert(!JSON.stringify(compactSample).includes('private-proof')&&
  !JSON.stringify(compactSample).includes('private-nonce'),
  'Local calendar must not persist HMAC proofs or per-request nonces');
 
+assert(!index.includes('Kalendervorschau wird im Hintergrund aktualisiert'),'Remove the interim calendar status');
 console.log('Security regression checks passed.');
