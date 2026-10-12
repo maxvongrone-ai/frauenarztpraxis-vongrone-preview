@@ -542,4 +542,34 @@ assert(!buildScript.includes("if(!process.env.BLOB_READ_WRITE_TOKEN)return null;
 assert(buildScript.includes("...(process.env.BLOB_READ_WRITE_TOKEN?{token:process.env.BLOB_READ_WRITE_TOKEN}:{})"),
  'Build should support static tokens and tokenless OIDC');
 
+
+// Browser caches a compact, patient-free last known provider schedule, not the
+// enormous, per-request signed proofs. This is a prerequisite for fast reloads.
+assert(index.includes("cacheStorageWrite('direct:'+keys.join(','),compactClientCalendar(result));"),
+ 'Selected provider result must be stored in anonymous compact form');
+assert(index.includes("rememberLatestCalendar(result);"),
+ 'Every successful selected fetch must refresh the instant local latest cache');
+assert(index.includes("cacheStorageWrite('shared-latest',{"),
+ 'The browser must keep a cross-service local index');
+const compactStart=index.indexOf('function compactClientCalendar(bundle){');
+const compactEnd=index.indexOf('function rememberLatestCalendar(bundle){',compactStart);
+assert(compactStart>=0&&compactEnd>compactStart,'Client-side anonymous sanitizer must exist');
+const compactContext=vm.createContext({REQUIRED_SERVICE_KEYS:['vorsorge','contraception','followup','breast']});
+vm.runInContext(index.slice(compactStart,compactEnd)+
+ '\nglobalThis.compactTest=compactClientCalendar;',compactContext);
+const compactSample=compactContext.compactTest({
+ generatedAt:'2026-10-12T18:00:00.000Z',
+ groups:[{serviceKey:'vorsorge',serviceName:'Vorsorge',doctorKeys:['vongrone'],
+ availability:{appointmentTimes:[{
+ dateTimeStart:'2026-10-14T00:00:00',doctorKey:'vongrone',
+ duration:15,calendarWeek:42,
+ times:[{time:'12.00',trackingNonce:'private-nonce',trackingProof:'private-proof',
+ direct:{clientId:1,locationId:2,serviceId:1950,doctorId:513,listReferenzId:9,
+ calendarWeek:42,duration:15}}]}]}}]
+});
+assert.strictEqual(compactSample.groups[0].availability.appointmentTimes[0].times.length,1);
+assert(!JSON.stringify(compactSample).includes('private-proof')&&
+ !JSON.stringify(compactSample).includes('private-nonce'),
+ 'Local calendar must not persist HMAC proofs or per-request nonces');
+
 console.log('Security regression checks passed.');
