@@ -219,11 +219,34 @@ async function replaceEncryptedEvent(storageRef,envelope){
   });
 }
 
+async function deleteEncryptedEvent(storageRef,eventId){
+  ensureBlobConfigured();
+  const ref=String(storageRef||'');
+  const filename=ref.startsWith(TRACKING_PREFIX)?ref.slice(TRACKING_PREFIX.length):'';
+  if(!/^[a-z0-9-]{36,75}\.json$/.test(filename))throw new Error('Ungültiger Tracking-Speicherverweis.');
+  const id=String(eventId||'');
+  if(!/^[0-9a-f-]{36}$/i.test(id))throw new Error('Ungültige Ereignis-ID.');
+  const {get,del}=await blobApi();
+  const current=await get(ref,{access:'private',useCache:false}).catch(()=>null);
+  if(!current||current.statusCode!==200)return false;
+  let existing;
+  try{existing=validateEnvelope(JSON.parse(await streamToText(current.stream)))}catch{throw new Error('Tracking-Datensatz ist beschädigt.')}
+  if(existing.id!==id)throw new Error('Tracking-Datensatz stimmt nicht überein.');
+  await del(ref);
+  return true;
+}
+
 module.exports=async function handler(req,res){
   try{
     if(req.method==='POST'){
       if(!browserSameOrigin(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
       const body=await readJsonBody(req);
+
+      if(String(req.query?.action||'')==='delete'){
+        if(!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});
+        const deleted=await deleteEncryptedEvent(body?.storageRef,body?.eventId);
+        return send(res,deleted?200:404,{ok:deleted,deleted});
+      }
 
       if(String(req.query?.action||'')==='replace'){
         if(!authorized(req))return send(res,401,{ok:false,error:'Nicht autorisiert.'});

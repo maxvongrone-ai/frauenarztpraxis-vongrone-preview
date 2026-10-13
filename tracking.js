@@ -452,6 +452,40 @@ async function reconcileAll(opts={}){
  await reconcilePvsBookings(opts);
  try{await syncPrivateNewDailyQuota()}catch{}
 }
+// Einmalige, auf zwei Sekunden-genaue Zeitstempel eingegrenzte Entfernung der
+// ausdrücklich als Test gekennzeichneten und bereits freigegebenen Buchung.
+function berlinSecond(value){
+ const ms=Date.parse(String(value||''));
+ if(!Number.isFinite(ms))return '';
+ const parts=new Intl.DateTimeFormat('en-GB',{
+   timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit',
+   hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'
+ }).formatToParts(new Date(ms));
+ const p={};for(const x of parts)if(x.type!=='literal')p[x.type]=x.value;
+ return p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute+':'+p.second;
+}
+async function deleteRequestedTestBooking(events,auth){
+ const matches=events.filter(e=>
+   e?.eventType==='booking_completed'&&e.route==='PKV'&&e.patientType==='existing'&&
+   String(e.serviceName||'').trim()==='Vorsorge'&&effectiveDoctorId(e)===512&&
+   Number(e.duration)===15&&e.bookingStatus==='released'&&
+   e.releaseEvidence==='slot_reappeared_in_medidate'&&
+   berlinSecond(e.recordedAt)==='2026-10-13T09:44:50'&&
+   berlinSecond(e.releaseDetectedAt)==='2026-10-13T10:05:01'
+ );
+ if(matches.length===0)return {events,notice:''};
+ if(matches.length!==1)throw new Error('Testeintrag nicht eindeutig; keine Löschung ausgeführt.');
+ const event=matches[0],ref=String(event._storageRef||'');
+ if(!ref||!/^[0-9a-f-]{36}$/i.test(String(event.eventId||'')))throw new Error('Ungültiger Speicherverweis für den Testeintrag.');
+ const url=new URL('/api/tracking',location.origin);url.searchParams.set('action','delete');
+ const r=await fetch(url,{method:'POST',cache:'no-store',credentials:'same-origin',
+   headers:{'Content-Type':'application/json','X-MediDate-Tracking-Key':auth},
+   body:JSON.stringify({storageRef:ref,eventId:event.eventId})});
+ const j=await r.json().catch(()=>null);
+ if(!r.ok||!j?.deleted)throw new Error(j?.error||'Testeintrag konnte im Blob-Speicher nicht gelöscht werden.');
+ return {events:events.filter(e=>e!==event),notice:' · Testbuchung vom 13.10.2026 gelöscht'};
+}
+
 async function load(){
  const secret=secretParts();$('#status').className='muted';$('#status').textContent='Lädt und entschlüsselt …';
  if(!secret.auth||!secret.decrypt){$('#status').className='muted bad';$('#status').textContent='Ungültige Auswertungs-URL: Zugangs- oder Entschlüsselungsschlüssel fehlt.';return}
@@ -465,8 +499,11 @@ async function load(){
     const batch=await Promise.all((j.events||[]).slice(i,i+50).map(x=>decryptEnvelope(x,priv)));
     events.push(...batch);
   }
-  current=events;currentRetention=j.retentionDays;currentStorage=j.storage;currentMigration=j.migration;
-  render(current,currentRetention,currentStorage,currentMigration);
+  let cleaned={events,notice:''};
+  try{cleaned=await deleteRequestedTestBooking(events,secret.auth)}
+  catch(error){cleaned.notice=' · Testeintrag nicht gelöscht: '+(error?.message||'unbekannter Fehler')}
+  current=cleaned.events;currentRetention=j.retentionDays;currentStorage=j.storage;currentMigration=j.migration;
+  render(current,currentRetention,currentStorage,currentMigration,cleaned.notice);
   await reconcileAll();
  }catch(e){
   $('#status').className='muted bad';
