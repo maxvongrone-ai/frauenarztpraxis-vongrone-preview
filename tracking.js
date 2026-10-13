@@ -461,7 +461,7 @@ const TEST_BOOKING_RECORDED_AT='13.10.2026,09:44:50';
 function reportTimestamp(value){
  const d=new Date(value);
  if(!Number.isFinite(d.getTime()))return '';
- return d.toLocaleString('de-DE',{timeZone:'Europe/Berlin'}).replace(/\\s/g,'').replace(/\\u202f/g,'');
+ return d.toLocaleString('de-DE',{timeZone:'Europe/Berlin'}).replace(/\s/g,'');
 }
 function isTestBookingRow(event){
  const e=event||{};
