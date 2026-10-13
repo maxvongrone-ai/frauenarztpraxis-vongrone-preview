@@ -1516,6 +1516,11 @@ async function loadSlots(){
      st.textContent=[...(state.availableDays?.values()||[])].some(slots=>slots.length)
        ?'Verfügbarkeitsstand geladen. Wählen Sie einen markierten Tag.'
        :'Im letzten verfügbaren Datenstand sind für diese Auswahl keine freien Termine sichtbar.';
+     if(state.selectedDay){
+       const slotsStatus=$('#slotsStatus');
+       slotsStatus.className='status warn';
+       slotsStatus.textContent='Aktuelle Verfügbarkeit konnte nicht geprüft werden.';
+     }
      renderMonthCalendar(false);
    }else{
      state.availableDays=new Map();
@@ -1611,9 +1616,9 @@ function renderTimesForDay(day){
  const d=new Date(day+'T12:00:00');
  $('#chosenDay').textContent=new Intl.DateTimeFormat('de-DE',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(d);
  const list=(state.availableDays?.get(day)||[]).slice().sort((a,b)=>a.time.localeCompare(b.time));
- st.className='status '+(state.availabilityPreview?'warn':list.length?'ok':'');
+ st.className='status '+(state.availabilityPreview?'':list.length?'ok':'');
  st.textContent=state.availabilityPreview
-   ?'Wählen Sie eine Uhrzeit. Die Verfügbarkeit wird vor der verbindlichen Buchung direkt bei mediDate geprüft.'
+   ?'Verfügbarkeit wird gerade geprüft.'
    :list.length?'Wählen Sie eine Uhrzeit.':'An diesem Tag ist inzwischen kein Termin mehr verfügbar.';
  const times=document.createElement('div');times.className='times';const seen=new Set();
  for(const x of list){
