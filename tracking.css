@@ -5,3 +5,14 @@
 .test-delete-button{display:block;margin-top:6px;padding:5px 8px;font-size:12px;border:1px solid #bb7b7b;border-radius:5px;background:#fff;color:#8c2121;cursor:pointer}
 .test-delete-button:hover{background:#fff3f3}
 .test-delete-button:disabled{opacity:.5;cursor:wait}
+
+/* Privacy-preserving filters for each table column. */
+.table-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:10px 0 14px}
+.table-controls button{padding:7px 12px;font-size:13px}
+.column-filter{display:block;width:100%;min-width:98px;max-width:195px;margin-top:7px;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit;font-size:12px;cursor:pointer}
+.column-filter:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.column-filter.has-filter{border-color:var(--accent);background:var(--soft);font-weight:600}
+thead th{vertical-align:top}
+thead th:first-child .column-filter{min-width:130px}
+thead th:nth-child(4) .column-filter{min-width:165px}
+@media(max-width:620px){.table-controls{align-items:flex-start}.column-filter{min-width:105px}}

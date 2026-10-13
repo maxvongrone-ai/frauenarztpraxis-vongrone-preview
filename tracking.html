@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <title>Praxis – interne Buchungsauswertung</title>
-<link rel="stylesheet" href="/tracking.css">
+<link rel="stylesheet" href="/tracking.css?v=60.11.1">
 </head>
 <body><div class="wrap">
 <section class="panel">
@@ -27,7 +27,8 @@
 </section>
 <section class="panel hidden" id="tablePanel">
 <h2>Buchungen und Praxis/PVS-Belegungen</h2>
-<div class="table-wrap"><table><thead><tr><th>Termin</th><th>Buchungspfad</th><th>Patientenstatus</th><th>Buchungsstatus</th><th>Terminart</th><th>Ärztin</th><th>Dauer</th><th>erfasst</th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="table-controls"><span id="tableCount" class="muted" aria-live="polite">Alle Datensätze</span><button type="button" id="clearFilters" disabled>Filter zurücksetzen</button></div>
+<div class="table-wrap"><table><thead><tr><th scope="col"><span>Termin</span><select class="column-filter" data-filter="appointment" aria-label="Termin filtern"><option value="">Alle</option></select></th><th scope="col"><span>Buchungspfad</span><select class="column-filter" data-filter="route" aria-label="Buchungspfad filtern"><option value="">Alle</option></select></th><th scope="col"><span>Patientenstatus</span><select class="column-filter" data-filter="patient" aria-label="Patientenstatus filtern"><option value="">Alle</option></select></th><th scope="col"><span>Buchungsstatus</span><select class="column-filter" data-filter="status" aria-label="Buchungsstatus filtern"><option value="">Alle</option></select></th><th scope="col"><span>Terminart</span><select class="column-filter" data-filter="service" aria-label="Terminart filtern"><option value="">Alle</option></select></th><th scope="col"><span>Ärztin</span><select class="column-filter" data-filter="doctor" aria-label="Ärztin filtern"><option value="">Alle</option></select></th><th scope="col"><span>Dauer</span><select class="column-filter" data-filter="duration" aria-label="Dauer filtern"><option value="">Alle</option></select></th><th scope="col"><span>Erfasst</span><select class="column-filter" data-filter="recorded" aria-label="Erfasst filtern"><option value="">Alle</option></select></th></tr></thead><tbody id="rows"></tbody></table></div>
 </section>
 </div>
-<script src="/botid-client.js?v=60.10.10"></script><script src="/tracking.js?v=60.10.20" defer></script></body></html>
+<script src="/botid-client.js?v=60.10.10"></script><script src="/tracking.js?v=60.11.1" defer></script></body></html>

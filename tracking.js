@@ -19,6 +19,75 @@ const deDate=iso=>String(iso||'').split('-').reverse().join('.');
 const routeName=r=>r==='PKV'?'Privatversicherte / Selbstzahler':r==='GKV'?'Gesetzlich Versicherte':r==='SELF'?'Besondere Selbstzahlerleistungen':r==='PVS'?'Praxisprogramm / PVS':r;
 const patientName=p=>p==='existing'?'Bestandspatientin':p==='new'?'Neupatientin':'';
 
+const COLUMN_FILTER_DEFS=Object.freeze([
+ {key:'appointment',label:'Termin'}, {key:'route',label:'Buchungspfad'},
+ {key:'patient',label:'Patientenstatus'}, {key:'status',label:'Buchungsstatus'},
+ {key:'service',label:'Terminart'}, {key:'doctor',label:'Ärztin'},
+ {key:'duration',label:'Dauer'}, {key:'recorded',label:'Erfasst'}
+]);
+const columnFilters=Object.create(null);
+let filteredTrackingRows=[];
+const berlinRecordedDay=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'});
+function columnValue(e,key){
+ switch(key){
+  case 'appointment':return String(e.appointmentDate||'')||'—';
+  case 'route':return routeName(e.route)||'—';
+  case 'patient':return patientName(e.patientType)||'—';
+  case 'status':return bookingStatus(e);
+  case 'service':return String(e.serviceName||'—');
+  case 'doctor':return String(e.doctorName||'—');
+  case 'duration':return String(e.duration??'—');
+  case 'recorded':{
+   const date=new Date(e.recordedAt);
+   return Number.isFinite(date.getTime())?berlinRecordedDay.format(date):'—';
+  }
+  default:return '';
+ }
+}
+function columnValueLabel(key,value){
+ if((key==='appointment'||key==='recorded')&&/^\d{4}-\d{2}-\d{2}$/.test(value))return deDate(value);
+ if(key==='duration'&&value!=='—')return value+' Min.';
+ return value;
+}
+function applyColumnFilters(events){
+ const active=COLUMN_FILTER_DEFS.filter(d=>columnFilters[d.key]);
+ return active.length?events.filter(e=>active.every(d=>columnValue(e,d.key)===columnFilters[d.key])):events;
+}
+function updateColumnFilters(events){
+ const collator=new Intl.Collator('de',{numeric:true,sensitivity:'base'});
+ for(const def of COLUMN_FILTER_DEFS){
+  const select=document.querySelector('.column-filter[data-filter="'+def.key+'"]');
+  if(!select)continue;
+  const counts=new Map();
+  for(const e of events){
+   const key=columnValue(e,def.key);
+   counts.set(key,(counts.get(key)||0)+1);
+  }
+  const selected=columnFilters[def.key]||'';
+  const options=[new Option('Alle ('+events.length+')','')];
+  const values=[...counts.keys()].sort((a,b)=>
+   (def.key==='appointment'||def.key==='recorded')?b.localeCompare(a):collator.compare(a,b));
+  for(const value of values){
+   options.push(new Option(columnValueLabel(def.key,value)+' ('+counts.get(value)+')',value));
+  }
+  if(selected&&!counts.has(selected))options.push(new Option(columnValueLabel(def.key,selected)+' (0)',selected));
+  select.replaceChildren(...options);
+  select.value=selected;
+  select.classList.toggle('has-filter',!!selected);
+  select.onchange=()=>{
+   if(select.value)columnFilters[def.key]=select.value;
+   else delete columnFilters[def.key];
+   render();
+  };
+ }
+ const filtered=applyColumnFilters(events);
+ const count=Object.keys(columnFilters).length;
+ $('#tableCount').textContent=count?filtered.length+' von '+events.length+' Datensätzen · '+count+' Filter aktiv':events.length+' Datensätze · keine Filter aktiv';
+ $('#clearFilters').disabled=!count;
+ return filtered;
+}
+
+
 function b64urlToBytes(s){
  let x=String(s||'').replace(/-/g,'+').replace(/_/g,'/');
  while(x.length%4)x+='=';
@@ -179,6 +248,7 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  current=(events||[]).slice().sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
  currentRetention=retention;currentStorage=storage;currentMigration=migration;
  const visible=visibleTrackingEvents(current);
+ filteredTrackingRows=updateColumnFilters(visible);
  $('#nAll').textContent=visible.length;
  $('#nPkv').textContent=visible.filter(x=>x.route==='PKV').length;
  $('#nGkv').textContent=visible.filter(x=>x.route==='GKV').length;
@@ -186,11 +256,11 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  $('#nReleased').textContent=visible.filter(x=>x.bookingStatus==='released').length;
  $('#nPvs').textContent=visible.filter(x=>x?.eventType==='pvs_booking_detected').length;
  $('#nPrivateConsultation').textContent=visible.filter(isPrivateConsultation).length;
- $('#rows').innerHTML=visible.map(x=>{
+ $('#rows').innerHTML=filteredTrackingRows.map(x=>{
    const bs=bookingStatus(x),detail=statusDetail(x),released=x.bookingStatus==='released',pvs=x?.eventType==='pvs_booking_detected';
    const rowClass=pvs&&!released?' class="pvs-row"':'';
    return `<tr${rowClass}><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType)||'—')}</td><td class="${released?'released':(pvs?'pvs':'')}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td>${esc(x.serviceName||'—')}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}${isTestBookingRow(x)?`<button type="button" class="test-delete-button" data-test-delete="${esc(String(x.eventId||''))}">Diesen Testeintrag löschen</button>`:''}</td></tr>`;
- }).join('')||'<tr><td colspan="8" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
+ }).join('')||'<tr><td colspan="8" class="muted">'+(visible.length?'Keine Datensätze für diese Filterauswahl.':'Noch keine Tracking-Datensätze.')+'</td></tr>';
  $('#rows').querySelectorAll('[data-test-delete]').forEach(button=>{
   button.addEventListener('click',()=>deleteSelectedTestRow(String(button.dataset.testDelete||'')));
  });
@@ -199,7 +269,8 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  const mig=Number(migration?.migrated||0)>0?` · ${migration.migrated} Alt-Datensätze verschlüsselt migriert`:'';
  const chk=lastStatusCheck?` · Status-Prüfung: ${new Date(lastStatusCheck).toLocaleString('de-DE')}`:'';
  const combined=current.length-visible.length;
- $('#status').className='muted';$('#status').textContent=`${visible.length} Datensätze angezeigt${combined?' · '+combined+' PVS-Doppelmeldungen zusammengeführt':''} · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}${chk}${testDeleteNotice}${extra}`;
+ const filteredNote=Object.keys(columnFilters).length?` · gefiltert: ${filteredTrackingRows.length} von ${visible.length}`:'';
+ $('#status').className='muted';$('#status').textContent=`${visible.length} Datensätze geladen${filteredNote}${combined?' · '+combined+' PVS-Doppelmeldungen zusammengeführt':''} · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}${chk}${testDeleteNotice}${extra}`;
 }
 let sessionCache=null;
 async function mediDateSession(force=false){
@@ -540,13 +611,14 @@ async function load(){
 function csv(){
  const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Buchungsstatus','Statusdetail','Terminart','Ärztin','Dauer Minuten','Erfasst'];
  const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
- const lines=[head,...visibleTrackingEvents(current).map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),bookingStatus(x),statusDetail(x),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
+ const lines=[head,...filteredTrackingRows.map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),bookingStatus(x),statusDetail(x),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
  const blob=new Blob(['\ufeff'+lines],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');
  a.href=u;a.download='medidate-buchungsauswertung.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
 }
 $('#currentUrl').textContent=location.href;
 $('#copyUrl').onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$('#copyUrl').textContent='Kopiert';setTimeout(()=>$('#copyUrl').textContent='URL kopieren',1200)}catch{}};
 $('#reload').onclick=load;$('#reconcile').onclick=()=>reconcileAll({manual:true});$('#csv').onclick=csv;
+$('#clearFilters').onclick=()=>{for(const key of Object.keys(columnFilters))delete columnFilters[key];render()};
 setInterval(()=>{if(!document.hidden)reconcileAll()},60*60*1000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-lastStatusCheck>60*60*1000)reconcileAll()});
 load();
