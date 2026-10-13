@@ -44,7 +44,8 @@ assert(tracking.includes("replaceEncryptedEvent"),'Tracking API must only overwr
 assert(tracking.includes("deleteEncryptedEvent")&&tracking.includes("await del(ref)"),'Tracking API must provide authenticated opaque Blob deletion');
 assert(tracking.includes("String(req.query?.action||'')==='delete'")&&tracking.includes("if(!authorized(req))return send(res,401"),'Tracking deletion must require authorization');
 assert(dashboardJs.includes("matches.length!==1")&&dashboardJs.includes("action','delete'"),'Requested test deletion must require a unique browser-decrypted match');
-assert(dashboardJs.includes("berlinSecond(e.recordedAt)==='2026-10-13T09:44:50'")&&dashboardJs.includes("berlinSecond(e.releaseDetectedAt)==='2026-10-13T10:05:01'"),'Requested test deletion must match both exact timestamps');
+assert(dashboardJs.includes("reportTimestamp(event.recordedAt)===TEST_BOOKING_RECORDED_AT"),'Requested test deletion must match the displayed booking creation timestamp');
+assert(dashboardJs.includes("function deleteSelectedTestRow")&&dashboardJs.includes('data-test-delete'),'Requested test deletion must also offer a direct per-row action');
 assert(!tracking.includes("appointmentDate:String(body"),'Tracking API must not receive plaintext appointment metadata during reconciliation');
 assert(index.includes("function isPrivateNewDailyLimited()")&&index.includes("state.insurance==='PKV'&&state.patientType==='new'"),'Private-new daily limit must apply only to PKV new patients');
 assert(index.includes("reservePrivateNewDay(state.selectedSlot)"),'PKV new booking must reserve its calendar day before the mediDate POST');
@@ -102,7 +103,7 @@ assert(!dashboard.includes('<style>')&&!dashboard.includes('<script>'),'Tracking
 assert(!admin.includes('<style>')&&!admin.includes('<script>'),'Admin page must not contain inline style/script blocks');
 assert(!dashboard.includes('style=')&&!admin.includes('style='),'Strict-CSP internal pages must not use inline style attributes');
 assert(dashboard.includes('/tracking.css')&&dashboard.includes('/tracking.js'),'Tracking page assets must be external');
-assert(dashboard.includes('/tracking.js?v=60.10.19'),'Tracking dashboard must cache-bust tracking.js');
+assert(dashboard.includes('/tracking.js?v=60.10.20'),'Tracking dashboard must cache-bust tracking.js');
 assert(dashboard.includes('/botid-client.js?v=60.10.10'),'Tracking dashboard must cache-bust BotID client');
 assert(admin.includes('/admin.css')&&admin.includes('/admin.js'),'Admin page assets must be external');
 assert(index.includes("const MENOPAUSE_DOCTOR_KEY='vongrone'"),'Menopause doctor must be fixed to Dr. von Grone');

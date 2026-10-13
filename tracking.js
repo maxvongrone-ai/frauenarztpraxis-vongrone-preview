@@ -189,14 +189,17 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  $('#rows').innerHTML=visible.map(x=>{
    const bs=bookingStatus(x),detail=statusDetail(x),released=x.bookingStatus==='released',pvs=x?.eventType==='pvs_booking_detected';
    const rowClass=pvs&&!released?' class="pvs-row"':'';
-   return `<tr${rowClass}><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType)||'—')}</td><td class="${released?'released':(pvs?'pvs':'')}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td>${esc(x.serviceName||'—')}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}</td></tr>`;
+   return `<tr${rowClass}><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType)||'—')}</td><td class="${released?'released':(pvs?'pvs':'')}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td>${esc(x.serviceName||'—')}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}${isTestBookingRow(x)?`<button type="button" class="test-delete-button" data-test-delete="${esc(String(x.eventId||''))}">Diesen Testeintrag löschen</button>`:''}</td></tr>`;
  }).join('')||'<tr><td colspan="8" class="muted">Noch keine Tracking-Datensätze.</td></tr>';
+ $('#rows').querySelectorAll('[data-test-delete]').forEach(button=>{
+  button.addEventListener('click',()=>deleteSelectedTestRow(String(button.dataset.testDelete||'')));
+ });
  $('#summaryPanel').classList.remove('hidden');$('#tablePanel').classList.remove('hidden');$('#csv').classList.remove('hidden');
  const storageName=storage==='vercel-blob-private-e2ee'?'privater Vercel Blob · Ende-zu-Ende verschlüsselt':storage||'Speicher';
  const mig=Number(migration?.migrated||0)>0?` · ${migration.migrated} Alt-Datensätze verschlüsselt migriert`:'';
  const chk=lastStatusCheck?` · Status-Prüfung: ${new Date(lastStatusCheck).toLocaleString('de-DE')}`:'';
  const combined=current.length-visible.length;
- $('#status').className='muted';$('#status').textContent=`${visible.length} Datensätze angezeigt${combined?' · '+combined+' PVS-Doppelmeldungen zusammengeführt':''} · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}${chk}${extra}`;
+ $('#status').className='muted';$('#status').textContent=`${visible.length} Datensätze angezeigt${combined?' · '+combined+' PVS-Doppelmeldungen zusammengeführt':''} · Speicherdauer: ${retention} Tage · Speicher: ${storageName}${mig}${chk}${testDeleteNotice}${extra}`;
 }
 let sessionCache=null;
 async function mediDateSession(force=false){
@@ -452,39 +455,61 @@ async function reconcileAll(opts={}){
  await reconcilePvsBookings(opts);
  try{await syncPrivateNewDailyQuota()}catch{}
 }
-// Einmalige, auf zwei Sekunden-genaue Zeitstempel eingegrenzte Entfernung der
-// ausdrücklich als Test gekennzeichneten und bereits freigegebenen Buchung.
-function berlinSecond(value){
- const ms=Date.parse(String(value||''));
- if(!Number.isFinite(ms))return '';
- const parts=new Intl.DateTimeFormat('en-GB',{
-   timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit',
-   hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'
- }).formatToParts(new Date(ms));
- const p={};for(const x of parts)if(x.type!=='literal')p[x.type]=x.value;
- return p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute+':'+p.second;
+// Vom Praxisinhaber ausdrücklich bezeichnete Testbuchung: keine patientenbezogenen
+// Rohdaten an den Server übertragen. Nur der Browser kann den Datensatz identifizieren.
+const TEST_BOOKING_RECORDED_AT='13.10.2026,09:44:50';
+function reportTimestamp(value){
+ const d=new Date(value);
+ if(!Number.isFinite(d.getTime()))return '';
+ return d.toLocaleString('de-DE',{timeZone:'Europe/Berlin'}).replace(/\\s/g,'').replace(/\\u202f/g,'');
+}
+function isTestBookingRow(event){
+ const e=event||{};
+ return e.eventType==='booking_completed'&&e.route==='PKV'&&
+   e.patientType==='existing'&&e.bookingStatus==='released'&&
+   (effectiveDoctorId(e)===512||/moxter/i.test(String(e.doctorName||'')))&&
+   /vorsorge/i.test(String(e.serviceName||''))&&Number(e.duration)===15&&
+   reportTimestamp(e.recordedAt).startsWith('13.10.2026,');
+}
+function isExactTestBooking(event){
+ return isTestBookingRow(event)&&reportTimestamp(event.recordedAt)===TEST_BOOKING_RECORDED_AT;
+}
+async function deleteTrackingRecord(event,auth){
+ const ref=String(event?._storageRef||'');
+ const eventId=String(event?.eventId||'');
+ if(!ref||!/^[0-9a-f-]{36}$/i.test(eventId))throw new Error('Ungültiger Testdatensatz-Speicherverweis.');
+ const url=new URL('/api/tracking',location.origin);url.searchParams.set('action','delete');
+ const response=await fetch(url,{method:'POST',cache:'no-store',credentials:'same-origin',
+   headers:{'Content-Type':'application/json','X-MediDate-Tracking-Key':auth},
+   body:JSON.stringify({storageRef:ref,eventId})});
+ const body=await response.json().catch(()=>null);
+ if(!response.ok||!body?.deleted)throw new Error(body?.error||'Der Testeintrag konnte serverseitig nicht entfernt werden.');
+ return true;
 }
 async function deleteRequestedTestBooking(events,auth){
- const matches=events.filter(e=>
-   e?.eventType==='booking_completed'&&e.route==='PKV'&&e.patientType==='existing'&&
-   String(e.serviceName||'').trim()==='Vorsorge'&&effectiveDoctorId(e)===512&&
-   Number(e.duration)===15&&e.bookingStatus==='released'&&
-   e.releaseEvidence==='slot_reappeared_in_medidate'&&
-   berlinSecond(e.recordedAt)==='2026-10-13T09:44:50'&&
-   berlinSecond(e.releaseDetectedAt)==='2026-10-13T10:05:01'
- );
- if(matches.length===0)return {events,notice:''};
- if(matches.length!==1)throw new Error('Testeintrag nicht eindeutig; keine Löschung ausgeführt.');
- const event=matches[0],ref=String(event._storageRef||'');
- if(!ref||!/^[0-9a-f-]{36}$/i.test(String(event.eventId||'')))throw new Error('Ungültiger Speicherverweis für den Testeintrag.');
- const url=new URL('/api/tracking',location.origin);url.searchParams.set('action','delete');
- const r=await fetch(url,{method:'POST',cache:'no-store',credentials:'same-origin',
-   headers:{'Content-Type':'application/json','X-MediDate-Tracking-Key':auth},
-   body:JSON.stringify({storageRef:ref,eventId:event.eventId})});
- const j=await r.json().catch(()=>null);
- if(!r.ok||!j?.deleted)throw new Error(j?.error||'Testeintrag konnte im Blob-Speicher nicht gelöscht werden.');
- return {events:events.filter(e=>e!==event),notice:' · Testbuchung vom 13.10.2026 gelöscht'};
+ const matches=events.filter(isExactTestBooking);
+ if(matches.length===0)return {events,notice:'',deleted:false};
+ if(matches.length!==1)throw new Error('Mehr als ein passender Testdatensatz – keine automatische Löschung.');
+ await deleteTrackingRecord(matches[0],auth);
+ return {events:events.filter(e=>e!==matches[0]),notice:' · Testbuchung vom 13.10.2026 endgültig gelöscht',deleted:true};
 }
+async function deleteSelectedTestRow(eventId){
+ const matches=current.filter(e=>String(e.eventId||'')===eventId&&isTestBookingRow(e));
+ if(matches.length!==1){testDeleteNotice=' · Testeintrag nicht eindeutig.';render();return}
+ const button=$('#rows').querySelector('[data-test-delete="'+eventId+'"]');
+ if(button)button.disabled=true;
+ const secret=secretParts();
+ try{
+   await deleteTrackingRecord(matches[0],secret.auth);
+   current=current.filter(e=>e!==matches[0]);
+   testDeleteNotice=' · Testeintrag dauerhaft aus dem Speicher entfernt';
+   render();
+ }catch(e){
+   testDeleteNotice=' · Löschung fehlgeschlagen: '+(e?.message||'unbekannter Fehler');
+   render();
+ }
+}
+let testDeleteNotice='';
 
 async function load(){
  const secret=secretParts();$('#status').className='muted';$('#status').textContent='Lädt und entschlüsselt …';
@@ -499,11 +524,12 @@ async function load(){
     const batch=await Promise.all((j.events||[]).slice(i,i+50).map(x=>decryptEnvelope(x,priv)));
     events.push(...batch);
   }
-  let cleaned={events,notice:''};
+  let cleaned={events,notice:'',deleted:false};
   try{cleaned=await deleteRequestedTestBooking(events,secret.auth)}
   catch(error){cleaned.notice=' · Testeintrag nicht gelöscht: '+(error?.message||'unbekannter Fehler')}
+  testDeleteNotice=cleaned.notice;
   current=cleaned.events;currentRetention=j.retentionDays;currentStorage=j.storage;currentMigration=j.migration;
-  render(current,currentRetention,currentStorage,currentMigration,cleaned.notice);
+  render();
   await reconcileAll();
  }catch(e){
   $('#status').className='muted bad';
