@@ -1649,7 +1649,17 @@ function addDaysISOClient(iso,days){
  const x=new Date(Date.UTC(y,m-1,d));x.setUTCDate(x.getUTCDate()+days);
  return x.toISOString().slice(0,10);
 }
-async function sendBookingTracking(slot){
+// Only a stable, non-reversible comparison digest enters the encrypted event.
+// Patient names and date of birth are never sent as separate tracking fields.
+async function gkvPatientMatchKey(patient){
+ const normalize=v=>String(v||'').normalize('NFKC').trim().replace(/\s+/gu,' ').toLocaleLowerCase('de-DE');
+ const first=normalize(patient?.firstName),last=normalize(patient?.lastName),birth=String(patient?.birthDate||'');
+ if(!first||!last||!/^\d{4}-\d{2}-\d{2}$/.test(birth))return '';
+ const bytes=new TextEncoder().encode(JSON.stringify(['gkv-quarter-v1',first,last,birth]));
+ const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+ return Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function sendBookingTracking(slot,patient){
  // Die Auswertungsdaten werden bereits im Browser verschlüsselt.
  // Vercel erhält nur Ciphertext plus einen HMAC-Nachweis für einen echten angezeigten Slot.
  if(!slot?.trackingNonce||!slot?.trackingExp||!slot?.trackingProof)return;
@@ -1657,12 +1667,14 @@ async function sendBookingTracking(slot){
    const topic=String(state.topicMode||'regular');
    const serviceId=topic==='pregnancy'?'pregnancy':(topic==='igel_hormon'?'IGEL_HORMON':String(slot.serviceId||state.service?.id||''));
    const serviceName=topic==='pregnancy'?'Schwangerschaft':(topic==='igel_hormon'?'Wechseljahressprechstunde':String(state.service?.name||slot.serviceName||'Termin'));
+   const patientMatchKey=state.insurance==='GKV'?await gkvPatientMatchKey(patient):'';
    const event={
-     schemaVersion:6,
+     schemaVersion:7,
      eventId:crypto.randomUUID(),
      eventType:'booking_completed',
      route:String(state.insurance||''),
      patientType:String(state.patientType||''),
+     ...(patientMatchKey?{gkvPatientMatchKey:patientMatchKey}:{}),
      serviceId,
      serviceName,
      appointmentDate:String(slot.date||''),
@@ -1967,7 +1979,7 @@ async function bookNow(){
    }
    const codes=[directAppointmentCode(result1),directAppointmentCode(result2)].filter(Boolean);
    const doctorName=doctorDisplayName(state.selectedSlot.doctorId);
-   void sendBookingTracking(state.selectedSlot);
+   void sendBookingTracking(state.selectedSlot,patient);
 
    const cancelHtml=codes.length
      ?`<div class="private-note"><strong>Online-Stornierung</strong>${codes.map((code,i)=>`<div style="margin-top:8px"><a href="https://portal.medidate.org/Appointment/Cancel/${encodeURIComponent(code)}" target="_blank" rel="noopener noreferrer">${codes.length>1?`Teil ${i+1} von ${codes.length} stornieren`:'Termin bei mediDate stornieren'}</a></div>`).join('')}${codes.length>1?'<div class="subtle">Der 30-Minuten-Termin besteht technisch aus zwei 15-Minuten-Blöcken; bei einer vollständigen Absage bitte beide stornieren.</div>':''}</div>`
