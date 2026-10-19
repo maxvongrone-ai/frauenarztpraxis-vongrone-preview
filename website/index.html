@@ -1067,39 +1067,26 @@ body.frame-editing .edit-help{display:block}
 }
 
 
-/* Praxisschließungen Oktober 2026 – automatische Ausblendung */
+/* Zeitlich begrenzter Praxis-Hinweisframe: gleiche Außenkanten wie die übrigen Frames */
 .praxis-alert{
   width:calc(100% - 36px);
   margin:0 18px;
   box-sizing:border-box;
   overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
   background:var(--v7-paper);
   color:var(--wine);
   border:1px solid var(--v7-line);
   border-radius:12px;
-  font-size:clamp(12px,1.45vw,16px);
-  line-height:1.45;
-  padding:9px 0 8px;
+  font-size:clamp(13px,1.45vw,16px);
+  line-height:1.5;
+  padding:14px 18px;
 }
-.praxis-alert[hidden]{display:none !important}
-.praxis-alert__track{
-  display:flex;
-  width:max-content;
-  min-width:100%;
-  align-items:center;
-  gap:72px;
-  white-space:nowrap;
-  will-change:transform;
-  animation:praxis-alert-scroll 54s linear infinite;
-}
-.praxis-alert__track span{
-  display:inline-block;
-  padding-left:28px;
-}
-@keyframes praxis-alert-scroll{
-  from{transform:translateX(0)}
-  to{transform:translateX(calc(-50% - 36px))}
-}
+.praxis-alert[hidden],
+.praxis-alert__line[hidden]{display:none !important}
+.praxis-alert__line{margin:0;max-width:100%;line-height:1.5}
 @media (max-width:700px){
   .praxis-alert{
     width:calc(100% - 24px);
@@ -1107,30 +1094,9 @@ body.frame-editing .edit-help{display:block}
     margin-right:12px;
     border-radius:10px;
     font-size:13px;
-    padding:8px 0 7px;
+    gap:8px;
+    padding:12px 14px;
   }
-  .praxis-alert__track{
-    gap:48px;
-    animation-duration:50s;
-  }
-  .praxis-alert__track span{
-    padding-left:18px;
-  }
-  @keyframes praxis-alert-scroll{
-    from{transform:translateX(0)}
-    to{transform:translateX(calc(-50% - 24px))}
-  }
-}
-@media (prefers-reduced-motion:reduce){
-  .praxis-alert__track{
-    width:100%;
-    justify-content:center;
-    white-space:normal;
-    text-align:center;
-    animation:none;
-  }
-  .praxis-alert__track span{padding:0 16px}
-  .praxis-alert__track span[aria-hidden="true"]{display:none}
 }
 
 /* SEO-interne Verlinkung: optisch unverändert */
@@ -1165,11 +1131,12 @@ body.frame-editing .edit-help{display:block}
 <a class="booking-top" href="https://medidate-v604-fast-booking-blob-oid.vercel.app/">TERMINBUCHUNG</a>
 <a class="phone" data-edit="" href="tel:+49406038141">Telefon (Mo-Fr 12-14 Uhr): 040-603 81 41</a>
 </header>
-<div id="praxis-alert-october-2026" class="praxis-alert" hidden role="status" aria-live="polite">
-  <div class="praxis-alert__track">
-    <span><strong id="praxis-alert-message"></strong></span>
-    <span aria-hidden="true"><strong id="praxis-alert-message-repeat"></strong></span>
-  </div>
+<div id="praxis-alert-october-2026" class="praxis-alert" hidden role="region" aria-label="Aktuelle Änderungen der Praxisöffnungszeiten">
+  <p class="praxis-alert__line" data-until="2026-10-20T15:00:00+02:00">Unsere Praxis ist am Dienstag, den 20.10.2026 nachmittags erst ab 15:00 Uhr geöffnet.</p>
+  <p class="praxis-alert__line" data-until="2026-10-21T18:00:00+02:00">Unsere Praxis ist am Mittwoch, den 21.10.2026 bis 13:00 Uhr geöffnet und nachmittags geschlossen.</p>
+  <p class="praxis-alert__line" data-until="2026-10-23T18:00:00+02:00">Unsere Praxis bleibt am Freitag, den 23.10.2026 ganztägig geschlossen.</p>
+  <p class="praxis-alert__line" data-until="2026-10-28T18:00:00+01:00">Unsere Praxis ist am Mittwoch, den 28.10.2026 bis 13:00 Uhr geöffnet und nachmittags geschlossen.</p>
+  <p class="praxis-alert__line" data-until="2026-10-30T18:00:00+01:00">Unsere Praxis bleibt am Freitag, den 30.10.2026 ganztägig geschlossen.</p>
 </div>
 <section class="hero">
 <div class="hero-copy">
@@ -1306,30 +1273,33 @@ body.frame-editing .edit-help{display:block}
 <a class="to-top" href="#top">↑</a>
 <script>
 (function(){
-  "use strict";
-  var banner=document.getElementById('praxis-alert-october-2026');
-  var message=document.getElementById('praxis-alert-message');
-  var repeated=document.getElementById('praxis-alert-message-repeat');
-  if(!banner||!message||!repeated)return;
-  var notices=[
-    {until:Date.parse('2026-10-20T15:00:00+02:00'),text:'Unsere Praxis ist am Dienstag, den 20.10.2026 nachmittags erst ab 15:00 Uhr geöffnet.'},
-    {until:Date.parse('2026-10-21T18:00:00+02:00'),text:'Unsere Praxis ist am Mittwoch, den 21.10.2026 bis 13:00 Uhr geöffnet und nachmittags geschlossen.'},
-    {until:Date.parse('2026-10-23T18:00:00+02:00'),text:'Unsere Praxis bleibt am Freitag, den 23.10.2026 ganztägig geschlossen.'},
-    {until:Date.parse('2026-10-28T18:00:00+01:00'),text:'Unsere Praxis ist am Mittwoch, den 28.10.2026 bis 13:00 Uhr geöffnet und nachmittags geschlossen.'},
-    {until:Date.parse('2026-10-30T18:00:00+01:00'),text:'Unsere Praxis bleibt am Freitag, den 30.10.2026 ganztägig geschlossen.'}
-  ];
+  'use strict';
+  var frame=document.getElementById('praxis-alert-october-2026');
+  if(!frame)return;
+  var lines=Array.prototype.slice.call(frame.querySelectorAll('.praxis-alert__line'));
+  var deadline=lines.map(function(line){return Date.parse(line.getAttribute('data-until'));});
   var timer;
-  function updateBanner(){
+  function updateNotices(){
     window.clearTimeout(timer);
-    var current=notices.find(function(item){return Date.now()<item.until;});
-    if(!current){banner.hidden=true;return;}
-    if(message.textContent!==current.text){message.textContent=current.text;repeated.textContent=current.text;}
-    banner.hidden=false;
-    timer=window.setTimeout(updateBanner,Math.max(1,current.until-Date.now()));
+    var now=Date.now();
+    var next=null;
+    var remaining=0;
+    lines.forEach(function(line,i){
+      var active=now<deadline[i];
+      line.hidden=!active;
+      if(active){
+        remaining++;
+        if(next===null||deadline[i]<next)next=deadline[i];
+      }
+    });
+    frame.hidden=remaining===0;
+    if(next!==null)timer=window.setTimeout(updateNotices,Math.max(1,next-Date.now()));
   }
-  document.addEventListener('visibilitychange',function(){if(!document.hidden)updateBanner();});
-  window.addEventListener('focus',updateBanner);
-  updateBanner();
+  // Uhrzeiten sind mit explizitem deutschem UTC-Offset gespeichert:
+  // vor dem 25.10.2026 MESZ (+02:00), danach MEZ (+01:00).
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)updateNotices();});
+  window.addEventListener('focus',updateNotices);
+  updateNotices();
 })();
 </script>
 </body>
