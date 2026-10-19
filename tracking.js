@@ -19,9 +19,53 @@ const deDate=iso=>String(iso||'').split('-').reverse().join('.');
 const routeName=r=>r==='PKV'?'Privatversicherte / Selbstzahler':r==='GKV'?'Gesetzlich Versicherte':r==='SELF'?'Besondere Selbstzahlerleistungen':r==='PVS'?'Praxisprogramm / PVS':r;
 const patientName=p=>p==='existing'?'Bestandspatientin':p==='new'?'Neupatientin':'';
 
+
+ // All comparisons happen exclusively after decrypting in the authorized practice browser.
+ // The key is an encrypted SHA-256 identifier; only non-cancelled, online GKV bookings
+ // in the same appointment calendar quarter are included. Historical rows without a
+ // matching key remain explicitly unassessable.
+let gkvQuarterPositions=new Map();
+function gkvAppointmentQuarter(date){
+ const value=String(date||'');
+ if(!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value))return '';
+ const year=value.slice(0,4),month=Number(value.slice(5,7));
+ return year+'-Q'+Math.ceil(month/3);
+}
+function calculateGkvQuarterPositions(events){
+ const positions=new Map(),counts=new Map();
+ const eligible=(events||[]).filter(e=>e?.eventType==='booking_completed'&&
+   e.route==='GKV'&&e.bookingStatus!=='released'&&
+   /^[a-f0-9]{64}$/.test(String(e.gkvPatientMatchKey||''))&&
+   gkvAppointmentQuarter(e.appointmentDate)&&e.eventId);
+ eligible.sort((a,b)=>String(a.recordedAt||'').localeCompare(String(b.recordedAt||''))||
+   String(a.eventId).localeCompare(String(b.eventId)));
+ for(const event of eligible){
+   const group=event.gkvPatientMatchKey+'|'+gkvAppointmentQuarter(event.appointmentDate);
+   const position=(counts.get(group)||0)+1;
+   counts.set(group,position);
+   positions.set(String(event.eventId),position);
+ }
+ return positions;
+}
+function gkvRepeatStatus(event){
+ if(event?.eventType!=='booking_completed'||event.route!=='GKV')return '—';
+ if(event.bookingStatus==='released')return 'Storniert';
+ if(!/^[a-f0-9]{64}$/.test(String(event.gkvPatientMatchKey||''))||
+   !gkvAppointmentQuarter(event.appointmentDate))return 'Nicht prüfbar';
+ const position=gkvQuarterPositions.get(String(event.eventId))||0;
+ return position>1?'Mehrfachbuchung':position===1?'Einzelbuchung':'Nicht prüfbar';
+}
+function gkvRepeatText(event){
+ const status=gkvRepeatStatus(event),position=gkvQuarterPositions.get(String(event?.eventId));
+ if(status==='Mehrfachbuchung'||status==='Einzelbuchung')return position+'. Termin im Quartal';
+ if(status==='Nicht prüfbar')return 'Nicht prüfbar (älterer Datensatz)';
+ return status;
+}
+
 const COLUMN_FILTER_DEFS=Object.freeze([
  {key:'appointment',label:'Termin'}, {key:'route',label:'Buchungspfad'},
  {key:'patient',label:'Patientenstatus'}, {key:'status',label:'Buchungsstatus'},
+ {key:'gkvRepeat',label:'GKV-Mehrfachbuchung'},
  {key:'service',label:'Terminart'}, {key:'doctor',label:'Ärztin'},
  {key:'duration',label:'Dauer'}, {key:'recorded',label:'Erfasst'}
 ]);
@@ -34,6 +78,7 @@ function columnValue(e,key){
   case 'route':return routeName(e.route)||'—';
   case 'patient':return patientName(e.patientType)||'—';
   case 'status':return bookingStatus(e);
+  case 'gkvRepeat':return gkvRepeatStatus(e);
   case 'service':return String(e.serviceName||'—');
   case 'doctor':return String(e.doctorName||'—');
   case 'duration':return String(e.duration??'—');
@@ -248,19 +293,22 @@ function render(events=current,retention=currentRetention,storage=currentStorage
  current=(events||[]).slice().sort((a,b)=>String(b.recordedAt||'').localeCompare(String(a.recordedAt||'')));
  currentRetention=retention;currentStorage=storage;currentMigration=migration;
  const visible=visibleTrackingEvents(current);
+ gkvQuarterPositions=calculateGkvQuarterPositions(visible);
  filteredTrackingRows=updateColumnFilters(visible);
  $('#nAll').textContent=visible.length;
  $('#nPkv').textContent=visible.filter(x=>x.route==='PKV').length;
  $('#nGkv').textContent=visible.filter(x=>x.route==='GKV').length;
+ $('#nGkvRepeat').textContent=visible.filter(x=>gkvRepeatStatus(x)==='Mehrfachbuchung').length;
  $('#nSelf').textContent=visible.filter(x=>x.route==='SELF').length;
  $('#nReleased').textContent=visible.filter(x=>x.bookingStatus==='released').length;
  $('#nPvs').textContent=visible.filter(x=>x?.eventType==='pvs_booking_detected').length;
  $('#nPrivateConsultation').textContent=visible.filter(isPrivateConsultation).length;
  $('#rows').innerHTML=filteredTrackingRows.map(x=>{
    const bs=bookingStatus(x),detail=statusDetail(x),released=x.bookingStatus==='released',pvs=x?.eventType==='pvs_booking_detected';
+   const repeatStatus=gkvRepeatStatus(x),repeatClass=repeatStatus==='Mehrfachbuchung'?' class="gkv-repeat"':'';
    const rowClass=pvs&&!released?' class="pvs-row"':'';
-   return `<tr${rowClass}><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType)||'—')}</td><td class="${released?'released':(pvs?'pvs':'')}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td>${esc(x.serviceName||'—')}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}${isTestBookingRow(x)?`<button type="button" class="test-delete-button" data-test-delete="${esc(String(x.eventId||''))}">Diesen Testeintrag löschen</button>`:''}</td></tr>`;
- }).join('')||'<tr><td colspan="8" class="muted">'+(visible.length?'Keine Datensätze für diese Filterauswahl.':'Noch keine Tracking-Datensätze.')+'</td></tr>';
+   return `<tr${rowClass}><td>${esc(deDate(x.appointmentDate))} · ${esc(String(x.appointmentTime||'').replace('.',':'))}</td><td>${esc(routeName(x.route))}</td><td>${esc(patientName(x.patientType)||'—')}</td><td class="${released?'released':(pvs?'pvs':'')}">${esc(bs)}${detail?`<span class="status-detail">${esc(detail)}</span>`:''}</td><td${repeatClass}>${esc(gkvRepeatText(x))}</td><td>${esc(x.serviceName||'—')}</td><td>${esc(x.doctorName)}</td><td>${esc(x.duration)} Min.</td><td>${esc(new Date(x.recordedAt).toLocaleString('de-DE'))}${isTestBookingRow(x)?`<button type="button" class="test-delete-button" data-test-delete="${esc(String(x.eventId||''))}">Diesen Testeintrag löschen</button>`:''}</td></tr>`;
+ }).join('')||'<tr><td colspan="9" class="muted">'+(visible.length?'Keine Datensätze für diese Filterauswahl.':'Noch keine Tracking-Datensätze.')+'</td></tr>';
  $('#rows').querySelectorAll('[data-test-delete]').forEach(button=>{
   button.addEventListener('click',()=>deleteSelectedTestRow(String(button.dataset.testDelete||'')));
  });
@@ -609,9 +657,9 @@ async function load(){
  }
 }
 function csv(){
- const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Buchungsstatus','Statusdetail','Terminart','Ärztin','Dauer Minuten','Erfasst'];
+ const head=['Termin-Datum','Termin-Uhrzeit','Buchungspfad','Patientenstatus','Buchungsstatus','GKV-Mehrfachbuchung','Statusdetail','Terminart','Ärztin','Dauer Minuten','Erfasst'];
  const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
- const lines=[head,...filteredTrackingRows.map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),bookingStatus(x),statusDetail(x),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
+ const lines=[head,...filteredTrackingRows.map(x=>[x.appointmentDate,String(x.appointmentTime||'').replace('.',':'),routeName(x.route),patientName(x.patientType),bookingStatus(x),gkvRepeatText(x),statusDetail(x),x.serviceName,x.doctorName,x.duration,x.recordedAt])].map(r=>r.map(q).join(';')).join('\r\n');
  const blob=new Blob(['\ufeff'+lines],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');
  a.href=u;a.download='medidate-buchungsauswertung.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
 }
