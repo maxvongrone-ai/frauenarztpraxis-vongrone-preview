@@ -1049,7 +1049,7 @@ body.frame-editing .edit-help{display:block}
 }
 
 
-/* Temporärer Praxishinweis 01.10.2026 – automatische Ausblendung ab 02.10.2026 */
+/* Praxisschließungen 21.–30.10.2026 – Lauftext, automatische Textwechsel und Ausblendung */
 .praxis-alert{
   width:100%;
   overflow:hidden;
@@ -1070,7 +1070,7 @@ body.frame-editing .edit-help{display:block}
   gap:72px;
   white-space:nowrap;
   will-change:transform;
-  animation:praxis-alert-scroll 36s linear infinite;
+  animation:praxis-alert-scroll 54s linear infinite;
 }
 .praxis-alert__track span{
   display:inline-block;
@@ -1087,7 +1087,7 @@ body.frame-editing .edit-help{display:block}
   }
   .praxis-alert__track{
     gap:48px;
-    animation-duration:32s;
+    animation-duration:50s;
   }
   .praxis-alert__track span{
     padding-left:18px;
@@ -1132,10 +1132,10 @@ body.frame-editing .edit-help{display:block}
     <a class="phone" href="tel:+49406038141" data-edit>Telefon (Mo-Fr 12-14 Uhr): 040-603 81 41</a>
   </header>
 
-  <div id="praxis-alert-20261001" class="praxis-alert" hidden role="status" aria-live="polite">
+  <div id="praxis-alert-october-2026" class="praxis-alert" hidden role="status" aria-live="polite">
     <div class="praxis-alert__track">
-      <span><strong>Hinweis:</strong>&nbsp;&nbsp;<strong>Am 01.10.2026 ist unsere Praxis nachmittags ab 14:00 Uhr geschlossen.</strong></span>
-      <span aria-hidden="true"><strong>Hinweis:</strong>&nbsp;&nbsp;<strong>Am 01.10.2026 ist unsere Praxis nachmittags ab 14:00 Uhr geschlossen.</strong></span>
+      <span><strong id="praxis-alert-message"></strong></span>
+      <span aria-hidden="true"><strong id="praxis-alert-message-repeat"></strong></span>
     </div>
   </div>
 
@@ -1296,19 +1296,39 @@ body.frame-editing .edit-help{display:block}
 
 <script>
 (function(){
-  var banner=document.getElementById('praxis-alert-20261001');
+  var banner=document.getElementById('praxis-alert-october-2026');
   if(!banner)return;
-  function berlinDate(){
-    var parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
-    var map={};
-    parts.forEach(function(p){if(p.type!=='literal')map[p.type]=p.value;});
-    return map.year+'-'+map.month+'-'+map.day;
-  }
+  var first=document.getElementById('praxis-alert-message');
+  var repeat=document.getElementById('praxis-alert-message-repeat');
+  // Europe/Berlin: Sommerzeit (+02:00) bis 25.10.2026, danach MEZ (+01:00).
+  // Die ISO-Zeitstempel sind absolut; die Anzeige funktioniert in jeder Browser-Zeitzone.
+  var notices=[
+    {until:Date.parse('2026-10-21T18:00:00+02:00'),text:'Unsere Praxis bleibt am Mittwoch, den 21.10.2026 nachmittags geschlossen.'},
+    {until:Date.parse('2026-10-23T18:00:00+02:00'),text:'Unsere Praxis bleibt am Freitag, den 23.10.2026 ganztägig geschlossen.'},
+    {until:Date.parse('2026-10-28T18:00:00+01:00'),text:'Unsere Praxis bleibt am Mittwoch, den 28.10.2026 nachmittags geschlossen.'},
+    {until:Date.parse('2026-10-30T18:00:00+01:00'),text:'Unsere Praxis bleibt am Freitag, den 30.10.2026 ganztägig geschlossen.'}
+  ];
+  var changeTimer;
   function updateBanner(){
-    banner.hidden=berlinDate()>='2026-10-02';
+    window.clearTimeout(changeTimer);
+    var now=Date.now();
+    var current=notices.find(function(notice){return now<notice.until;});
+    if(!current){
+      banner.hidden=true;
+      return;
+    }
+    if(first.textContent!==current.text){
+      first.textContent=current.text;
+      repeat.textContent=current.text;
+    }
+    banner.hidden=false;
+    changeTimer=window.setTimeout(updateBanner,Math.max(1,current.until-Date.now()));
   }
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden)updateBanner();
+  });
+  window.addEventListener('focus',updateBanner);
   updateBanner();
-  window.setInterval(updateBanner,60000);
 })();
 </script>
 </body>
