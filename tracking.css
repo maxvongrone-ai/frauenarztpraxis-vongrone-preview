@@ -16,3 +16,6 @@ thead th{vertical-align:top}
 thead th:first-child .column-filter{min-width:130px}
 thead th:nth-child(4) .column-filter{min-width:165px}
 @media(max-width:620px){.table-controls{align-items:flex-start}.column-filter{min-width:105px}}
+
+/* Flag additional non-cancelled online GKV bookings within one appointment quarter. */
+.gkv-repeat{color:var(--bad);font-weight:700}
