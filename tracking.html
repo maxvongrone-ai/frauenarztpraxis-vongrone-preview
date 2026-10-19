@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <title>Praxis – interne Buchungsauswertung</title>
-<link rel="stylesheet" href="/tracking.css?v=60.11.1">
+<link rel="stylesheet" href="/tracking.css?v=60.11.2">
 </head>
 <body><div class="wrap">
 <section class="panel">
@@ -19,6 +19,7 @@
   <div class="card"><span class="muted">Gesamt</span><strong id="nAll">0</strong></div>
   <div class="card"><span class="muted">Privat / Selbstzahler</span><strong id="nPkv">0</strong></div>
   <div class="card"><span class="muted">GKV</span><strong id="nGkv">0</strong></div>
+  <div class="card"><span class="muted">GKV-Mehrfachbuchungen</span><strong id="nGkvRepeat">0</strong></div>
   <div class="card"><span class="muted">Besondere Selbstzahler</span><strong id="nSelf">0</strong></div>
   <div class="card"><span class="muted">Storniert / wieder frei</span><strong id="nReleased">0</strong></div>
   <div class="card"><span class="muted">Praxis / PVS erkannt</span><strong id="nPvs">0</strong></div>
@@ -27,8 +28,9 @@
 </section>
 <section class="panel hidden" id="tablePanel">
 <h2>Buchungen und Praxis/PVS-Belegungen</h2>
+<p class="muted">GKV-Mehrfachbuchungen werden für denselben Patientenabgleich innerhalb des Terminquartals markiert. Stornierte Termine zählen nicht mit. Buchungen vor Einführung dieser Funktion sind nicht zuverlässig zuordenbar und werden als „Nicht prüfbar“ angezeigt. Der Abgleich erfolgt nur im entschlüsselnden Praxis-Browser.</p>
 <div class="table-controls"><span id="tableCount" class="muted" aria-live="polite">Alle Datensätze</span><button type="button" id="clearFilters" disabled>Filter zurücksetzen</button></div>
-<div class="table-wrap"><table><thead><tr><th scope="col"><span>Termin</span><select class="column-filter" data-filter="appointment" aria-label="Termin filtern"><option value="">Alle</option></select></th><th scope="col"><span>Buchungspfad</span><select class="column-filter" data-filter="route" aria-label="Buchungspfad filtern"><option value="">Alle</option></select></th><th scope="col"><span>Patientenstatus</span><select class="column-filter" data-filter="patient" aria-label="Patientenstatus filtern"><option value="">Alle</option></select></th><th scope="col"><span>Buchungsstatus</span><select class="column-filter" data-filter="status" aria-label="Buchungsstatus filtern"><option value="">Alle</option></select></th><th scope="col"><span>Terminart</span><select class="column-filter" data-filter="service" aria-label="Terminart filtern"><option value="">Alle</option></select></th><th scope="col"><span>Ärztin</span><select class="column-filter" data-filter="doctor" aria-label="Ärztin filtern"><option value="">Alle</option></select></th><th scope="col"><span>Dauer</span><select class="column-filter" data-filter="duration" aria-label="Dauer filtern"><option value="">Alle</option></select></th><th scope="col"><span>Erfasst</span><select class="column-filter" data-filter="recorded" aria-label="Erfasst filtern"><option value="">Alle</option></select></th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th scope="col"><span>Termin</span><select class="column-filter" data-filter="appointment" aria-label="Termin filtern"><option value="">Alle</option></select></th><th scope="col"><span>Buchungspfad</span><select class="column-filter" data-filter="route" aria-label="Buchungspfad filtern"><option value="">Alle</option></select></th><th scope="col"><span>Patientenstatus</span><select class="column-filter" data-filter="patient" aria-label="Patientenstatus filtern"><option value="">Alle</option></select></th><th scope="col"><span>Buchungsstatus</span><select class="column-filter" data-filter="status" aria-label="Buchungsstatus filtern"><option value="">Alle</option></select></th><th scope="col"><span>GKV-Mehrfachbuchung</span><select class="column-filter" data-filter="gkvRepeat" aria-label="GKV-Mehrfachbuchungen filtern"><option value="">Alle</option></select></th><th scope="col"><span>Terminart</span><select class="column-filter" data-filter="service" aria-label="Terminart filtern"><option value="">Alle</option></select></th><th scope="col"><span>Ärztin</span><select class="column-filter" data-filter="doctor" aria-label="Ärztin filtern"><option value="">Alle</option></select></th><th scope="col"><span>Dauer</span><select class="column-filter" data-filter="duration" aria-label="Dauer filtern"><option value="">Alle</option></select></th><th scope="col"><span>Erfasst</span><select class="column-filter" data-filter="recorded" aria-label="Erfasst filtern"><option value="">Alle</option></select></th></tr></thead><tbody id="rows"></tbody></table></div>
 </section>
 </div>
-<script src="/botid-client.js?v=60.10.10"></script><script src="/tracking.js?v=60.11.1" defer></script></body></html>
+<script src="/botid-client.js?v=60.10.10"></script><script src="/tracking.js?v=60.11.2" defer></script></body></html>
