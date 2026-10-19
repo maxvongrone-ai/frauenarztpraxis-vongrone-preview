@@ -1069,12 +1069,14 @@ body.frame-editing .edit-help{display:block}
 
 /* Praxisschließungen Oktober 2026 – automatische Ausblendung */
 .praxis-alert{
-  width:100%;
+  width:calc(100% - 36px);
+  margin:0 18px;
+  box-sizing:border-box;
   overflow:hidden;
-  background:#fff;
+  background:var(--v7-paper);
   color:var(--wine);
-  border-top:1px solid var(--line);
-  border-bottom:1px solid var(--line);
+  border:1px solid var(--v7-line);
+  border-radius:12px;
   font-size:clamp(12px,1.45vw,16px);
   line-height:1.45;
   padding:9px 0 8px;
@@ -1100,6 +1102,10 @@ body.frame-editing .edit-help{display:block}
 }
 @media (max-width:700px){
   .praxis-alert{
+    width:calc(100% - 24px);
+    margin-left:12px;
+    margin-right:12px;
+    border-radius:10px;
     font-size:13px;
     padding:8px 0 7px;
   }
