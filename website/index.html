@@ -1312,9 +1312,10 @@ body.frame-editing .edit-help{display:block}
   var repeated=document.getElementById('praxis-alert-message-repeat');
   if(!banner||!message||!repeated)return;
   var notices=[
-    {until:Date.parse('2026-10-21T18:00:00+02:00'),text:'Unsere Praxis bleibt am Mittwoch, den 21.10.2026 nachmittags geschlossen.'},
+    {until:Date.parse('2026-10-20T15:00:00+02:00'),text:'Unsere Praxis ist am Dienstag, den 20.10.2026 nachmittags erst ab 15:00 Uhr geöffnet.'},
+    {until:Date.parse('2026-10-21T18:00:00+02:00'),text:'Unsere Praxis ist am Mittwoch, den 21.10.2026 bis 13:00 Uhr geöffnet und nachmittags geschlossen.'},
     {until:Date.parse('2026-10-23T18:00:00+02:00'),text:'Unsere Praxis bleibt am Freitag, den 23.10.2026 ganztägig geschlossen.'},
-    {until:Date.parse('2026-10-28T18:00:00+01:00'),text:'Unsere Praxis bleibt am Mittwoch, den 28.10.2026 nachmittags geschlossen.'},
+    {until:Date.parse('2026-10-28T18:00:00+01:00'),text:'Unsere Praxis ist am Mittwoch, den 28.10.2026 bis 13:00 Uhr geöffnet und nachmittags geschlossen.'},
     {until:Date.parse('2026-10-30T18:00:00+01:00'),text:'Unsere Praxis bleibt am Freitag, den 30.10.2026 ganztägig geschlossen.'}
   ];
   var timer;
