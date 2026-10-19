@@ -103,8 +103,11 @@ assert(!dashboard.includes('<style>')&&!dashboard.includes('<script>'),'Tracking
 assert(!admin.includes('<style>')&&!admin.includes('<script>'),'Admin page must not contain inline style/script blocks');
 assert(!dashboard.includes('style=')&&!admin.includes('style='),'Strict-CSP internal pages must not use inline style attributes');
 assert(dashboard.includes('/tracking.css')&&dashboard.includes('/tracking.js'),'Tracking page assets must be external');
-assert(dashboard.includes('/tracking.js?v=60.11.1'),'Tracking dashboard must cache-bust tracking.js');
+assert(dashboard.includes('/tracking.js?v=60.11.2'),'Tracking dashboard must cache-bust tracking.js');
 assert(dashboard.includes('/botid-client.js?v=60.10.10'),'Tracking dashboard must cache-bust BotID client');
+assert(index.includes('async function gkvPatientMatchKey(patient)')&&index.includes('crypto.subtle.digest(\'SHA-256\'')&&index.includes('void sendBookingTracking(state.selectedSlot,patient)'), 'GKV identity matching must be derived client-side from booking form and sent only in encrypted tracking events');
+assert(dashboardJs.includes('function calculateGkvQuarterPositions(events)')&&dashboardJs.includes('function gkvRepeatStatus(event)'), 'GKV quarter matcher must run after browser decryption');
+assert(dashboard.includes('data-filter="gkvRepeat"')&&dashboard.includes('id="nGkvRepeat"'), 'Dashboard must expose GKV repeat filter and count');
 assert(admin.includes('/admin.css')&&admin.includes('/admin.js'),'Admin page assets must be external');
 assert(index.includes("const MENOPAUSE_DOCTOR_KEY='vongrone'"),'Menopause doctor must be fixed to Dr. von Grone');
 assert(index.includes("if(isMenopauseMode()&&String(r.doctorKey)!==MENOPAUSE_DOCTOR_KEY)continue"),'Menopause availability must exclude other doctors');
@@ -254,7 +257,7 @@ const testContext=vm.createContext({});
 const dashboardStart=dashboardJs.indexOf("$('#currentUrl').textContent");
 assert(dashboardStart>0,'Practice tracking helpers must be testable without running the dashboard');
 vm.runInContext(dashboardJs.slice(0,dashboardStart)+String.fromCharCode(10)+
- "globalThis.trackingTest={activeOnlineSlotKeys,visibleTrackingEvents,pvsDisappearanceExplained,setCurrent(rows){current=rows}};",testContext);
+ "globalThis.trackingTest={activeOnlineSlotKeys,visibleTrackingEvents,pvsDisappearanceExplained,gkvAppointmentQuarter,calculateGkvQuarterPositions,gkvRepeatStatus,gkvRepeatText,setCurrent(rows){current=rows},setGkvQuarterPositions(rows){gkvQuarterPositions=calculateGkvQuarterPositions(rows)}};",testContext);
 const duplicateTest=testContext.trackingTest;
 const booking30={eventType:'booking_completed',bookingStatus:'booked',appointmentDate:'2026-12-21',appointmentTime:'12.00',doctorId:'513',duration:30,recordedAt:'2026-10-10T07:00:00.000Z'};
 const pvsAt=(time,doctorId='513')=>({eventType:'pvs_booking_detected',bookingStatus:'pvs',appointmentDate:'2026-12-21',appointmentTime:time,doctorId,duration:15});
@@ -265,6 +268,35 @@ duplicateTest.setCurrent(testEvents);
 assert(duplicateTest.pvsDisappearanceExplained('2026-12-21|513|735',duplicateTest.activeOnlineSlotKeys(testEvents)),'PVS detection must recognize older bookings and second-block matches');
 assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,duration:15},pvsAt('12.15')]).length,2,'A 15-minute booking must not hide the following unrelated PVS slot');
 assert.strictEqual(duplicateTest.visibleTrackingEvents([{...booking30,bookingStatus:'released'},pvsAt('12.15')]).length,2,'Released bookings must not hide independent PVS events');
+
+
+const matchA='a'.repeat(64),matchB='b'.repeat(64);
+const gkvBooking=(eventId,date,recordedAt,matchKey=matchA,status='booked',route='GKV')=>({
+  eventId,eventType:'booking_completed',route,bookingStatus:status,
+  gkvPatientMatchKey:matchKey,appointmentDate:date,recordedAt
+});
+const gkvFixture=[
+  gkvBooking('gkv-first','2026-10-20','2026-10-01T08:00:00Z'),
+  gkvBooking('gkv-second','2026-12-21','2026-10-02T08:00:00Z'),
+  gkvBooking('gkv-new-quarter','2027-01-04','2026-10-03T08:00:00Z'),
+  gkvBooking('gkv-cancelled','2026-12-22','2026-10-04T08:00:00Z',matchA,'released'),
+  gkvBooking('gkv-other-patient','2026-12-23','2026-10-05T08:00:00Z',matchB),
+  gkvBooking('pkv-excluded','2026-12-23','2026-10-06T08:00:00Z',matchA,'booked','PKV'),
+  gkvBooking('older-no-identity','2026-12-23','2026-10-07T08:00:00Z','')
+];
+duplicateTest.setGkvQuarterPositions(gkvFixture);
+assert.strictEqual(duplicateTest.gkvRepeatText(gkvFixture[0]),'1. Termin im Quartal','First GKV booking must stay unflagged');
+assert.strictEqual(duplicateTest.gkvRepeatText(gkvFixture[1]),'2. Termin im Quartal','Second active GKV quarter booking must be flagged');
+assert.strictEqual(duplicateTest.gkvRepeatStatus(gkvFixture[1]),'Mehrfachbuchung','Repeated GKV appointment must be a filterable category');
+assert.strictEqual(duplicateTest.gkvRepeatText(gkvFixture[2]),'1. Termin im Quartal','New calendar quarter must reset counting');
+assert.strictEqual(duplicateTest.gkvRepeatStatus(gkvFixture[3]),'Storniert','Cancellation must not count');
+assert.strictEqual(duplicateTest.gkvRepeatStatus(gkvFixture[4]),'Einzelbuchung','Other patient must not match');
+assert.strictEqual(duplicateTest.gkvRepeatStatus(gkvFixture[5]),'—','Private appointments must be excluded');
+assert.strictEqual(duplicateTest.gkvRepeatStatus(gkvFixture[6]),'Nicht prüfbar','Legacy entries must remain unassessable');
+assert.strictEqual(duplicateTest.gkvAppointmentQuarter('2026-09-30'),'2026-Q3','Quarter boundaries must use the appointment date');
+assert.strictEqual(duplicateTest.gkvAppointmentQuarter('2026-10-01'),'2026-Q4','Q4 must begin on October 1');
+duplicateTest.setGkvQuarterPositions(gkvFixture.map(x=>x.eventId==='gkv-first'?{...x,bookingStatus:'released'}:x));
+assert.strictEqual(duplicateTest.gkvRepeatStatus(gkvFixture[1]),'Einzelbuchung','After cancellation, remaining booking must become first');
 
 // Performance regression: the fast endpoints request only fresh free/busy slots.
 assert(core.includes('async function buildFastPublicBundle(onlyServiceKey=null,{waitAll=false}={})'),'Fast provider bundle must offer early partial availability');
