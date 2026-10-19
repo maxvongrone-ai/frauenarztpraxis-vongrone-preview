@@ -3,7 +3,7 @@ const crypto=require('crypto');
 const SftpClient=require('ssh2-sftp-client');
 const TOKEN_SHA256='d166f86c491cbbd714d42b0436e8f8a53be8cfd1be7a294344f0097c48cb4a8a';
 const EXPIRES=Date.parse('2026-10-24T23:59:00+02:00');
-const SOURCE='https://raw.githubusercontent.com/maxvongrone-ai/frauenarztpraxis-vongrone-preview/065d1015dc494eae53f3d09abe93177677ffb14a/website/index.html';
+const SOURCE='https://raw.githubusercontent.com/maxvongrone-ai/frauenarztpraxis-vongrone-preview/8f85ecb6457db45945a3845cc4f9d21dae7818af/website/index.html';
 const DEST='/frauenarztpraxis/index.html';
 function send(res,status,payload){
   res.statusCode=status;
