@@ -1067,7 +1067,7 @@ body.frame-editing .edit-help{display:block}
 }
 
 
-/* Temporärer Praxishinweis 01.10.2026 – automatische Ausblendung ab 02.10.2026 */
+/* Praxisschließungen Oktober 2026 – automatische Ausblendung */
 .praxis-alert{
   width:100%;
   overflow:hidden;
@@ -1088,7 +1088,7 @@ body.frame-editing .edit-help{display:block}
   gap:72px;
   white-space:nowrap;
   will-change:transform;
-  animation:praxis-alert-scroll 36s linear infinite;
+  animation:praxis-alert-scroll 54s linear infinite;
 }
 .praxis-alert__track span{
   display:inline-block;
@@ -1105,7 +1105,7 @@ body.frame-editing .edit-help{display:block}
   }
   .praxis-alert__track{
     gap:48px;
-    animation-duration:32s;
+    animation-duration:50s;
   }
   .praxis-alert__track span{
     padding-left:18px;
@@ -1159,6 +1159,12 @@ body.frame-editing .edit-help{display:block}
 <a class="booking-top" href="https://medidate-v604-fast-booking-blob-oid.vercel.app/">TERMINBUCHUNG</a>
 <a class="phone" data-edit="" href="tel:+49406038141">Telefon (Mo-Fr 12-14 Uhr): 040-603 81 41</a>
 </header>
+<div id="praxis-alert-october-2026" class="praxis-alert" hidden role="status" aria-live="polite">
+  <div class="praxis-alert__track">
+    <span><strong id="praxis-alert-message"></strong></span>
+    <span aria-hidden="true"><strong id="praxis-alert-message-repeat"></strong></span>
+  </div>
+</div>
 <section class="hero">
 <div class="hero-copy">
 <h1 class="hero-main" data-edit="">Frauenärztinnen Volksdorf</h1>
@@ -1292,5 +1298,32 @@ body.frame-editing .edit-help{display:block}
 </section>
 <aside aria-label="Medizinischer Hinweis" class="medical-hint" id="medizinischer-hinweis"><strong>Medizinischer Hinweis</strong><p>Die Informationen auf dieser Website dienen der allgemeinen Orientierung und ersetzen keine individuelle ärztliche Beratung oder Untersuchung. Bei medizinischen Notfällen wählen Sie bitte 112, außerhalb unserer Sprechzeiten den ärztlichen Bereitschaftsdienst unter 116117.</p></aside><nav aria-label="Rechtliche Informationen" class="home-legal-links"><a href="#impressum">Impressum</a><a href="#datenschutz">Datenschutz</a></nav></div>
 <a class="to-top" href="#top">↑</a>
+<script>
+(function(){
+  "use strict";
+  var banner=document.getElementById('praxis-alert-october-2026');
+  var message=document.getElementById('praxis-alert-message');
+  var repeated=document.getElementById('praxis-alert-message-repeat');
+  if(!banner||!message||!repeated)return;
+  var notices=[
+    {until:Date.parse('2026-10-21T18:00:00+02:00'),text:'Unsere Praxis bleibt am Mittwoch, den 21.10.2026 nachmittags geschlossen.'},
+    {until:Date.parse('2026-10-23T18:00:00+02:00'),text:'Unsere Praxis bleibt am Freitag, den 23.10.2026 ganztägig geschlossen.'},
+    {until:Date.parse('2026-10-28T18:00:00+01:00'),text:'Unsere Praxis bleibt am Mittwoch, den 28.10.2026 nachmittags geschlossen.'},
+    {until:Date.parse('2026-10-30T18:00:00+01:00'),text:'Unsere Praxis bleibt am Freitag, den 30.10.2026 ganztägig geschlossen.'}
+  ];
+  var timer;
+  function updateBanner(){
+    window.clearTimeout(timer);
+    var current=notices.find(function(item){return Date.now()<item.until;});
+    if(!current){banner.hidden=true;return;}
+    if(message.textContent!==current.text){message.textContent=current.text;repeated.textContent=current.text;}
+    banner.hidden=false;
+    timer=window.setTimeout(updateBanner,Math.max(1,current.until-Date.now()));
+  }
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)updateBanner();});
+  window.addEventListener('focus',updateBanner);
+  updateBanner();
+})();
+</script>
 </body>
 </html>
