@@ -217,7 +217,7 @@ assert(index.includes("function isQuarter45Start(slot)"),'Quarter-to-hour slots 
 assert(index.includes("if(!needs30MinuteBlock())return items.filter(x=>!isQuarter45Start(x));"),':45 must never be shown as a regular online start');
 assert(index.includes("if(Number(x.duration)!==15||isQuarter45Start(x))return false;"),':45 must never be shown as a 30-minute start');
 assert(index.includes("if(isQuarter45Start(state.selectedSlot))"),'Final booking guard must reject :45 as a start time');
-assert(index.includes("String(slot?.date||'')>='2026-11-05'")&&index.includes("String(slot?.date||'')>='2026-11-12'"),'Thursday private consultation start dates must be fixed');
+assert(index.includes("String(slot?.date||'')>='2026-10-29'")&&index.includes("String(slot?.date||'')>='2026-11-12'"),'Thursday private consultation start dates must be fixed');
 assert(index.includes("isHamburgPublicHolidayISO(slot?.date)"),'Thursday private consultation windows must exclude Hamburg public holidays');
 assert(index.includes("if(isHamburgPublicHolidayISO(day))continue;"),'All Hamburg public holidays must be excluded from visible appointment candidates');
 assert(index.includes("if(isHamburgPublicHolidayISO(state.selectedSlot?.date))"),'Final booking guard must reject Hamburg public holidays');
