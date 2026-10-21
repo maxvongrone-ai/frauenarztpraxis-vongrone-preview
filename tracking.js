@@ -262,7 +262,7 @@ function isPrivateConsultation(e){
  if(weekday===3)return mins>=14*60+30&&mins<17*60;
  if(weekday===4){
    if(isHamburgPublicHolidayISO(iso))return false;
-   const afternoon=iso>='2026-11-05'&&mins>=14*60+30&&mins<17*60;
+   const afternoon=iso>='2026-10-29'&&mins>=14*60+30&&mins<17*60;
    const morning=iso>='2026-11-12'&&mins>=8*60+30&&mins<11*60;
    return morning||afternoon;
  }

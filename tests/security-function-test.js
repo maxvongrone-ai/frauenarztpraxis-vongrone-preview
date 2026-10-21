@@ -57,7 +57,7 @@ assert(privateNewQuota.includes("buildFastPublicBundle"),'Daily quota must recon
 assert(!/firstName|lastName|birthDate|eMailAddress|email/i.test(privateNewQuota),'Daily quota endpoint must not process patient identity/contact data');
 assert(dashboardJs.includes("action','admin-sync"),'Encrypted practice dashboard must synchronize existing active PKV new bookings into the daily quota without identity data');
 assert(dashboardJs.includes("eventType:'pvs_booking_detected'"),'Dashboard must persist direct Praxis/PVS disappearance events only after browser-side comparison');
-assert(dashboardJs.includes("function isPrivateConsultation(e)")&&dashboardJs.includes("iso>='2026-11-05'")&&dashboardJs.includes("iso>='2026-11-12'"),'Analytics must recognize all configured private consultation windows');
+assert(dashboardJs.includes("function isPrivateConsultation(e)")&&dashboardJs.includes("iso>='2026-10-29'")&&dashboardJs.includes("iso>='2026-11-12'"),'Analytics must recognize all configured private consultation windows');
 assert(dashboardJs.includes("new URL('/api/tracking',location.origin)")&&dashboardJs.includes("action','append"),'Praxis/PVS events must be appended as encrypted envelopes from the authorized practice browser');
 assert(tracking.includes("String(req.query?.action||'')==='append'")&&tracking.includes("if(!authorized(req))return send(res,401"),'Admin append path must require the existing tracking authorization secret');
 
@@ -153,11 +153,37 @@ assert(index.includes("return {earliest:localISO(today),waitDays:0,text:'GKV-Bes
   'Client-side GKV existing-patient 14-day advance restriction must be removed');
 for(const [date,time,expected] of [
   ['2026-10-14','14.15',false],['2026-10-14','14.30',true],['2026-10-14','15.45',true],['2026-10-14','16.45',true],['2026-10-14','17.00',false],
+  ['2026-10-22','14.30',false],['2026-10-22','16.45',false],
+  ['2026-10-29','14.15',false],['2026-10-29','14.30',true],['2026-10-29','16.45',true],['2026-10-29','17.00',false],
   ['2026-11-05','08.30',false],['2026-11-05','14.30',true],['2026-11-05','16.45',true],['2026-11-05','17.00',false],
   ['2026-11-12','08.30',true],['2026-11-12','10.45',true],['2026-11-12','11.00',false]
 ]){
   assert.strictEqual(policyForGkv.isPrivateOnlyWindow({date,time}),expected,'Private-window detection mismatch: '+date+' '+time);
 }
+const nextThursdayAfternoon={date:'2026-10-22',time:'15.00',doctorId:'moxter',serviceId:'vorsorge',duration:15};
+const protectedThursdayAfternoon={...nextThursdayAfternoon,date:'2026-10-29'};
+const sameDateRegularGkv=[nextThursdayAfternoon];
+assert(
+  policyForGkv.visibleForContext(sameDateRegularGkv,sameDateRegularGkv,existingGkvContext,gkvExistingNow).length===1,
+  'Thursday 22 October 2026 afternoon must stay eligible for regular GKV by exception'
+);
+assert.strictEqual(
+  policyForGkv.visibleForContext([protectedThursdayAfternoon],[protectedThursdayAfternoon],existingGkvContext,gkvExistingNow).length,
+  0,
+  'Thursday 29 October 2026 afternoon must be excluded for regular GKV in the server booking policy'
+);
+assert.strictEqual(
+  policyForGkv.visibleForContext([protectedThursdayAfternoon],[protectedThursdayAfternoon],{route:'PKV',patientType:'existing',topicMode:'regular'},gkvExistingNow).length,
+  1,
+  'Thursday 29 October 2026 afternoon must remain available to private patients'
+);
+assert.strictEqual(
+  policyForGkv.visibleForContext([protectedThursdayAfternoon],[protectedThursdayAfternoon],{route:'GKV',patientType:'existing',topicMode:'pregnancy'},gkvExistingNow).length,
+  1,
+  'Thursday private-hour GKV pregnancy exception must remain eligible'
+);
+assert(index.includes("String(slot?.date||'')>='2026-10-29'"),
+  'Frontend Thursday private consultation must be protected starting on 29 October 2026');
 const gkvPregnancySlots=[
   ['2026-12-02','14.15'],['2026-12-02','14.30'],['2026-12-02','15.45'],['2026-12-02','16.45'],['2026-12-02','17.00'],
   ['2026-12-03','08.30'],['2026-12-03','10.45'],['2026-12-03','11.00'],['2026-12-03','14.30'],['2026-12-03','17.00']

@@ -261,7 +261,7 @@ function isPrivateOnlyWindow(slot){
  }
  if(wd===4){
    if(isHamburgPublicHolidayISO(slot?.date))return false;
-   const afternoon=String(slot?.date||'')>='2026-11-05' && mins>=14*60+30 && mins<17*60;
+   const afternoon=String(slot?.date||'')>='2026-10-29' && mins>=14*60+30 && mins<17*60;
    const morning=String(slot?.date||'')>='2026-11-12' && mins>=8*60+30 && mins<11*60;
    return morning||afternoon;
  }
@@ -274,7 +274,7 @@ function isPrivateWindowStart(slot){
  if(wd===3)return inStartWindow(mins,14,30,16,30);
  if(wd===4){
    if(isHamburgPublicHolidayISO(slot?.date))return false;
-   const afternoon=String(slot?.date||'')>='2026-11-05' && inStartWindow(mins,14,30,16,30);
+   const afternoon=String(slot?.date||'')>='2026-10-29' && inStartWindow(mins,14,30,16,30);
    const morning=String(slot?.date||'')>='2026-11-12' && inStartWindow(mins,8,30,10,30);
    return morning||afternoon;
  }
