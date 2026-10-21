@@ -214,10 +214,7 @@ function currentRule(){
    const e=addDays(today,91);return {earliest:localISO(e),waitDays:91,text:`GKV-Neupatientin: frühestens in 13 Wochen (${deDate(localISO(e))})`};
  }
  if(state.insurance==='GKV'&&state.patientType==='existing'){
-   const qe=quarterEnd(today),rem=Math.max(0,daysBetween(today,qe));let wait;
-   if(rem>14)wait=14;else if(rem>7)wait=7;else wait=rem;
-   const e=addDays(today,wait);
-   return {earliest:localISO(e),waitDays:wait,text:`GKV-Bestand: frühestens ${deDate(localISO(e))}`};
+   return {earliest:localISO(today),waitDays:0,text:'GKV-Bestand: alle aktuell freigegebenen Termine'};
  }
  return {earliest:localISO(today),waitDays:0,text:'Alle aktuell freien Termine'};
 }

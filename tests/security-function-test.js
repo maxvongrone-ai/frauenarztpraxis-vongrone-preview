@@ -131,6 +131,26 @@ assert(!index.includes("if(state.insurance==='GKV'&&(isPrivateOnlyWindow(x)||isP
 assert(index.includes("if(state.insurance==='GKV'&&state.topicMode!=='pregnancy'&&(\n   isPrivateOnlyWindow(state.selectedSlot)||"),'Final GKV booking guard must apply only outside pregnancy');
 assert(index.includes("needs30MinuteBlock()&&isPrivateOnlyWindow({...state.selectedSlot,time:add15DotTime(state.selectedSlot.time)})"),'Final GKV booking guard must reject a second 15-minute block inside private consultation');
 const policyForGkv=require('../lib/booking-policy');
+const gkvExistingNow=new Date('2026-10-21T22:51:00+02:00');
+const existingGkvContext={route:'GKV',patientType:'existing',topicMode:'regular'};
+assert.deepStrictEqual(
+  policyForGkv.currentRule(existingGkvContext,gkvExistingNow),
+  {earliest:'2026-10-21',waitDays:0},
+  'GKV existing patients must not have a minimum advance-booking period'
+);
+const nextDayGkvSlot={date:'2026-10-22',time:'10.15',doctorId:'moxter',serviceId:'vorsorge',duration:15};
+assert(
+  policyForGkv.visibleForContext([nextDayGkvSlot],[nextDayGkvSlot],existingGkvContext,gkvExistingNow)
+    .some(x=>x.date==='2026-10-22'&&x.time==='10.15'),
+  'GKV existing patients must see next-day bookable slots in their base contingent'
+);
+assert.strictEqual(
+  policyForGkv.currentRule({route:'GKV',patientType:'new',topicMode:'regular'},gkvExistingNow).waitDays,
+  91,
+  'GKV new-patient restriction must remain unchanged'
+);
+assert(index.includes("return {earliest:localISO(today),waitDays:0,text:'GKV-Bestand: alle aktuell freigegebenen Termine'};"),
+  'Client-side GKV existing-patient 14-day advance restriction must be removed');
 for(const [date,time,expected] of [
   ['2026-10-14','14.15',false],['2026-10-14','14.30',true],['2026-10-14','15.45',true],['2026-10-14','16.45',true],['2026-10-14','17.00',false],
   ['2026-11-05','08.30',false],['2026-11-05','14.30',true],['2026-11-05','16.45',true],['2026-11-05','17.00',false],
