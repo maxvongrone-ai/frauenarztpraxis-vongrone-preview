@@ -7,7 +7,8 @@
     "node": "26.x"
   },
   "scripts": {
-    "build": "esbuild botid-client-entry.js --bundle --minify --format=iife --outfile=botid-client.js --platform=browser && mkdir -p public && cp index.html botid-client.js privacy-booking.html public/"
+    "build": "npm run test:birthdate && esbuild botid-client-entry.js --bundle --minify --format=iife --outfile=botid-client.js --platform=browser && mkdir -p public && cp index.html botid-client.js birthdate-validation.js privacy-booking.html public/",
+    "test:birthdate": "node tests/birthdate-validation.test.js"
   },
   "dependencies": {
     "@vercel/blob": "2.8.0",
