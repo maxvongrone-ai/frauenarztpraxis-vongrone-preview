@@ -7,7 +7,7 @@
     "node": "26.x"
   },
   "scripts": {
-    "build": "esbuild botid-client-entry.js --bundle --minify --format=iife --outfile=botid-client.js --platform=browser"
+    "build": "esbuild botid-client-entry.js --bundle --minify --format=iife --outfile=botid-client.js --platform=browser && mkdir -p public && cp index.html botid-client.js privacy-booking.html public/"
   },
   "dependencies": {
     "@vercel/blob": "2.8.0",
