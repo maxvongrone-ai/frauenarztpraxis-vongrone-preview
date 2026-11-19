@@ -1,14 +1,13 @@
 {
-  "name": "frauenarzt-vongrone-secure-medidate-gateway",
-  "version": "60.11.0",
+  "name": "medidate-live-patientcheck-sandbox",
+  "version": "0.1.0-sandbox",
   "private": true,
-  "description": "mediDate V60.11.0: private new patients are limited to one active online booking per calendar day; daily quota reservations reconcile released slots against mediDate.",
+  "description": "Isolated live mediDate booking probe for manually authorized tests. No automatic booking.",
   "engines": {
-    "node": "22.x"
+    "node": "26.x"
   },
   "scripts": {
-    "build": "npm run test:security && node scripts/build-seed.js",
-    "test:security": "node tests/security-function-test.js"
+    "build": "esbuild botid-client-entry.js --bundle --minify --format=iife --outfile=botid-client.js --platform=browser"
   },
   "dependencies": {
     "@vercel/blob": "2.8.0",
