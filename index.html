@@ -31,6 +31,9 @@ h1{font-size:38px;font-weight:500;margin:10px 0}header p{max-width:780px;margin:
 </style>
 </head>
 <body>
+<div style="position:sticky;top:0;z-index:999;background:#774b1b;color:white;padding:12px 18px;text-align:center;font:700 14px/1.5 Arial,sans-serif">
+SANDBOX – VERBINDUNG ZU ECHTEN mediDate-TERMINEN. Mit „Termin verbindlich buchen“ wird ein echter Praxistermin angelegt. Keine automatische Stornierung.
+</div>
 <div class="wrap">
 <header>
 <div class="eyebrow">Frauenarztpraxis Dr. med. Friederike von Grone</div>
@@ -1792,12 +1795,14 @@ function openBooking(slot){
  ${state.availabilityPreview?'<div class="subtle" style="margin-bottom:10px">Termin aus dem letzten bekannten Kalenderstand. Die Verfügbarkeit wird vor verbindlicher Buchung direkt bei mediDate geprüft.</div>':''}
  <div class="summary" style="margin-bottom:14px"><strong>Ärztin: ${esc(doctorDisplayName(slot.doctorId))}</strong>${state.insurance==='SELF'?`<br><span>Leistung: ${esc(state.service?.name||'Selbstzahlerleistung')}${state.service?.price?` · <strong>${esc(state.service.price)}</strong>`:''}</span>`:''}</div>
  ${needs30MinuteBlock()?'<div class="subtle"><strong>Für diesen Termin werden 30 Minuten reserviert.</strong></div>':''}
+ <div class="private-note"><strong>Live-Test:</strong> Die nachstehenden Daten werden erst beim finalen Buchungsklick direkt an mediDate gesendet. Bitte nur eigene Daten verwenden. Name, Geburtsdatum und E-Mail werden nicht in der Sandbox-Datenbank gespeichert.</div>
  <div class="formgrid">
    <div class="field"><label>Vorname *</label><input id="bookFirst" autocomplete="given-name"></div>
    <div class="field"><label>Nachname *</label><input id="bookLast" autocomplete="family-name"></div>
    <div class="field"><label>Geburtsdatum *</label><input id="bookBirth" type="date" autocomplete="bday"></div>
    <div class="field"><label>E-Mail-Adresse *</label><input id="bookEmail" type="email" autocomplete="email" inputmode="email" required></div>
  </div>
+ <div class="field" style="max-width:240px;margin-top:12px"><label for="sandboxSalutation">Anrede für mediDate</label><select id="sandboxSalutation" style="width:100%;padding:12px;border-radius:10px;border:1px solid #ded8d2;font:inherit"><option value="Frau">Frau</option><option value="Herr">Herr</option></select><div class="subtle">Nur diese Testversion: Im ursprünglichen Buchungscode steht fest „Frau“. Eine andere Auswahl kann sich auf die interne Zuordnung auswirken.</div></div>
  <div class="subtle" style="margin-top:6px">Vorname, Nachname, Geburtsdatum und E-Mail-Adresse bleiben bis zum Absenden in Ihrem Browser und werden dann direkt von Ihrem Browser an mediDate/MediSoftware übertragen. Sie werden nicht an den Website-Server/Vercel gesendet.</div><input id="bookWebsite" name="optional_homepage_url_check" type="text" tabindex="-1" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" aria-hidden="true" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;opacity:0;pointer-events:none" value="">
  ${pregnancyOtherPracticeQuestionHtml('bookPregOtherPractice')}
  ${state.insurance==='PKV'?`<label class="confirm"><input id="goaeAck" type="checkbox"><span>Ich bin damit einverstanden, dass privatärztliche Leistungen nach GOÄ in der Regel bis zum <strong>2,3-fachen Gebührensatz</strong> und bei entsprechender Begründung bis zum <strong>3,5-fachen Gebührensatz</strong> abgerechnet werden können.</span></label>`:''}
@@ -1809,6 +1814,7 @@ function openBooking(slot){
    <strong>Datenschutz bei der Terminbuchung</strong>
    <div class="subtle">Vorname, Nachname, Geburtsdatum und E-Mail-Adresse werden nicht an den Website-Server/Vercel übermittelt. Beim Absenden überträgt Ihr Browser diese Angaben direkt an mediDate/MediSoftware. <a href="/privacy-booking.html" target="_blank" rel="noopener">Datenschutzhinweise</a>.</div>
  </div>
+ <label class="confirm" style="background:#fff4dd;padding:12px;border-radius:10px"><input id="sandboxLiveAck" type="checkbox"><span><strong>Mir ist bewusst: Dies ist ein echter mediDate-Termin.</strong> Die Buchung blockiert einen Praxisplatz. Ich werde ihn bei Bedarf über den bestätigten Stornierungslink absagen. Ein Buchungserfolg allein beweist keinen Bestandsstatus.</span></label>
  <label class="confirm"><input id="bookConsent" type="checkbox"><span>Ich bestätige, dass meine Angaben richtig sind und möchte diesen Termin verbindlich buchen.</span></label>
  <button id="bookBtn" class="primary">Termin verbindlich buchen</button><div id="bookStatus" class="status"></div>
  </div>`;
@@ -1843,6 +1849,7 @@ function downloadCalendarEntry(info){
 async function bookNow(){
  const st=$('#bookStatus'),btn=$('#bookBtn');
  if(btn.disabled)return;
+ if(!$('#sandboxLiveAck')?.checked){st.className='status bad';st.textContent='Bitte die ausdrückliche Zustimmung zur echten Terminbuchung bestätigen.';return;}
  // Browser autofill may populate the hidden spam-trap field. Never reject a real booking
  // solely on that value; server-side booking availability and quota validation still apply.
  // The honeypot is intentionally non-blocking until a reliable server-side bot check exists.
@@ -1951,7 +1958,7 @@ async function bookNow(){
        duration:Number(rowForTime?.duration||tech.duration||state.selectedSlot.duration||15),dayOfYear:0,
        calenderWeek:Number(rowForTime?.calendarWeek||rowForTime?.calenderWeek||tech.calendarWeek||0),
        birthDate:patient.birthDate,firstName:patient.firstName,lastName:patient.lastName,
-       ticketid:'',sex:'Frau',mobilePhone:'',eMailAddress:sendEmail?patient.email:'',
+       ticketid:'',sex:($('#sandboxSalutation')?.value||'Frau'),mobilePhone:'',eMailAddress:sendEmail?patient.email:'',
        comment:[flags.length?`[${flags.join(' | ')}]`:'',extra].filter(Boolean).join(' '),
        createdOn:now,changedOn:now
      };
@@ -1974,6 +1981,24 @@ async function bookNow(){
        throw partial;
      }
    }
+   // Sandbox inspector: only response field names and coarse patient flags, never personal values, are displayed.
+   function sandboxResponseIndicators(response){
+     const hits=[],seen=new WeakSet();
+     function walk(node,depth){
+       if(!node||typeof node!=='object'||depth>3||seen.has(node))return;
+       seen.add(node);
+       for(const [key,value] of Object.entries(node)){
+         if(/patient|person|existing|bestand|medisoft|versicher|insurance/i.test(key)){
+           const kind=typeof value==='boolean'?(value?'ja':'nein'):(value==null?'kein Wert':'Wert vorhanden (nicht angezeigt)');
+           hits.push(esc(String(key).slice(0,60))+': '+kind);
+         }
+         if(value&&typeof value==='object')walk(value,depth+1);
+       }
+     }
+     walk(response,0);
+     return hits.length?hits.slice(0,15).join('; '):'Kein auswertbares Bestandskennzeichen in der Buchungsantwort erkennbar.';
+   }
+   const sandboxDiagnostic=sandboxResponseIndicators(result1);
    const codes=[directAppointmentCode(result1),directAppointmentCode(result2)].filter(Boolean);
    const doctorName=doctorDisplayName(state.selectedSlot.doctorId);
    void sendBookingTracking(state.selectedSlot,patient);
@@ -1989,6 +2014,11 @@ async function bookNow(){
      <p>Vorname, Nachname, Geburtsdatum und E-Mail-Adresse wurden direkt aus Ihrem Browser an mediDate/MediSoftware übertragen und nicht an den Website-Server/Vercel gesendet.</p>
      <button type="button" class="primary" id="downloadIcs">Kalendereintrag herunterladen</button>
      ${cancelHtml}
+     <div class="private-note"><strong>Diagnose zur Bestandserkennung (nur Testversion)</strong>
+       <p>${sandboxDiagnostic}</p>
+       <p>Wichtig: Eine Patientennummer oder eine erfolgreiche Buchung bestätigt noch nicht, dass mediDate dich als vorherige GKV-/PKV-Bestandspatientin eingestuft hat. Bitte die Zuordnung in der Praxissoftware kontrollieren.</p>
+       <p>Die Angaben aus der mediDate-Antwort werden nur auf dieser Seite angezeigt und nicht an den Sandbox-Server übertragen.</p>
+     </div>
    </div>`;
    $('#downloadIcs').onclick=()=>downloadCalendarEntry({date:state.selectedSlot.date,time:state.selectedSlot.time,duration:need30?30:Number(tech.duration||15),doctorName});
  }catch(e){
