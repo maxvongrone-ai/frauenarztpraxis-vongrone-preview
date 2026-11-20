@@ -25,9 +25,9 @@ const pkg=JSON.parse(read('package.json'));
 
 // Januar-2027-Zusatzfreigabe: genau zehn feste, einmalige GKV-Bestandsstarts,
  // nicht als laufend wiederauffuellendes Kontingent und nie in Privatfenstern.
-const januaryGkvMatch=index.match(/const JANUARY_2027_GKV_EXTRA_SLOTS=new Set\\(\\[([\\s\\S]*?)\\]\\);/);
+const januaryGkvMatch=index.match(/const JANUARY_2027_GKV_EXTRA_SLOTS=new Set\(\[([\s\S]*?)\]\);/);
 assert(januaryGkvMatch,'Januar-2027-Zusatzfreigabe muss definiert sein');
-const januaryGkvSlots=[...januaryGkvMatch[1].matchAll(/'([0-9]{4}-[0-9]{2}-[0-9]{2}\\|[0-9]{2}\\.[0-9]{2}\\|(moxter|vongrone))'/g)].map(x=>x[1]);
+const januaryGkvSlots=[...januaryGkvMatch[1].matchAll(/'([0-9]{4}-[0-9]{2}-[0-9]{2}\|[0-9]{2}\.[0-9]{2}\|(moxter|vongrone))'/g)].map(x=>x[1]);
 assert.strictEqual(januaryGkvSlots.length,10,'Exakt zehn freigegebene Startpositionen');
 assert.strictEqual(new Set(januaryGkvSlots).size,10,'Keine doppelt freigegebenen Termine');
 const janGkvByWeek=[0,0,0,0];
