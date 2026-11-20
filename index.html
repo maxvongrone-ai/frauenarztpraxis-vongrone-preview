@@ -582,6 +582,29 @@ function mergeVisibleSlots(...lists){
  return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 
+// Einmalige GKV-Bestand-Zusatzfreigabe fuer Januar 2027, beschlossen am 21.11.2026.
+// Exakte Terminpositionen statt rollierendem Kontingent: verbrauchte Termine
+// werden NICHT automatisch durch neue Privatpool-Termine ersetzt.
+// Woechentliche Verteilung 1 / 2 / 3 / 4; beide Aerztinnen, nur regulaere Zeiten.
+const JANUARY_2027_GKV_EXTRA_SLOTS=new Set([
+ '2027-01-05|14.30|moxter',
+ '2027-01-11|09.30|moxter',
+ '2027-01-13|13.15|vongrone',
+ '2027-01-18|10.15|moxter',
+ '2027-01-20|13.00|vongrone',
+ '2027-01-22|12.15|vongrone',
+ '2027-01-25|11.00|moxter',
+ '2027-01-26|10.30|vongrone',
+ '2027-01-26|14.00|moxter',
+ '2027-01-29|10.30|vongrone'
+]);
+function isJanuary2027GkvExtra(slot){
+ return !isPrivateOnlyWindow(slot)&&!isBaseGkvSlot(slot)&&
+   JANUARY_2027_GKV_EXTRA_SLOTS.has(
+     String(slot.date)+'|'+String(slot.time)+'|'+String(slot.doctorId)
+   );
+}
+
 function selectGkvContingent(allSlots){
  // Privatsprechstunden bleiben vollständig außerhalb des GKV-Pools.
  const regular=allSlots.filter(x=>!isPrivateOnlyWindow(x));
@@ -603,6 +626,7 @@ function selectGkvContingent(allSlots){
  const out=[];
  for(const [wk,weekSlots] of byWeek){
    const baseFree=weekSlots.filter(isBaseGkvSlot);
+   out.push(...weekSlots.filter(isJanuary2027GkvExtra));
    if(baseFree.length){
      // Solange noch ein regulärer GKV-Kontingenttermin frei ist, gibt es KEINE
      // automatische Zusatzfreigabe aus dem geschützten Pool.
@@ -631,7 +655,7 @@ function selectGkvContingent(allSlots){
    }).slice(0,releaseCount);
    out.push(...release);
  }
- return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+ return mergeVisibleSlots(out);
 }
 
 function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
