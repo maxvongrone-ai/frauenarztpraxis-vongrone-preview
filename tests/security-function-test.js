@@ -23,6 +23,31 @@ const botidClient=read('botid-client-entry.js');
 const buildScript=read('scripts/build-seed.js');
 const pkg=JSON.parse(read('package.json'));
 
+// Januar-2027-Zusatzfreigabe: genau zehn feste, einmalige GKV-Bestandsstarts,
+ // nicht als laufend wiederauffuellendes Kontingent und nie in Privatfenstern.
+const januaryGkvMatch=index.match(/const JANUARY_2027_GKV_EXTRA_SLOTS=new Set\(\[([\s\S]*?)\]\);/);
+assert(januaryGkvMatch,'Januar-2027-Zusatzfreigabe muss definiert sein');
+const januaryGkvSlots=[...januaryGkvMatch[1].matchAll(/'([0-9]{4}-[0-9]{2}-[0-9]{2}\|[0-9]{2}\.[0-9]{2}\|(moxter|vongrone))'/g)].map(x=>x[1]);
+assert.strictEqual(januaryGkvSlots.length,10,'Exakt zehn freigegebene Startpositionen');
+assert.strictEqual(new Set(januaryGkvSlots).size,10,'Keine doppelt freigegebenen Termine');
+const janGkvByWeek=[0,0,0,0];
+for(const key of januaryGkvSlots){
+ const [date,time]=key.split('|');
+ assert(date.startsWith('2027-01-'),'Zusatzfreigabe nur Januar 2027');
+ const day=new Date(date+'T12:00:00Z').getUTCDay();
+ const mins=Number(time.slice(0,2))*60+Number(time.slice(3));
+ const privateWindow=(day===3&&mins>=870&&mins<1020)||
+   (day===4&&((mins>=510&&mins<660)||(mins>=870&&mins<1020)));
+ assert(!privateWindow,'Keine Freigabe in Privatsprechstunden');
+ const weekStart=new Date(date+'T12:00:00Z');
+ weekStart.setUTCDate(weekStart.getUTCDate()-(day+6)%7);
+ janGkvByWeek[['2027-01-04','2027-01-11','2027-01-18','2027-01-25']
+   .indexOf(weekStart.toISOString().slice(0,10))]++;
+}
+assert.deepStrictEqual(janGkvByWeek,[1,2,3,4],'Januar-Freigabe muss auf Wochen verteilt bleiben');
+assert(index.includes('out.push(...weekSlots.filter(isJanuary2027GkvExtra))'),
+  'Freigabe muss in GKV-Contingentlogik integriert sein');
+
 assert(booking.includes('res.statusCode=410'),'Legacy /api/booking must stay disabled');
 assert(!index.includes("fetch('/api/booking'"),'Frontend must not send patient booking data to Vercel');
 assert(index.includes("directMediDateRequest('appointments',{method:'POST',body:payloadFor("),'Patient booking must remain browser-direct to mediDate');
