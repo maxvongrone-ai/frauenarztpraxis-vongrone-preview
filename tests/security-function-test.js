@@ -48,6 +48,58 @@ assert.deepStrictEqual(janGkvByWeek,[1,2,3,4],'Januar-Freigabe muss auf Wochen v
 assert(index.includes('out.push(...weekSlots.filter(isJanuary2027GkvExtra))'),
   'Freigabe muss in GKV-Contingentlogik integriert sein');
 
+// Regeln ab November 2026: PKV-Mindestanteile mit explizitem ceil(),
+// Schwangerschaft ≥80% je Monat und GKV-Monatsplan erst taeglich neu.
+assert(index.includes('keepCeilFractionPerDay(eligible.filter(isPrivateOnlyWindow),0.8,allSlots)'),
+  'PKV-Privatsprechstunden muessen mindestens 80% der freien Starts zeigen');
+assert(index.includes('keepCeilFractionPerDay(eligible.filter(x=>!isPrivateOnlyWindow(x)),0.5,allSlots)'),
+  'PKV ausserhalb der Privatsprechstunden mindestens 50%');
+assert(index.includes('Math.ceil(list.length*share)'),'PKV-Mindestanteile muessen aufgerundet werden');
+assert(index.includes('Math.ceil(list.length*0.8)'),
+  'Schwangerschaft mindestens 80% der monatlich buchbaren Starts, aufgerundet');
+assert(index.includes("normal=pregnancyAtLeastEightyPercent(allSlots)"),
+  'Schwangerschaftsregel muss bei PKV und GKV greifen');
+assert(index.includes("normal=pkvVisibleSlots(allSlots)"),
+  'PKV-Anteile duerfen nicht hinter dem bisherigen Tagesmaximum verschwinden');
+assert(index.includes('state.gkvMonthlyExtraSlots.has('),
+  'Nur in Tagesplan festgelegte GKV-Zusatztermine sollen sichtbar sein');
+assert(index.includes("apiGet('gkvMonthlyFloor'"),
+  'Frontend muss monatlichen Tagesplan beim Server abrufen');
+assert(medidate.includes('allowOverwrite:false')&&
+  medidate.includes("FLOOR_BLOB_PREFIX"),
+  'GKV-Tagesplan muss unveraenderlich fuer denselben Kalendertag sein');
+
+const {computeMonthlyFloor,validStoredPlan,privateWindow,berlinDay}=require('../lib/gkv-monthly-floor');
+assert(/^\d{4}-\d{2}-\d{2}$/.test(berlinDay(Date.UTC(2026,10,21,8))),
+  'Deutsches Tagesdatum');
+const fakeRows=[],allCandidates=[];
+for(const date of ['2027-01-11','2027-01-12','2027-01-18','2027-01-19','2027-01-25','2027-01-26']){
+ const times=[];
+ for(let h=9;h<=15;h++)for(const m of [0,15,30]){
+  const time=String(h).padStart(2,'0')+'.'+String(m).padStart(2,'0');
+  const doctor='moxter',day=Math.floor(Date.parse(date+'T00:00:00Z')/86400000);
+  const b=((day+Math.floor((h*60+m)/15)+2)%5+5)%5;
+  if(b<2||privateWindow({date,time,doctor}))continue;
+  times.push({time});
+  allCandidates.push({date,time,doctor});
+ }
+ if(times.length)fakeRows.push({dateTimeStart:date+'T09:00:00',doctorKey:'moxter',
+   duration:15,times});
+}
+const fixture={generatedAt:'2026-11-21T09:00:00Z',
+ groups:[{serviceKey:'vorsorge',availability:{appointmentTimes:fakeRows}}]};
+const monthlyPlan=computeMonthlyFloor(fixture,'2027-01','2026-11-21');
+assert(allCandidates.length>10,'Testfixture muss mehr als zehn freie Nicht-Privattermine enthalten');
+assert.strictEqual(monthlyPlan.extraSlots.length,10,'Monatskontingent muss auf 10 aufstocken');
+assert.strictEqual(monthlyPlan.existingVisible,0,'Testfixture ohne bestehendes GKV-Kontingent');
+assert(monthlyPlan.extraSlots.every(k=>allCandidates.some(x=>k===x.date+'|'+x.time+'|'+x.doctor)),
+  'Nur technisch freie Starts ausserhalb der Privatsprechstunden');
+assert(validStoredPlan(monthlyPlan,'2026-11-21','2027-01'),'Tagesplan ist gueltig');
+assert(!validStoredPlan(monthlyPlan,'2026-11-22','2027-01'),
+  'Ein Plan vom Vortag darf nicht als heutiger Plan gelten');
+assert.throws(()=>computeMonthlyFloor(fixture,'2026-12','2026-11-21'),
+  /Ungültiger GKV-Freigabemonat/,'Vor Januar 2027 keine Nachfreigabe');
+
 assert(booking.includes('res.statusCode=410'),'Legacy /api/booking must stay disabled');
 assert(!index.includes("fetch('/api/booking'"),'Frontend must not send patient booking data to Vercel');
 assert(index.includes("directMediDateRequest('appointments',{method:'POST',body:payloadFor("),'Patient booking must remain browser-direct to mediDate');
