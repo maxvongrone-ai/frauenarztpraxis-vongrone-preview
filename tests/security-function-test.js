@@ -63,7 +63,7 @@ assert(index.includes("normal=pkvVisibleSlots(allSlots)"),
   'PKV-Anteile duerfen nicht hinter dem bisherigen Tagesmaximum verschwinden');
 // Auswertung der echten Client-Auswahlfunktionen mit synthetischen,
  // datenschutzfreien Startterminen (nicht nur Textsuche im Quellcode).
-const vm=require('vm');
+const quotaVm=require('vm');
 const fStart=index.indexOf('function keepCeilFractionPerDay(');
 const fEnd=index.indexOf('function privateWindowReleaseShare(',fStart);
 assert(fStart>=0&&fEnd>fStart,'Quoten-Auswahlfunktionen im Client');
@@ -84,8 +84,8 @@ const syntheticContext={
   return out;
  }
 };
-vm.createContext(syntheticContext);
-vm.runInContext(index.slice(fStart,fEnd),syntheticContext);
+quotaVm.createContext(syntheticContext);
+quotaVm.runInContext(index.slice(fStart,fEnd),syntheticContext);
 const syntheticSlots=[];
 for(let i=0;i<16;i++){
  const h=9+Math.floor(i/4),m=(i%4)*15;
