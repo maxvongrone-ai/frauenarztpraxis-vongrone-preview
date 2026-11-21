@@ -550,6 +550,57 @@ function keepPopularFractionPerDay(slots,share,referenceSlots=slots){
  return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 
+// PKV-Anteile: an jedem Tag separat fuer Privat- und Normalzeiten aufrunden.
+function keepCeilFractionPerDay(slots,share,referenceSlots=slots){
+ const scores=popularityScores(referenceSlots),byDay=new Map(),out=[];
+ for(const x of slots){
+  if(!byDay.has(x.date))byDay.set(x.date,[]);
+  byDay.get(x.date).push(x);
+ }
+ for(const list of byDay.values()){
+  list.sort((a,b)=>{
+   const sa=scores.get(weekdayOfISO(a.date)+'|'+a.time)||0;
+   const sb=scores.get(weekdayOfISO(b.date)+'|'+b.time)||0;
+   return sb-sa||minutesOf(a.time)-minutesOf(b.time);
+  });
+  out.push(...list.slice(0,Math.ceil(list.length*share)));
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+}
+function pkvVisibleSlots(allSlots){
+ const eligible=allSlots.filter(maySeeSlot);
+ return mergeVisibleSlots(
+  keepCeilFractionPerDay(eligible.filter(isPrivateOnlyWindow),0.8,allSlots),
+  keepCeilFractionPerDay(eligible.filter(x=>!isPrivateOnlyWindow(x)),0.5,allSlots)
+ );
+}
+function pregnancyAtLeastEightyPercent(allSlots){
+ const regular=allSlots.filter(x=>!isPrivateOnlyWindow(x));
+ const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));
+ const eligible=mergeVisibleSlots(regular,privateCandidates);
+ const current=mergeVisibleSlots(regular,keepReleasedPrivateWindowFraction(privateCandidates,allSlots));
+ const slotKey=x=>x.date+'|'+x.time+'|'+x.doctorId+'|'+x.serviceId;
+ const shown=new Set(current.map(slotKey)),byMonth=new Map(),toAdd=[];
+ const scores=popularityScores(allSlots);
+ for(const x of eligible){
+  const month=x.date.slice(0,7);
+  if(!byMonth.has(month))byMonth.set(month,[]);
+  byMonth.get(month).push(x);
+ }
+ for(const list of byMonth.values()){
+  const deficit=Math.max(0,Math.ceil(list.length*0.8)-list.filter(x=>shown.has(slotKey(x))).length);
+  if(!deficit)continue;
+  const remainder=list.filter(x=>!shown.has(slotKey(x)));
+  remainder.sort((a,b)=>{
+   const sa=scores.get(weekdayOfISO(a.date)+'|'+a.time)||0;
+   const sb=scores.get(weekdayOfISO(b.date)+'|'+b.time)||0;
+   return sb-sa||a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time);
+  });
+  toAdd.push(...remainder.slice(0,deficit));
+ }
+ return mergeVisibleSlots(current,toAdd);
+}
+
 function privateWindowReleaseShare(slot){
  const lead=Math.max(0,daysBetween(new Date(),new Date(String(slot?.date||'')+'T12:00:00')));
  if(lead<=2)return 1;
