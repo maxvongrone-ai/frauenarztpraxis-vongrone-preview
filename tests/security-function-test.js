@@ -144,6 +144,85 @@ assert(!validStoredPlan(monthlyPlan,'2026-11-22','2027-01'),
 assert.throws(()=>computeMonthlyFloor(fixture,'2026-12','2026-11-21'),
   /Ungültiger GKV-Freigabemonat/,'Vor Januar 2027 keine Nachfreigabe');
 
+// Harte Tagesobergrenze inklusive Monats- und Fenster-Quoten.
+assert(index.includes("return capVisibleStartsPerDay(applyPrivateNewDailyLimit(combined),allSlots);"),
+  'Tageslimit muss nach allen sonstigen Sichtbarkeitsregeln greifen');
+const capStart=index.indexOf('const DAILY_VISIBLE_PREFERRED=9,DAILY_VISIBLE_MAX=10;');
+const capEnd=index.indexOf('function audienceVisibleSlots(',capStart);
+assert(capStart>0&&capEnd>capStart,'Tageslimit als eigenstaendige Funktion auffindbar');
+const dayCapVm=require('vm');
+const dayCapContext={
+ Math,Map,Set,
+ state:{insurance:'SELF',patientType:'existing',topicMode:'regular'},
+ isMenopauseMode:()=>false,
+ isPrivateOnlyWindow:x=>x.private===true,
+ maySeeSlot:()=>true,
+ popularityScores:()=>new Map(),
+ weekdayOfISO:()=>1,
+ minutesOf:t=>Number(t.slice(0,2))*60+Number(t.slice(3)),
+ mergeVisibleSlots:(...lists)=>{
+  const seen=new Set(),out=[];
+  for(const l of lists)for(const x of l||[]){
+   const key=x.date+'|'+x.time+'|'+x.doctorId+'|'+x.serviceId;
+   if(!seen.has(key)){seen.add(key);out.push(x);}
+  }
+  return out.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+ }
+};
+dayCapVm.createContext(dayCapContext);
+dayCapVm.runInContext(index.slice(capStart,capEnd),dayCapContext);
+const fakeDay=(date,count,privateCount=0)=>{
+ const result=[];
+ for(let i=0;i<count;i++){
+  const hour=8+Math.floor(i/4),minute=(i%4)*15;
+  result.push({date,time:String(hour).padStart(2,'0')+'.'+String(minute).padStart(2,'0'),
+   doctorId:'moxter',serviceId:'vorsorge',private:i<privateCount});
+ }
+ return result;
+};
+const countDays=slots=>{
+ const dates=new Map();
+ for(const x of slots)dates.set(x.date,(dates.get(x.date)||0)+1);
+ return [...dates.values()];
+};
+let fake=fakeDay('2027-02-15',24);
+assert.strictEqual(dayCapContext.capVisibleStartsPerDay(fake,fake).length,9,
+  'Ohne weitere Quote sollen nur neun der 24 freien Termine sichtbar werden');
+dayCapContext.state.insurance='PKV';
+fake=fakeDay('2027-02-15',24,12);
+let shown=dayCapContext.capVisibleStartsPerDay(fake,fake);
+assert.strictEqual(shown.length,10,'PKV Tageslimit darf nie ueberschritten werden');
+assert(shown.some(x=>x.private)&&shown.some(x=>!x.private),
+  'Bei PKV-Quotenkonflikt sollen beide Zeitfenster sichtbar bleiben');
+fake=fakeDay('2027-02-15',11,5);
+shown=dayCapContext.capVisibleStartsPerDay(fake,fake);
+assert.strictEqual(shown.length,9,'Wenn moeglich nur neun PKV-Termine anzeigen');
+assert(shown.filter(x=>x.private).length>=Math.ceil(5*0.8),
+  'PKV 80% Privat-Minimum darf bei unter 10 erforderlichen Starts nicht verloren gehen');
+assert(shown.filter(x=>!x.private).length>=Math.ceil(6*0.5),
+  'PKV 50% Normal-Minimum darf bei unter 10 erforderlichen Starts nicht verloren gehen');
+dayCapContext.state.insurance='GKV';
+dayCapContext.state.patientType='existing';
+fake=fakeDay('2027-01-18',15);
+shown=dayCapContext.capVisibleStartsPerDay(fake,fake);
+assert.strictEqual(shown.length,10,
+  'Monat mit nur einem Freigabetag muss zehn GKV-Termine anzeigen, wenn moeglich');
+fake=fakeDay('2026-12-18',15);
+assert.strictEqual(dayCapContext.capVisibleStartsPerDay(fake,fake).length,9,
+  'Die GKV-Monatsuntergrenze darf nicht vor Januar 2027 greifen');
+dayCapContext.state.topicMode='pregnancy';
+fake=[...fakeDay('2027-02-01',12),...fakeDay('2027-02-02',12),
+ ...fakeDay('2027-02-03',12)];
+shown=dayCapContext.capVisibleStartsPerDay(fake,fake);
+assert(shown.length>=Math.ceil(fake.length*0.8),
+ 'Schwangerschaftsquote von 80 Prozent muss bei 3 Tagen mit 10er-Limit erreichbar bleiben');
+assert(countDays(shown).every(x=>x<=10),
+ 'Schwangerschaft darf nie ueber zehn sichtbare Starts je Tag gelangen');
+fake=fakeDay('2027-02-01',20);
+shown=dayCapContext.capVisibleStartsPerDay(fake,fake);
+assert.strictEqual(shown.length,10,
+ 'Wenn 80 Prozent mathematisch ueber zehn liegen, gilt das harte Tagesmaximum');
+
 assert(booking.includes('res.statusCode=410'),'Legacy /api/booking must stay disabled');
 assert(!index.includes("fetch('/api/booking'"),'Frontend must not send patient booking data to Vercel');
 assert(index.includes("directMediDateRequest('appointments',{method:'POST',body:payloadFor("),'Patient booking must remain browser-direct to mediDate');
