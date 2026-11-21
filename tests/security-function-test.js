@@ -48,6 +48,102 @@ assert.deepStrictEqual(janGkvByWeek,[1,2,3,4],'Januar-Freigabe muss auf Wochen v
 assert(index.includes('out.push(...weekSlots.filter(isJanuary2027GkvExtra))'),
   'Freigabe muss in GKV-Contingentlogik integriert sein');
 
+// Regeln ab November 2026: PKV-Mindestanteile mit explizitem ceil(),
+// Schwangerschaft ≥80% je Monat und GKV-Monatsplan erst taeglich neu.
+assert(index.includes('keepCeilFractionPerDay(eligible.filter(isPrivateOnlyWindow),0.8,allSlots)'),
+  'PKV-Privatsprechstunden muessen mindestens 80% der freien Starts zeigen');
+assert(index.includes('keepCeilFractionPerDay(eligible.filter(x=>!isPrivateOnlyWindow(x)),0.5,allSlots)'),
+  'PKV ausserhalb der Privatsprechstunden mindestens 50%');
+assert(index.includes('Math.ceil(list.length*share)'),'PKV-Mindestanteile muessen aufgerundet werden');
+assert(index.includes('Math.ceil(list.length*0.8)'),
+  'Schwangerschaft mindestens 80% der monatlich buchbaren Starts, aufgerundet');
+assert(index.includes("normal=pregnancyAtLeastEightyPercent(allSlots)"),
+  'Schwangerschaftsregel muss bei PKV und GKV greifen');
+assert(index.includes("normal=pkvVisibleSlots(allSlots)"),
+  'PKV-Anteile duerfen nicht hinter dem bisherigen Tagesmaximum verschwinden');
+// Auswertung der echten Client-Auswahlfunktionen mit synthetischen,
+ // datenschutzfreien Startterminen (nicht nur Textsuche im Quellcode).
+const quotaVm=require('vm');
+const fStart=index.indexOf('function keepCeilFractionPerDay(');
+const fEnd=index.indexOf('function privateWindowReleaseShare(',fStart);
+assert(fStart>=0&&fEnd>fStart,'Quoten-Auswahlfunktionen im Client');
+const syntheticContext={
+ Math,Map,Set,
+ popularityScores:()=>new Map(),
+ weekdayOfISO:()=>1,
+ minutesOf:t=>Number(t.slice(0,2))*60+Number(t.slice(3,5)),
+ isPrivateOnlyWindow:x=>x.private===true,
+ maySeeSlot:()=>true,
+ keepReleasedPrivateWindowFraction:()=>[],
+ mergeVisibleSlots:(...lists)=>{
+  const seen=new Set(),out=[];
+  for(const list of lists)for(const item of list){
+   const key=item.date+'|'+item.time+'|'+item.doctorId+'|'+item.serviceId;
+   if(!seen.has(key)){seen.add(key);out.push(item);}
+  }
+  return out;
+ }
+};
+quotaVm.createContext(syntheticContext);
+quotaVm.runInContext(index.slice(fStart,fEnd),syntheticContext);
+const syntheticSlots=[];
+for(let i=0;i<16;i++){
+ const h=9+Math.floor(i/4),m=(i%4)*15;
+ syntheticSlots.push({
+  date:'2027-01-15',
+  time:String(h).padStart(2,'0')+'.'+String(m).padStart(2,'0'),
+  doctorId:'moxter',serviceId:'vorsorge',private:i<7
+ });
+}
+const pkvChosen=syntheticContext.pkvVisibleSlots(syntheticSlots);
+assert.strictEqual(pkvChosen.filter(x=>x.private).length,Math.ceil(7*0.8),
+ 'PKV muss Privat-Slots aufrunden (7 -> 6)');
+assert.strictEqual(pkvChosen.filter(x=>!x.private).length,Math.ceil(9*0.5),
+ 'PKV muss Normal-Slots aufrunden (9 -> 5)');
+const pregChosen=syntheticContext.pregnancyAtLeastEightyPercent(syntheticSlots);
+assert(pregChosen.length>=Math.ceil(syntheticSlots.length*0.8),
+ 'Schwangerschaft muss mindestens 80% der monatlich freien Starts zeigen');
+
+assert(index.includes('state.gkvMonthlyExtraSlots.has('),
+  'Nur in Tagesplan festgelegte GKV-Zusatztermine sollen sichtbar sein');
+assert(index.includes("apiGet('gkvMonthlyFloor'"),
+  'Frontend muss monatlichen Tagesplan beim Server abrufen');
+assert(medidate.includes('allowOverwrite:false')&&
+  medidate.includes("FLOOR_BLOB_PREFIX"),
+  'GKV-Tagesplan muss unveraenderlich fuer denselben Kalendertag sein');
+
+const {computeMonthlyFloor,validStoredPlan,privateWindow,berlinDay}=require('../lib/gkv-monthly-floor');
+assert(/^\d{4}-\d{2}-\d{2}$/.test(berlinDay(Date.UTC(2026,10,21,8))),
+  'Deutsches Tagesdatum');
+const fakeRows=[],allCandidates=[];
+for(const date of ['2027-01-11','2027-01-12','2027-01-18','2027-01-19','2027-01-25','2027-01-26']){
+ const times=[];
+ for(let h=9;h<=15;h++)for(const m of [0,15,30]){
+  const time=String(h).padStart(2,'0')+'.'+String(m).padStart(2,'0');
+  const doctor='moxter',day=Math.floor(Date.parse(date+'T00:00:00Z')/86400000);
+  const b=((day+Math.floor((h*60+m)/15)+2)%5+5)%5;
+  if(b<2||privateWindow({date,time,doctor}))continue;
+  times.push({time});
+  allCandidates.push({date,time,doctor});
+ }
+ if(times.length)fakeRows.push({dateTimeStart:date+'T09:00:00',doctorKey:'moxter',
+   duration:15,times});
+}
+const fixture={generatedAt:'2026-11-21T09:00:00Z',
+ groups:[{serviceKey:'vorsorge',availability:{appointmentTimes:fakeRows}}]};
+const monthlyPlan=computeMonthlyFloor(fixture,'2027-01','2026-11-21');
+assert(allCandidates.length>10,'Testfixture muss mehr als zehn freie Nicht-Privattermine enthalten');
+assert.strictEqual(monthlyPlan.extraSlots.length+monthlyPlan.existingVisible,10,
+  'Bestehende Januar-Sonderfreigaben plus Auffuellung ergeben genau zehn');
+assert(monthlyPlan.existingVisible>0,'Bereits freigegebene Januartermine werden mitgezaehlt');
+assert(monthlyPlan.extraSlots.every(k=>allCandidates.some(x=>k===x.date+'|'+x.time+'|'+x.doctor)),
+  'Nur technisch freie Starts ausserhalb der Privatsprechstunden');
+assert(validStoredPlan(monthlyPlan,'2026-11-21','2027-01'),'Tagesplan ist gueltig');
+assert(!validStoredPlan(monthlyPlan,'2026-11-22','2027-01'),
+  'Ein Plan vom Vortag darf nicht als heutiger Plan gelten');
+assert.throws(()=>computeMonthlyFloor(fixture,'2026-12','2026-11-21'),
+  /Ungültiger GKV-Freigabemonat/,'Vor Januar 2027 keine Nachfreigabe');
+
 assert(booking.includes('res.statusCode=410'),'Legacy /api/booking must stay disabled');
 assert(!index.includes("fetch('/api/booking'"),'Frontend must not send patient booking data to Vercel');
 assert(index.includes("directMediDateRequest('appointments',{method:'POST',body:payloadFor("),'Patient booking must remain browser-direct to mediDate');
@@ -230,7 +326,7 @@ for(const [day,expectedPrivateCount] of [['2026-12-02',4],['2026-12-09',2]]){
   assert.strictEqual(visible.length,expectedPrivateCount,'GKV pregnancy staged private release mismatch '+day);
 }
 assert(index.includes("function privateWindowReleaseShare(slot){")&&index.includes("if(lead<=2)return 1;")&&index.includes("if(lead<7)return 2/3;")&&index.includes("return 1/2;"),'Private consultation release must be 1/2 normally, 2/3 inside one week and 100 percent from two days before the appointment');
-assert(index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));")&&index.includes("const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);"),'GKV pregnancy must use the existing staged private-window release');
+assert(index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));")&&index.includes("keepReleasedPrivateWindowFraction(privateCandidates,allSlots)")&&index.includes("normal=pregnancyAtLeastEightyPercent(allSlots)"),'GKV pregnancy must retain staged release and exceed 80 percent if needed');
 assert(index.includes("if(isSelfPayBreast()){")&&index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));"),'Self-pay breast ultrasound must receive the same staged access to private consultation slots');
 assert(index.includes("bis spätestens zur <strong>7. SSW</strong>"),'All pregnancy booking paths must show the SSW-7 contact-practice notice');
 assert(index.includes("if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';"),'Quarter confirmation must apply to all GKV pregnancy bookings');

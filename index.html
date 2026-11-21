@@ -110,7 +110,7 @@ window.__MEDIDATE_SEED__=null;
 </script>
 <script src="/botid-client.js"></script>
 <script>
-const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0,privateNewBlockedDates:new Set(),privateNewQuotaLoading:null};
+const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0,privateNewBlockedDates:new Set(),privateNewQuotaLoading:null,gkvMonthlyExtraSlots:new Set()};
 // Im Browser werden nur lokale, nicht-mediDate-interne Bezeichner verwendet.
 // Die echten mediDate-IDs bleiben ausschließlich serverseitig.
 const PRACTICE_DOCTORS=[
@@ -550,6 +550,57 @@ function keepPopularFractionPerDay(slots,share,referenceSlots=slots){
  return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
 }
 
+// PKV-Anteile: an jedem Tag separat fuer Privat- und Normalzeiten aufrunden.
+function keepCeilFractionPerDay(slots,share,referenceSlots=slots){
+ const scores=popularityScores(referenceSlots),byDay=new Map(),out=[];
+ for(const x of slots){
+  if(!byDay.has(x.date))byDay.set(x.date,[]);
+  byDay.get(x.date).push(x);
+ }
+ for(const list of byDay.values()){
+  list.sort((a,b)=>{
+   const sa=scores.get(weekdayOfISO(a.date)+'|'+a.time)||0;
+   const sb=scores.get(weekdayOfISO(b.date)+'|'+b.time)||0;
+   return sb-sa||minutesOf(a.time)-minutesOf(b.time);
+  });
+  out.push(...list.slice(0,Math.ceil(list.length*share)));
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time));
+}
+function pkvVisibleSlots(allSlots){
+ const eligible=allSlots.filter(maySeeSlot);
+ return mergeVisibleSlots(
+  keepCeilFractionPerDay(eligible.filter(isPrivateOnlyWindow),0.8,allSlots),
+  keepCeilFractionPerDay(eligible.filter(x=>!isPrivateOnlyWindow(x)),0.5,allSlots)
+ );
+}
+function pregnancyAtLeastEightyPercent(allSlots){
+ const regular=allSlots.filter(x=>!isPrivateOnlyWindow(x));
+ const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));
+ const eligible=mergeVisibleSlots(regular,privateCandidates);
+ const current=mergeVisibleSlots(regular,keepReleasedPrivateWindowFraction(privateCandidates,allSlots));
+ const slotKey=x=>x.date+'|'+x.time+'|'+x.doctorId+'|'+x.serviceId;
+ const shown=new Set(current.map(slotKey)),byMonth=new Map(),toAdd=[];
+ const scores=popularityScores(allSlots);
+ for(const x of eligible){
+  const month=x.date.slice(0,7);
+  if(!byMonth.has(month))byMonth.set(month,[]);
+  byMonth.get(month).push(x);
+ }
+ for(const list of byMonth.values()){
+  const deficit=Math.max(0,Math.ceil(list.length*0.8)-list.filter(x=>shown.has(slotKey(x))).length);
+  if(!deficit)continue;
+  const remainder=list.filter(x=>!shown.has(slotKey(x)));
+  remainder.sort((a,b)=>{
+   const sa=scores.get(weekdayOfISO(a.date)+'|'+a.time)||0;
+   const sb=scores.get(weekdayOfISO(b.date)+'|'+b.time)||0;
+   return sb-sa||a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time);
+  });
+  toAdd.push(...remainder.slice(0,deficit));
+ }
+ return mergeVisibleSlots(current,toAdd);
+}
+
 function privateWindowReleaseShare(slot){
  const lead=Math.max(0,daysBetween(new Date(),new Date(String(slot?.date||'')+'T12:00:00')));
  if(lead<=2)return 1;
@@ -627,6 +678,9 @@ function selectGkvContingent(allSlots){
  for(const [wk,weekSlots] of byWeek){
    const baseFree=weekSlots.filter(isBaseGkvSlot);
    out.push(...weekSlots.filter(isJanuary2027GkvExtra));
+   out.push(...weekSlots.filter(x=>!isPrivateOnlyWindow(x)&&!isBaseGkvSlot(x)&&
+
+     state.gkvMonthlyExtraSlots.has(x.date+'|'+x.time+'|'+x.doctorId)));
    if(baseFree.length){
      // Solange noch ein regulärer GKV-Kontingenttermin frei ist, gibt es KEINE
      // automatische Zusatzfreigabe aus dem geschützten Pool.
@@ -671,21 +725,17 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  if(state.topicMode==='acute'){
    normal=allSlots.filter(maySeeSlot);
  }else if(state.topicMode==='pregnancy'){
-   // GKV-Schwangerschaft ist ausdrücklich von der allgemeinen GKV-Privatfenster-Sperre ausgenommen.
-   // Die gestaffelte Freigabe bleibt für alle Schwangerschafts-Buchungswege bestehen.
-   const regular=allSlots.filter(x=>!isPrivateOnlyWindow(x));
-   const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));
-   const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);
-   normal=mergeVisibleSlots(regular,privateReleased);
+   // GKV und PKV: 80 % des jeweils buchbaren Monatsangebots, aufgerundet;
+   // bereits weitergehende Schwangerschaftsfreigaben bleiben erhalten.
+   normal=pregnancyAtLeastEightyPercent(allSlots);
  }else if(isMenopauseMode()){
    // Bereits auf Dr. von Grone, Privatsprechstunden und zusammenhängende
    // 30-Minuten-Blöcke gefiltert.
    normal=allSlots.filter(isPrivateWindowStart);
  }else if(state.insurance==='PKV'){
-   const pool=privateDailyPool(allSlots.filter(maySeeSlot));
-   normal=state.patientType==='new'
-     ?keepPopularFractionPerDay(pool,BOOKING_POLICY.privateNewShare,allSlots)
-     :pool;
+   // PKV-Bestand und PKV-Neu: 80 % Privatfenster, 50 % sonstige,
+   // pro Tag und Fenster aufgerundet. Taegliche PKV-Neupatientensperre bleibt.
+   normal=pkvVisibleSlots(allSlots);
  }else if(state.insurance==='SELF'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
    const base=keepPopularFractionPerDay(pool,BOOKING_POLICY.selfPayShare,allSlots);
@@ -1406,6 +1456,7 @@ async function loadSlots(){
  $('#slots').innerHTML='';$('#slotsStatus').textContent='';
  $('#pregnancyRequestBox').classList.add('hidden');$('#pregnancyRequestBox').innerHTML='';
  state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;
+ state.gkvMonthlyExtraSlots=new Set();
  state.availabilityPreview=false;state.previewAgeSeconds=Infinity;state.calendarHasShownResults=false;
  const loadId=state.slotLoadId=(state.slotLoadId||0)+1;
  const todayForCalendar=new Date();
@@ -1488,6 +1539,23 @@ async function loadSlots(){
      const group=bundleGroup(live,String(state.service.id));
      if(!Array.isArray(group?.availability?.appointmentTimes))throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
+      // Der serverseitig unveraenderlich gespeicherte Tagesplan wird nach
+      // dem Liveabruf geladen. Innerhalb eines Tages kein Nachruecken.
+      if(state.insurance==='GKV'&&state.patientType==='existing'&&state.topicMode==='regular'){
+        const months=[...new Set(group.availability.appointmentTimes
+          .map(r=>String(r.dateTimeStart||'').slice(0,7))
+          .filter(m=>m>='2027-01'&&/^\d{4}-(0[1-9]|1[0-2])$/.test(m)))].slice(0,12);
+        if(months.length){
+          void Promise.all(months.map(month=>
+            apiGet('gkvMonthlyFloor',{month},12000).catch(()=>null)
+          )).then(plans=>{
+            if(state.slotLoadId!==loadId)return;
+            state.gkvMonthlyExtraSlots=new Set(plans.flatMap(p=>
+              p?.available&&Array.isArray(p.extraSlots)?p.extraSlots:[]));
+            presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
+          }).catch(()=>{});
+        }
+      }
    }
    if(!state.availabilityPreview)state.liveVerifiedLoadId=loadId;
    if(diagnosticMode)console.info('mediDate timings (internal only)',{
