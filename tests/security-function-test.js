@@ -90,8 +90,9 @@ const fixture={generatedAt:'2026-11-21T09:00:00Z',
  groups:[{serviceKey:'vorsorge',availability:{appointmentTimes:fakeRows}}]};
 const monthlyPlan=computeMonthlyFloor(fixture,'2027-01','2026-11-21');
 assert(allCandidates.length>10,'Testfixture muss mehr als zehn freie Nicht-Privattermine enthalten');
-assert.strictEqual(monthlyPlan.extraSlots.length,10,'Monatskontingent muss auf 10 aufstocken');
-assert.strictEqual(monthlyPlan.existingVisible,0,'Testfixture ohne bestehendes GKV-Kontingent');
+assert.strictEqual(monthlyPlan.extraSlots.length+monthlyPlan.existingVisible,10,
+  'Bestehende Januar-Sonderfreigaben plus Auffuellung ergeben genau zehn');
+assert(monthlyPlan.existingVisible>0,'Bereits freigegebene Januartermine werden mitgezaehlt');
 assert(monthlyPlan.extraSlots.every(k=>allCandidates.some(x=>k===x.date+'|'+x.time+'|'+x.doctor)),
   'Nur technisch freie Starts ausserhalb der Privatsprechstunden');
 assert(validStoredPlan(monthlyPlan,'2026-11-21','2027-01'),'Tagesplan ist gueltig');
@@ -282,7 +283,7 @@ for(const [day,expectedPrivateCount] of [['2026-12-02',4],['2026-12-09',2]]){
   assert.strictEqual(visible.length,expectedPrivateCount,'GKV pregnancy staged private release mismatch '+day);
 }
 assert(index.includes("function privateWindowReleaseShare(slot){")&&index.includes("if(lead<=2)return 1;")&&index.includes("if(lead<7)return 2/3;")&&index.includes("return 1/2;"),'Private consultation release must be 1/2 normally, 2/3 inside one week and 100 percent from two days before the appointment');
-assert(index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));")&&index.includes("const privateReleased=keepReleasedPrivateWindowFraction(privateCandidates,allSlots);"),'GKV pregnancy must use the existing staged private-window release');
+assert(index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));")&&index.includes("keepReleasedPrivateWindowFraction(privateCandidates,allSlots)")&&index.includes("normal=pregnancyAtLeastEightyPercent(allSlots)"),'GKV pregnancy must retain staged release and exceed 80 percent if needed');
 assert(index.includes("if(isSelfPayBreast()){")&&index.includes("const privateCandidates=allSlots.filter(x=>isPrivateOnlyWindow(x)&&maySeeSlot(x));"),'Self-pay breast ultrasound must receive the same staged access to private consultation slots');
 assert(index.includes("bis spätestens zur <strong>7. SSW</strong>"),'All pregnancy booking paths must show the SSW-7 contact-practice notice');
 assert(index.includes("if(!(state.insurance==='GKV'&&state.topicMode==='pregnancy'))return '';"),'Quarter confirmation must apply to all GKV pregnancy bookings');
