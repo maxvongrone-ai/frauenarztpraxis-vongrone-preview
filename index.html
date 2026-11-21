@@ -712,6 +712,135 @@ function selectGkvContingent(allSlots){
  return mergeVisibleSlots(out);
 }
 
+// Begrenzt alle Buchungswege auf 10 sichtbare Starts je Datum (Normalziel 9).
+// Bei rechnerisch unvereinbaren Quoten ist die Tagesobergrenze vorrangig.
+const DAILY_VISIBLE_PREFERRED=9,DAILY_VISIBLE_MAX=10;
+function capVisibleStartsPerDay(visible,eligible){
+ const id=x=>x.date+'|'+x.time+'|'+x.doctorId+'|'+x.serviceId;
+ const byDay=new Map(),eligibleDays=new Map(),originalDays=new Map();
+ for(const x of eligible){
+  if(!eligibleDays.has(x.date))eligibleDays.set(x.date,[]);
+  eligibleDays.get(x.date).push(x);
+ }
+ for(const x of mergeVisibleSlots(visible)){
+  if(!originalDays.has(x.date))originalDays.set(x.date,[]);
+  originalDays.get(x.date).push(x);
+ }
+ const score=popularityScores(eligible);
+ const byTime=(a,b)=>minutesOf(a.time)-minutesOf(b.time)||
+  String(a.doctorId).localeCompare(String(b.doctorId));
+ function pick(list,count){
+  const n=Math.max(0,Math.min(list.length,count));
+  if(n>=list.length)return list.slice().sort(byTime);
+  if(!n)return [];
+  const ranked=list.slice().sort((a,b)=>
+   (score.get(weekdayOfISO(b.date)+'|'+b.time)||0)-
+   (score.get(weekdayOfISO(a.date)+'|'+a.time)||0)||byTime(a,b));
+  const chosen=ranked.slice(0,Math.min(2,n)),taken=new Set(chosen.map(id));
+  const rest=ranked.filter(x=>!taken.has(id(x))).sort(byTime);
+  const left=n-chosen.length,used=new Set();
+  for(let i=0;i<left;i++){
+   const at=left===1?Math.floor((rest.length-1)/2):
+    Math.round(i*(rest.length-1)/(left-1));
+   if(at>=0&&!used.has(at)){used.add(at);chosen.push(rest[at]);}
+  }
+  for(let i=0;chosen.length<n&&i<rest.length;i++)
+   if(!used.has(i)){used.add(i);chosen.push(rest[i]);}
+  return chosen.sort(byTime);
+ }
+ for(const [date,list] of originalDays){
+  if(list.length<=DAILY_VISIBLE_PREFERRED){byDay.set(date,list.slice());continue}
+  if(state.insurance==='PKV'&&state.topicMode!=='pregnancy'&&
+     state.topicMode!=='acute'&&!isMenopauseMode()){
+   const bookable=(eligibleDays.get(date)||[]).filter(maySeeSlot);
+   const pRequired=Math.ceil(bookable.filter(isPrivateOnlyWindow).length*0.8);
+   const rRequired=Math.ceil(bookable.filter(x=>!isPrivateOnlyWindow(x)).length*0.5);
+   const pList=list.filter(isPrivateOnlyWindow),rList=list.filter(x=>!isPrivateOnlyWindow(x));
+   let pCount=pRequired,rCount=rRequired;
+   if(pCount+rCount>DAILY_VISIBLE_MAX){
+    const sum=pCount+rCount;
+    pCount=Math.round(DAILY_VISIBLE_MAX*pCount/sum);
+    rCount=DAILY_VISIBLE_MAX-pCount;
+   }
+   pCount=Math.min(pCount,pList.length);
+   rCount=Math.min(rCount,rList.length);
+   const required=mergeVisibleSlots(pick(pList,pCount),pick(rList,rCount));
+   const target=Math.min(list.length,DAILY_VISIBLE_MAX,
+    Math.max(DAILY_VISIBLE_PREFERRED,required.length));
+   const used=new Set(required.map(id));
+   byDay.set(date,mergeVisibleSlots(required,
+    pick(list.filter(x=>!used.has(id(x))),target-required.length)));
+  }else{
+   byDay.set(date,pick(list,DAILY_VISIBLE_PREFERRED));
+  }
+ }
+ if(state.topicMode==='pregnancy'){
+  // Monatsquote 80% soweit mit hoechstens 10 pro Tag moeglich.
+  const monthly=new Map();
+  for(const x of eligible){
+   if(isPrivateOnlyWindow(x)&&!maySeeSlot(x))continue;
+   const month=x.date.slice(0,7);
+   if(!monthly.has(month))monthly.set(month,[]);
+   monthly.get(month).push(x);
+  }
+  for(const [month,candidates] of monthly){
+   let total=[...byDay].reduce((n,[d,list])=>
+    n+(d.startsWith(month+'-')?list.length:0),0);
+   const target=Math.ceil(candidates.length*0.8);
+   while(total<target){
+    const choices=[];
+    for(const [date,list] of eligibleDays){
+     if(!date.startsWith(month+'-'))continue;
+     const shown=byDay.get(date)||[];
+     if(shown.length>=DAILY_VISIBLE_MAX)continue;
+     const used=new Set(shown.map(id));
+     const remainder=list.filter(x=>
+      (!isPrivateOnlyWindow(x)||maySeeSlot(x))&&!used.has(id(x)));
+     if(!remainder.length)continue;
+     // Zuerst bereits bisher sichtbare Termine ergaenzen.
+     const previously=new Set((originalDays.get(date)||[]).map(id));
+     const next=pick(remainder.filter(x=>previously.has(id(x))),1)[0]||
+      pick(remainder,1)[0];
+     if(next)choices.push({date,count:shown.length,next});
+    }
+    if(!choices.length)break;
+    choices.sort((a,b)=>a.count-b.count||a.date.localeCompare(b.date));
+    const best=choices[0];
+    byDay.set(best.date,[...(byDay.get(best.date)||[]),best.next]);
+    total++;
+   }
+  }
+ }else if(state.insurance==='GKV'&&state.patientType==='existing'&&
+          state.topicMode==='regular'){
+  // Monatsminimum darf durch die weiche 9er-Grenze nicht verlorengehen.
+  const months=new Set([...originalDays.keys()].map(x=>x.slice(0,7))
+    .filter(x=>x>='2027-01'));
+  for(const month of months){
+   const free=eligible.filter(x=>x.date.startsWith(month+'-')&&
+     !isPrivateOnlyWindow(x)).length;
+   if(free<=10)continue;
+   let total=[...byDay].reduce((n,[d,list])=>
+    n+(d.startsWith(month+'-')?list.length:0),0);
+   while(total<10){
+    const choices=[];
+    for(const [date,items] of originalDays){
+     if(!date.startsWith(month+'-'))continue;
+     const shown=byDay.get(date)||[];
+     if(shown.length>=DAILY_VISIBLE_MAX)continue;
+     const used=new Set(shown.map(id)),rest=items.filter(x=>!used.has(id(x)));
+     if(rest.length)choices.push({date,count:shown.length,next:pick(rest,1)[0]});
+    }
+    if(!choices.length)break;
+    choices.sort((a,b)=>a.count-b.count||a.date.localeCompare(b.date));
+    const best=choices[0];
+    byDay.set(best.date,[...(byDay.get(best.date)||[]),best.next]);total++;
+   }
+  }
+ }
+ return [...byDay.values()].flat()
+  .sort((a,b)=>a.date.localeCompare(b.date)||byTime(a,b));
+}
+
 function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  // Sonderfreigabe 28.09.2026, 12:00–13:00: nur tatsächlich freie Starts,
  // und nur wenn der unmittelbar folgende 15-Minuten-Slot ebenfalls frei ist.
@@ -766,13 +895,8 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
    const permitted=state.insurance==='GKV'&&state.topicMode!=='pregnancy'?list.filter(x=>!isPrivateOnlyWindow(x)):list;
    return isPrivateNewDailyLimited()?permitted.filter(x=>!state.privateNewBlockedDates.has(String(x.date||''))):permitted;
  };
- if(!special.length)return applyPrivateNewDailyLimit(normal);
- const out=normal.slice(),seen=new Set(out.map(x=>`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`));
- for(const x of special){
-   const k=`${x.date}|${x.time}|${x.doctorId}|${x.serviceId}`;
-   if(!seen.has(k)){seen.add(k);out.push(x)}
- }
- return applyPrivateNewDailyLimit(out.sort((a,b)=>a.date.localeCompare(b.date)||minutesOf(a.time)-minutesOf(b.time)));
+ const combined=mergeVisibleSlots(normal,special);
+ return capVisibleStartsPerDay(applyPrivateNewDailyLimit(combined),allSlots);
 }
 
 
