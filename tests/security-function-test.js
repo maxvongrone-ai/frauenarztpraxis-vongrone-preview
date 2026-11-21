@@ -61,6 +61,49 @@ assert(index.includes("normal=pregnancyAtLeastEightyPercent(allSlots)"),
   'Schwangerschaftsregel muss bei PKV und GKV greifen');
 assert(index.includes("normal=pkvVisibleSlots(allSlots)"),
   'PKV-Anteile duerfen nicht hinter dem bisherigen Tagesmaximum verschwinden');
+// Auswertung der echten Client-Auswahlfunktionen mit synthetischen,
+ // datenschutzfreien Startterminen (nicht nur Textsuche im Quellcode).
+const vm=require('vm');
+const fStart=index.indexOf('function keepCeilFractionPerDay(');
+const fEnd=index.indexOf('function privateWindowReleaseShare(',fStart);
+assert(fStart>=0&&fEnd>fStart,'Quoten-Auswahlfunktionen im Client');
+const syntheticContext={
+ Math,Map,Set,
+ popularityScores:()=>new Map(),
+ weekdayOfISO:()=>1,
+ minutesOf:t=>Number(t.slice(0,2))*60+Number(t.slice(3,5)),
+ isPrivateOnlyWindow:x=>x.private===true,
+ maySeeSlot:()=>true,
+ keepReleasedPrivateWindowFraction:()=>[],
+ mergeVisibleSlots:(...lists)=>{
+  const seen=new Set(),out=[];
+  for(const list of lists)for(const item of list){
+   const key=item.date+'|'+item.time+'|'+item.doctorId+'|'+item.serviceId;
+   if(!seen.has(key)){seen.add(key);out.push(item);}
+  }
+  return out;
+ }
+};
+vm.createContext(syntheticContext);
+vm.runInContext(index.slice(fStart,fEnd),syntheticContext);
+const syntheticSlots=[];
+for(let i=0;i<16;i++){
+ const h=9+Math.floor(i/4),m=(i%4)*15;
+ syntheticSlots.push({
+  date:'2027-01-15',
+  time:String(h).padStart(2,'0')+'.'+String(m).padStart(2,'0'),
+  doctorId:'moxter',serviceId:'vorsorge',private:i<7
+ });
+}
+const pkvChosen=syntheticContext.pkvVisibleSlots(syntheticSlots);
+assert.strictEqual(pkvChosen.filter(x=>x.private).length,Math.ceil(7*0.8),
+ 'PKV muss Privat-Slots aufrunden (7 -> 6)');
+assert.strictEqual(pkvChosen.filter(x=>!x.private).length,Math.ceil(9*0.5),
+ 'PKV muss Normal-Slots aufrunden (9 -> 5)');
+const pregChosen=syntheticContext.pregnancyAtLeastEightyPercent(syntheticSlots);
+assert(pregChosen.length>=Math.ceil(syntheticSlots.length*0.8),
+ 'Schwangerschaft muss mindestens 80% der monatlich freien Starts zeigen');
+
 assert(index.includes('state.gkvMonthlyExtraSlots.has('),
   'Nur in Tagesplan festgelegte GKV-Zusatztermine sollen sichtbar sein');
 assert(index.includes("apiGet('gkvMonthlyFloor'"),
