@@ -6,6 +6,7 @@ const fs=require('fs');
 const path=require('path');
 const {buildPublicBundle,buildFastPublicBundle,bootstrap,API_BASE,SERVICE_RULES,readSecret}=require('../lib/medidate-core');
 const SEED_BUNDLE_PATH=path.join(__dirname,'seed-bundle.json');
+const {computeMonthlyFloor,validStoredPlan,berlinDay,FLOOR_START_MONTH}=require('../lib/gkv-monthly-floor');
 // Shared preview contains only service/doctor identifiers and anonymous free slots.
 // Tracking nonces, proofs, bearer tokens and personal data MUST NOT enter Blob.
 const PREVIEW_PREFIX='medidate-anonymous-preview/v2/';
@@ -132,6 +133,54 @@ async function readCombinedPreview(){
     groups,partial:groups.length<keys.length};
 }
 
+// Der Monatsplan wird pro Berliner Kalendertag genau einmal als privater,
+// unveraenderlicher Blob gespeichert. Neue Buchungen bewirken deshalb kein
+// automatisches Nachruecken am selben Tag. Der Folgetag bekommt einen neuen Plan.
+const FLOOR_BLOB_PREFIX='medidate-gkv-month-floor/v1/';
+const floorBlobPath=(day,month)=>FLOOR_BLOB_PREFIX+
+  (process.env.VERCEL_ENV==='production'?'production':'preview')+'/'+day+'/'+month+'.json';
+async function readGkvFloorBlob(pathname,day,month){
+ try{
+  const blob=await optionalBlob();
+  const r=await blob.get(pathname,{access:'private',useCache:false});
+  if(!r||r.statusCode!==200)return null;
+  const stored=JSON.parse(await new Response(r.stream).text());
+  return validStoredPlan(stored,day,month)?stored:null;
+ }catch{return null}
+}
+async function gkvMonthlyFloor(month){
+ const day=berlinDay();
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||month<FLOOR_START_MONTH)
+  return {ok:false,error:'Ungueltiger Monat.'};
+ const pathname=floorBlobPath(day,month);
+ const existing=await readGkvFloorBlob(pathname,day,month);
+ if(existing)return {ok:true,available:true,...existing};
+ // Nur aktuelle, bereits von mediDate bestaetigte und anonymisierte Daten.
+ // Falls sie fehlen, wird nichts fuer den Tag eingefroren.
+ const previews=await Promise.all([readPreview('vorsorge'),readPreview('followup')]);
+ const eligible=previews.filter(p=>p&&!p.olderThanPreferredWindow&&
+   Array.isArray(p.groups)&&p.groups.length===1&&
+   Number.isFinite(Date.parse(p.generatedAt||'')));
+ const winner=eligible.sort((a,b)=>Date.parse(b.generatedAt)-Date.parse(a.generatedAt))[0];
+ if(!winner)return {ok:true,available:false,day,month,extraSlots:[]};
+ const plan=computeMonthlyFloor(winner,month,day);
+ try{
+  const blob=await optionalBlob();
+  await blob.put(pathname,JSON.stringify(plan),{
+   access:'private',contentType:'application/json; charset=utf-8',
+   addRandomSuffix:false,allowOverwrite:false
+  });
+  return {ok:true,available:true,...plan};
+ }catch(e){
+  // Bei konkurrierenden Erstaufrufen gewinnt der erste erfolgreich
+  // geschriebene Plan; die anderen lesen dessen unveraenderlichen Inhalt.
+  const stored=await readGkvFloorBlob(pathname,day,month);
+  if(stored)return {ok:true,available:true,...stored};
+  console.warn('GKV floor plan storage unavailable',String(e?.message||e).slice(0,140));
+  return {ok:true,available:false,day,month,extraSlots:[]};
+ }
+}
+
 let liveBundlePromise=null;
 async function getLiveBundle(){
   if(liveBundlePromise)return liveBundlePromise;
@@ -201,6 +250,12 @@ module.exports=async function handler(req,res){
           cdn:'public, s-maxage=600, stale-while-revalidate=3600, stale-if-error=86400',
           vercel:'public, s-maxage=600, stale-while-revalidate=3600, stale-if-error=86400'}:
           {cache:'no-store, max-age=0',cdn:'no-store',vercel:'no-store'});
+    }
+    if(action==='gkvMonthlyFloor'){
+      if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
+      const month=String(req.query?.month||'');
+      const result=await gkvMonthlyFloor(month);
+      return send(res,result.ok?200:400,result,{cache:'no-store',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='trackingProof'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'},{cache:'no-store'});
