@@ -136,7 +136,7 @@ async function readCombinedPreview(){
 // Der Monatsplan wird pro Berliner Kalendertag genau einmal als privater,
 // unveraenderlicher Blob gespeichert. Neue Buchungen bewirken deshalb kein
 // automatisches Nachruecken am selben Tag. Der Folgetag bekommt einen neuen Plan.
-const FLOOR_BLOB_PREFIX='medidate-gkv-month-floor/v1/';
+const FLOOR_BLOB_PREFIX='medidate-gkv-month-floor/v2/';
 const floorBlobPath=(day,month)=>FLOOR_BLOB_PREFIX+
   (process.env.VERCEL_ENV==='production'?'production':'preview')+'/'+day+'/'+month+'.json';
 async function readGkvFloorBlob(pathname,day,month){
@@ -161,8 +161,13 @@ async function gkvMonthlyFloor(month){
  const eligible=previews.filter(p=>p&&!p.olderThanPreferredWindow&&
    Array.isArray(p.groups)&&p.groups.length===1&&
    Number.isFinite(Date.parse(p.generatedAt||'')));
- const winner=eligible.sort((a,b)=>Date.parse(b.generatedAt)-Date.parse(a.generatedAt))[0];
- if(!winner)return {ok:true,available:false,day,month,extraSlots:[]};
+ // Vorsorge und Nachsorge zusammen betrachten, damit die Erweiterung zehn
+ // unterschiedliche Startpositionen insgesamt umfasst und nicht je Terminart.
+ const winner=eligible.length?{
+   generatedAt:new Date(Math.max(...eligible.map(p=>Date.parse(p.generatedAt)))).toISOString(),
+   groups:eligible.flatMap(p=>p.groups)
+ }:null;
+ if(!winner)return {ok:true,available:false,day,month,extraSlots:[],bonusSlots:[]};
  const plan=computeMonthlyFloor(winner,month,day);
  try{
   const blob=await optionalBlob();

@@ -108,6 +108,8 @@ assert(index.includes('state.gkvMonthlyExtraSlots.has('),
   'Nur in Tagesplan festgelegte GKV-Zusatztermine sollen sichtbar sein');
 assert(index.includes("apiGet('gkvMonthlyFloor'"),
   'Frontend muss monatlichen Tagesplan beim Server abrufen');
+assert(medidate.includes("eligible.flatMap(p=>p.groups)"),
+ 'Monatsplan muss sowohl Vorsorge als auch Nachsorge beruecksichtigen');
 assert(medidate.includes('allowOverwrite:false')&&
   medidate.includes("FLOOR_BLOB_PREFIX"),
   'GKV-Tagesplan muss unveraenderlich fuer denselben Kalendertag sein');
@@ -136,6 +138,16 @@ assert(allCandidates.length>10,'Testfixture muss mehr als zehn freie Nicht-Priva
 assert.strictEqual(monthlyPlan.extraSlots.length+monthlyPlan.existingVisible,10,
   'Bestehende Januar-Sonderfreigaben plus Auffuellung ergeben genau zehn');
 assert(monthlyPlan.existingVisible>0,'Bereits freigegebene Januartermine werden mitgezaehlt');
+assert.strictEqual(monthlyPlan.bonusSlots.length,10,
+ 'Zehn weitere freie Januartermine zusaetzlich zur Monatsuntergrenze');
+assert(monthlyPlan.bonusSlots.every(k=>allCandidates.some(x=>k===x.date+'|'+x.time+'|'+x.doctor)),
+ 'Bonusstarts duerfen nur echte freie Startpositionen ausserhalb der Privatfenster sein');
+assert.strictEqual(new Set([...monthlyPlan.extraSlots,...monthlyPlan.bonusSlots]).size,
+ monthlyPlan.extraSlots.length+monthlyPlan.bonusSlots.length,
+ 'Januar-Bonus darf keinen anderen nachfreigegebenen Start doppeln');
+assert(monthlyPlan.bonusSlots.every(k=>!januaryGkvSlots.includes(k)),
+ 'Januar-Bonus muss ueber die bestehenden zehn festen Termine hinausgehen');
+assert(index.includes('p.bonusSlots'),'Browser muss die zehn Januartermine tatsaechlich anzeigen');
 assert(monthlyPlan.extraSlots.every(k=>allCandidates.some(x=>k===x.date+'|'+x.time+'|'+x.doctor)),
   'Nur technisch freie Starts ausserhalb der Privatsprechstunden');
 assert(validStoredPlan(monthlyPlan,'2026-11-21','2027-01'),'Tagesplan ist gueltig');
