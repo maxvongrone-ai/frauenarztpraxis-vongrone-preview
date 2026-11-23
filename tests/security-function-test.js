@@ -203,6 +203,7 @@ const dayCapVm=require('vm');
 const dayCapContext={
  Math,Map,Set,
  state:{insurance:'SELF',patientType:'existing',topicMode:'regular'},
+ pkvEligibleSlots:x=>x,
  isMenopauseMode:()=>false,
  isPrivateOnlyWindow:x=>x.private===true,
  maySeeSlot:()=>true,
