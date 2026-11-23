@@ -110,7 +110,7 @@ window.__MEDIDATE_SEED__=null;
 </script>
 <script src="/botid-client.js"></script>
 <script>
-const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0,privateNewBlockedDates:new Set(),privateNewQuotaLoading:null,gkvMonthlyExtraSlots:new Set()};
+const state={insurance:null,patientType:null,service:null,doctor:null,selectedSlot:null,topicMode:'regular',availableDays:null,calendarMonth:null,selectedDay:null,selfPayFromGkv:false,formStartedAt:0,privateNewBlockedDates:new Set(),privateNewQuotaLoading:null,gkvMonthlyExtraSlots:new Set(),gkvFloorReadyMonths:new Set()};
 // Im Browser werden nur lokale, nicht-mediDate-interne Bezeichner verwendet.
 // Die echten mediDate-IDs bleiben ausschließlich serverseitig.
 const PRACTICE_DOCTORS=[
@@ -712,13 +712,35 @@ function selectGkvContingent(allSlots){
  return mergeVisibleSlots(out);
 }
 
+// Ein freier GKV-Kontingentstart darf nicht gleichzeitig als PKV-Start
+// angeboten werden. Auch die taeglichen Monats-Nachfreigaben sind reserviert.
+const gkvSlotCoordinate=x=>x.date+'|'+x.time+'|'+x.doctorId;
+function pkvEligibleSlots(allSlots){
+ const gkvShown=new Set(selectGkvContingent(allSlots).map(gkvSlotCoordinate));
+ return allSlots.filter(x=>{
+  if(isPrivateOnlyWindow(x))return true;
+  // Wenn der Tagesplan noch nicht geladen werden konnte, werden normale
+  // PKV-Starts ab Januar 2027 sicherheitshalber zurueckgehalten.
+  if(x.date>='2027-01-01'&&!state.gkvFloorReadyMonths.has(x.date.slice(0,7)))
+   return false;
+  const coord=gkvSlotCoordinate(x);
+  return !isBaseGkvSlot(x)&&
+   !JANUARY_2027_GKV_EXTRA_SLOTS.has(coord)&&
+   !state.gkvMonthlyExtraSlots.has(coord)&&!gkvShown.has(coord);
+ });
+}
+
 // Begrenzt alle Buchungswege auf 10 sichtbare Starts je Datum (Normalziel 9).
 // Bei rechnerisch unvereinbaren Quoten ist die Tagesobergrenze vorrangig.
 const DAILY_VISIBLE_PREFERRED=9,DAILY_VISIBLE_MAX=10;
 function capVisibleStartsPerDay(visible,eligible){
  const id=x=>x.date+'|'+x.time+'|'+x.doctorId+'|'+x.serviceId;
  const byDay=new Map(),eligibleDays=new Map(),originalDays=new Map();
- for(const x of eligible){
+ // Die PKV-Quoten beziehen sich nur auf PKV-buchbare Slots, nicht auf
+ // die separat fuer GKV reservierten Startpositionen.
+ const policyEligible=state.insurance==='PKV'&&state.topicMode==='regular'?
+   pkvEligibleSlots(eligible):eligible;
+ for(const x of policyEligible){
   if(!eligibleDays.has(x.date))eligibleDays.set(x.date,[]);
   eligibleDays.get(x.date).push(x);
  }
@@ -726,7 +748,7 @@ function capVisibleStartsPerDay(visible,eligible){
   if(!originalDays.has(x.date))originalDays.set(x.date,[]);
   originalDays.get(x.date).push(x);
  }
- const score=popularityScores(eligible);
+ const score=popularityScores(policyEligible);
  const byTime=(a,b)=>minutesOf(a.time)-minutesOf(b.time)||
   String(a.doctorId).localeCompare(String(b.doctorId));
  function pick(list,count){
@@ -864,7 +886,7 @@ function audienceVisibleSlots(allSlots,technicalSlots=allSlots){
  }else if(state.insurance==='PKV'){
    // PKV-Bestand und PKV-Neu: 80 % Privatfenster, 50 % sonstige,
    // pro Tag und Fenster aufgerundet. Taegliche PKV-Neupatientensperre bleibt.
-   normal=pkvVisibleSlots(allSlots);
+   normal=pkvVisibleSlots(pkvEligibleSlots(allSlots));
  }else if(state.insurance==='SELF'){
    const pool=privateDailyPool(allSlots.filter(maySeeSlot));
    const base=keepPopularFractionPerDay(pool,BOOKING_POLICY.selfPayShare,allSlots);
@@ -1580,7 +1602,7 @@ async function loadSlots(){
  $('#slots').innerHTML='';$('#slotsStatus').textContent='';
  $('#pregnancyRequestBox').classList.add('hidden');$('#pregnancyRequestBox').innerHTML='';
  state.availableDays=new Map();state.selectedDay=null;state.selectedSlot=null;
- state.gkvMonthlyExtraSlots=new Set();
+ state.gkvMonthlyExtraSlots=new Set();state.gkvFloorReadyMonths=new Set();
  state.availabilityPreview=false;state.previewAgeSeconds=Infinity;state.calendarHasShownResults=false;
  const loadId=state.slotLoadId=(state.slotLoadId||0)+1;
  const todayForCalendar=new Date();
@@ -1663,19 +1685,32 @@ async function loadSlots(){
      const group=bundleGroup(live,String(state.service.id));
      if(!Array.isArray(group?.availability?.appointmentTimes))throw new Error('Unvollständige mediDate-Antwort.');
      presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
-      // Der serverseitig unveraenderlich gespeicherte Tagesplan wird nach
-      // dem Liveabruf geladen. Innerhalb eines Tages kein Nachruecken.
-      if(state.insurance==='GKV'&&state.patientType==='existing'&&state.topicMode==='regular'){
+      // Taeglich eingefrorener Plan pro GKV-Terminart. Die PKV liest beide
+      // Kontingente, um keine fuer Vorsorge/Nachsorge reservierten Zeiten
+      // versehentlich in anderen PKV-Buchungspfaden anzuzeigen.
+      const floorNeeded=state.topicMode==='regular'&&(
+        (state.insurance==='GKV'&&state.patientType==='existing')||
+        state.insurance==='PKV');
+      if(floorNeeded){
         const months=[...new Set(group.availability.appointmentTimes
           .map(r=>String(r.dateTimeStart||'').slice(0,7))
           .filter(m=>m>='2027-01'&&/^\d{4}-(0[1-9]|1[0-2])$/.test(m)))].slice(0,12);
-        if(months.length){
-          void Promise.all(months.map(month=>
-            apiGet('gkvMonthlyFloor',{month},12000).catch(()=>null)
+        const services=state.insurance==='GKV'?
+          (['vorsorge','followup'].includes(String(state.service.id))?[String(state.service.id)]:[]):
+          ['vorsorge','followup'];
+        if(months.length&&services.length){
+          const requests=months.flatMap(month=>services.map(serviceKey=>
+            ({month,serviceKey})));
+          void Promise.all(requests.map(({month,serviceKey})=>
+            apiGet('gkvMonthlyFloor',{month,serviceKey},12000).catch(()=>null)
           )).then(plans=>{
             if(state.slotLoadId!==loadId)return;
             state.gkvMonthlyExtraSlots=new Set(plans.flatMap(p=>
               p?.available&&Array.isArray(p.extraSlots)?p.extraSlots:[]));
+            state.gkvFloorReadyMonths=new Set(months.filter(month=>
+              requests.every(({month:m,serviceKey},i)=>m!==month||
+                (plans[i]?.available&&plans[i].month===month&&
+                 plans[i].serviceKey===serviceKey))));
             presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
           }).catch(()=>{});
         }
