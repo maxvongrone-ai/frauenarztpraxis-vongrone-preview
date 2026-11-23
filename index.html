@@ -1675,10 +1675,7 @@ async function loadSlots(){
           )).then(plans=>{
             if(state.slotLoadId!==loadId)return;
             state.gkvMonthlyExtraSlots=new Set(plans.flatMap(p=>
-              p?.available?[
-                ...(Array.isArray(p.extraSlots)?p.extraSlots:[]),
-                ...(Array.isArray(p.bonusSlots)?p.bonusSlots:[])
-              ]:[]));
+              p?.available&&Array.isArray(p.extraSlots)?p.extraSlots:[]));
             presentAvailableDays(rawFromRegularAvailability({availability:group.availability}));
           }).catch(()=>{});
         }
