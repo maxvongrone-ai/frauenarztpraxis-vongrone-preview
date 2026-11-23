@@ -59,8 +59,8 @@ assert(index.includes('Math.ceil(list.length*0.8)'),
   'Schwangerschaft mindestens 80% der monatlich buchbaren Starts, aufgerundet');
 assert(index.includes("normal=pregnancyAtLeastEightyPercent(allSlots)"),
   'Schwangerschaftsregel muss bei PKV und GKV greifen');
-assert(index.includes("normal=pkvVisibleSlots(allSlots)"),
-  'PKV-Anteile duerfen nicht hinter dem bisherigen Tagesmaximum verschwinden');
+assert(index.includes("normal=pkvVisibleSlots(pkvEligibleSlots(allSlots))"),
+  'PKV muss alle GKV-exklusiven Starttermine aus dem Buchungspool entfernen');
 // Auswertung der echten Client-Auswahlfunktionen mit synthetischen,
  // datenschutzfreien Startterminen (nicht nur Textsuche im Quellcode).
 const quotaVm=require('vm');
@@ -106,8 +106,13 @@ assert(pregChosen.length>=Math.ceil(syntheticSlots.length*0.8),
 
 assert(index.includes('state.gkvMonthlyExtraSlots.has('),
   'Nur in Tagesplan festgelegte GKV-Zusatztermine sollen sichtbar sein');
-assert(index.includes("apiGet('gkvMonthlyFloor'"),
-  'Frontend muss monatlichen Tagesplan beim Server abrufen');
+assert(index.includes("apiGet('gkvMonthlyFloor',{month,serviceKey}"),
+  'Frontend muss den Monatsplan je Terminart abrufen');
+assert(index.includes("state.gkvFloorReadyMonths=new Set(months.filter"),
+  'PKV darf Reserven erst nach bestaetigtem Monatsplan anzeigen');
+assert(medidate.includes("const FLOOR_BLOB_PREFIX='medidate-gkv-month-floor/v2/'")&&
+  medidate.includes("const serviceKey=String(req.query?.serviceKey||'')"),
+  'Monatspläne muessen pro Terminart unabhaengig gespeichert werden');
 assert(medidate.includes('allowOverwrite:false')&&
   medidate.includes("FLOOR_BLOB_PREFIX"),
   'GKV-Tagesplan muss unveraenderlich fuer denselben Kalendertag sein');
@@ -138,11 +143,55 @@ assert.strictEqual(monthlyPlan.extraSlots.length+monthlyPlan.existingVisible,10,
 assert(monthlyPlan.existingVisible>0,'Bereits freigegebene Januartermine werden mitgezaehlt');
 assert(monthlyPlan.extraSlots.every(k=>allCandidates.some(x=>k===x.date+'|'+x.time+'|'+x.doctor)),
   'Nur technisch freie Starts ausserhalb der Privatsprechstunden');
-assert(validStoredPlan(monthlyPlan,'2026-11-21','2027-01'),'Tagesplan ist gueltig');
+assert(validStoredPlan(monthlyPlan,'2026-11-21','2027-01','vorsorge'),'Tagesplan ist gueltig');
+assert(!validStoredPlan(monthlyPlan,'2026-11-21','2027-01','followup'),
+ 'Ein GKV-Plan darf nicht fuer eine andere Terminart gelten');
+const noFollowup=computeMonthlyFloor(fixture,'2027-01','2026-11-21','followup');
+assert.strictEqual(noFollowup.freeRegular,0,
+ 'Vorsorge-Verfuegbarkeit darf nicht als Nachsorge-Kontingent mitgezaehlt werden');
+const followFixture={...fixture,groups:[
+ {...fixture.groups[0],serviceKey:'followup'},
+ fixture.groups[0]
+]};
+const followPlan=computeMonthlyFloor(followFixture,'2027-01','2026-11-21','followup');
+assert.strictEqual(followPlan.extraSlots.length+followPlan.existingVisible,10,
+ 'Nachsorge bekommt unabhaengig zehn sichtbare Termine, sofern freie Starts vorhanden sind');
 assert(!validStoredPlan(monthlyPlan,'2026-11-22','2027-01'),
   'Ein Plan vom Vortag darf nicht als heutiger Plan gelten');
 assert.throws(()=>computeMonthlyFloor(fixture,'2026-12','2026-11-21'),
   /Ungültiger GKV-Freigabemonat/,'Vor Januar 2027 keine Nachfreigabe');
+
+// Exklusive GKV/PKV-Koordinaten: normale PKV-Zeiten duerfen weder
+// Basis-GKV, feste Januartermine noch die taegliche Nachfreigabe zeigen.
+const exclusiveStart=index.indexOf('const gkvSlotCoordinate=');
+const exclusiveEnd=index.indexOf('// Begrenzt alle Buchungswege',exclusiveStart);
+assert(exclusiveStart>0&&exclusiveEnd>exclusiveStart,'GKV/PKV-Kontingenttrennung vorhanden');
+const exclusiveVm=require('vm');
+const exclusiveCtx={
+ Set,Map,state:{gkvMonthlyExtraSlots:new Set(['2027-01-11|12.00|moxter']),
+   gkvFloorReadyMonths:new Set(['2027-01'])},
+ selectGkvContingent:()=>[{date:'2027-01-11',time:'13.00',doctorId:'moxter'}],
+ isPrivateOnlyWindow:x=>x.private===true,
+ isBaseGkvSlot:x=>x.base===true,
+ JANUARY_2027_GKV_EXTRA_SLOTS:new Set(['2027-01-11|11.00|moxter'])
+};
+exclusiveVm.createContext(exclusiveCtx);
+exclusiveVm.runInContext(index.slice(exclusiveStart,exclusiveEnd),exclusiveCtx);
+const candidate=(time,base=false,priv=false)=>({
+ date:'2027-01-11',time,doctorId:'moxter',serviceId:'vorsorge',
+ base,private:priv
+});
+const filtered=exclusiveCtx.pkvEligibleSlots([
+ candidate('10.00',true),candidate('11.00'),candidate('12.00'),
+ candidate('13.00'),candidate('14.00'),candidate('15.00',false,true)
+]);
+assert.deepStrictEqual(filtered.map(x=>x.time),['14.00','15.00'],
+ 'PKV zeigt nur nicht reservierte Regelslots sowie Privatfenster');
+exclusiveCtx.state.gkvFloorReadyMonths=new Set();
+assert.deepStrictEqual(exclusiveCtx.pkvEligibleSlots([
+ candidate('14.00'),candidate('15.00',false,true)
+]).map(x=>x.time),['15.00'],
+ 'Ohne bestaetigten Tagesplan bleiben normale PKV-Starts zurueckgehalten');
 
 // Harte Tagesobergrenze inklusive Monats- und Fenster-Quoten.
 assert(index.includes("return capVisibleStartsPerDay(applyPrivateNewDailyLimit(combined),allSlots);"),

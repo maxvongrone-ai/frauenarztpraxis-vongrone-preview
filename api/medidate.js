@@ -136,34 +136,34 @@ async function readCombinedPreview(){
 // Der Monatsplan wird pro Berliner Kalendertag genau einmal als privater,
 // unveraenderlicher Blob gespeichert. Neue Buchungen bewirken deshalb kein
 // automatisches Nachruecken am selben Tag. Der Folgetag bekommt einen neuen Plan.
-const FLOOR_BLOB_PREFIX='medidate-gkv-month-floor/v1/';
-const floorBlobPath=(day,month)=>FLOOR_BLOB_PREFIX+
-  (process.env.VERCEL_ENV==='production'?'production':'preview')+'/'+day+'/'+month+'.json';
-async function readGkvFloorBlob(pathname,day,month){
+const FLOOR_BLOB_PREFIX='medidate-gkv-month-floor/v2/';
+const floorBlobPath=(day,month,serviceKey)=>FLOOR_BLOB_PREFIX+
+  (process.env.VERCEL_ENV==='production'?'production':'preview')+'/'+day+'/'+month+'/'+serviceKey+'.json';
+async function readGkvFloorBlob(pathname,day,month,serviceKey){
  try{
   const blob=await optionalBlob();
   const r=await blob.get(pathname,{access:'private',useCache:false});
   if(!r||r.statusCode!==200)return null;
   const stored=JSON.parse(await new Response(r.stream).text());
-  return validStoredPlan(stored,day,month)?stored:null;
+  return validStoredPlan(stored,day,month,serviceKey)?stored:null;
  }catch{return null}
 }
-async function gkvMonthlyFloor(month){
+async function gkvMonthlyFloor(month,serviceKey){
  const day=berlinDay();
- if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||month<FLOOR_START_MONTH)
-  return {ok:false,error:'Ungueltiger Monat.'};
- const pathname=floorBlobPath(day,month);
- const existing=await readGkvFloorBlob(pathname,day,month);
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||month<FLOOR_START_MONTH||
+    !['vorsorge','followup'].includes(serviceKey))
+  return {ok:false,error:'Ungueltiger Monat oder GKV-Terminart.'};
+ const pathname=floorBlobPath(day,month,serviceKey);
+ const existing=await readGkvFloorBlob(pathname,day,month,serviceKey);
  if(existing)return {ok:true,available:true,...existing};
  // Nur aktuelle, bereits von mediDate bestaetigte und anonymisierte Daten.
  // Falls sie fehlen, wird nichts fuer den Tag eingefroren.
- const previews=await Promise.all([readPreview('vorsorge'),readPreview('followup')]);
- const eligible=previews.filter(p=>p&&!p.olderThanPreferredWindow&&
-   Array.isArray(p.groups)&&p.groups.length===1&&
-   Number.isFinite(Date.parse(p.generatedAt||'')));
- const winner=eligible.sort((a,b)=>Date.parse(b.generatedAt)-Date.parse(a.generatedAt))[0];
- if(!winner)return {ok:true,available:false,day,month,extraSlots:[]};
- const plan=computeMonthlyFloor(winner,month,day);
+ const preview=await readPreview(serviceKey);
+ if(!preview||preview.olderThanPreferredWindow||
+    !preview.groups?.some(g=>g.serviceKey===serviceKey&&
+      Array.isArray(g.availability?.appointmentTimes)))
+  return {ok:true,available:false,day,month,serviceKey,extraSlots:[]};
+ const plan=computeMonthlyFloor(preview,month,day,serviceKey);
  try{
   const blob=await optionalBlob();
   await blob.put(pathname,JSON.stringify(plan),{
@@ -174,10 +174,10 @@ async function gkvMonthlyFloor(month){
  }catch(e){
   // Bei konkurrierenden Erstaufrufen gewinnt der erste erfolgreich
   // geschriebene Plan; die anderen lesen dessen unveraenderlichen Inhalt.
-  const stored=await readGkvFloorBlob(pathname,day,month);
+  const stored=await readGkvFloorBlob(pathname,day,month,serviceKey);
   if(stored)return {ok:true,available:true,...stored};
   console.warn('GKV floor plan storage unavailable',String(e?.message||e).slice(0,140));
-  return {ok:true,available:false,day,month,extraSlots:[]};
+  return {ok:true,available:false,day,month,serviceKey,extraSlots:[]};
  }
 }
 
@@ -254,7 +254,8 @@ module.exports=async function handler(req,res){
     if(action==='gkvMonthlyFloor'){
       if(!requestAllowed(req))return send(res,403,{ok:false,error:'Ungültige Herkunft.'});
       const month=String(req.query?.month||'');
-      const result=await gkvMonthlyFloor(month);
+      const serviceKey=String(req.query?.serviceKey||'');
+       const result=await gkvMonthlyFloor(month,serviceKey);
       return send(res,result.ok?200:400,result,{cache:'no-store',cdn:'no-store',vercel:'no-store'});
     }
     if(action==='trackingProof'){
